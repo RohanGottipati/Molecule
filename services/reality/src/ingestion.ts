@@ -34,7 +34,9 @@ export function normalizeValue(
   field: string,
   rawValue: unknown,
 ): NormalizeResult {
-  field = field.split(".").at(-1) ?? field;
+  field = field.startsWith("inventory.")
+    ? "inventory"
+    : (field.split(".").at(-1) ?? field);
   const numericFields = new Set([
     "capacity_per_day",
     "price",
@@ -73,7 +75,7 @@ export function normalizeValue(
     const price =
       field === "price" || field === "unitPrice" || field === "setup_fee";
     const pattern = price
-      ? /^(?:CAD\s*|\$\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)$/
+      ? /^(?:CAD\s*|\$\s*)?((?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?)$/
       : field === "lead_time_hours"
         ? /^(\d+(?:\.\d+)?)(?:\s*hours?)?$/
         : field === "capacity_per_day"
@@ -105,6 +107,14 @@ export function toCanonicalClaim(
   input: RawClaimInput,
   now: Date = new Date(),
 ): { ok: true; claim: CanonicalClaim } | { ok: false; reason: string } {
+  if (
+    !input ||
+    [input.merchantId, input.field, input.sourceReference].some(
+      (value) => typeof value !== "string" || !value.trim(),
+    )
+  ) {
+    return { ok: false, reason: "Invalid claim metadata" };
+  }
   const normalized = normalizeValue(input.field, input.rawValue);
   if (!normalized.ok) {
     return { ok: false, reason: normalized.reason };
@@ -150,12 +160,7 @@ export function toCanonicalClaim(
   };
 
   const parsed = CanonicalClaimSchema.safeParse(claim);
-  if (
-    !parsed.success ||
-    !input.merchantId.trim() ||
-    !input.field.trim() ||
-    !input.sourceReference.trim()
-  ) {
+  if (!parsed.success) {
     return { ok: false, reason: "Invalid claim metadata" };
   }
   return { ok: true, claim: parsed.data };

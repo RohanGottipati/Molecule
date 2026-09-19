@@ -32,6 +32,34 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
   });
   afterAll(closePool);
 
+  it("keeps demo baselines immutable when seed is rerun after an operational change", async () => {
+    const before = (
+      await getPool().query(
+        "select capability_json from demo_capability_baselines where capability_id='cap-base-hoodie'",
+      )
+    ).rows[0].capability_json;
+    await getPool().query(
+      `update capabilities set capability_json=jsonb_set(capability_json,'{capacity,available}','0')
+       where capability_id='cap-base-hoodie'`,
+    );
+    await seedDemo();
+    expect(
+      (
+        await getPool().query(
+          "select capability_json from demo_capability_baselines where capability_id='cap-base-hoodie'",
+        )
+      ).rows[0].capability_json,
+    ).toEqual(before);
+    await resetDemoData();
+    expect(
+      (
+        await getPool().query(
+          "select capability_json from capabilities where capability_id='cap-base-hoodie'",
+        )
+      ).rows[0].capability_json,
+    ).toEqual(before);
+  });
+
   const input = () => ({
     merchantId: "thread-forge",
     capabilityId: "cap-thread-embroidery",
@@ -285,6 +313,30 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
       (await getPool().query("select sum(sample_count) from lead_time_hourly"))
         .rows[0].sum,
     ).toBe("900");
+  });
+
+  it("projects prefixed inventory events under their actual capability", async () => {
+    await persistEvent({
+      eventId: randomUUID(),
+      traceId: "inventory-metrics",
+      merchantId: "base-goods",
+      eventType: "reality.claim.resolved",
+      ts: new Date().toISOString(),
+      severity: "INFO",
+      source: "rox",
+      payload: {
+        field: "inventory.cap-base-hoodie",
+        value: 123,
+        unit: "units",
+      },
+    });
+    expect(
+      (
+        await getPool().query(
+          "select capability_id,value from market_metrics where merchant_id='base-goods' and value=123",
+        )
+      ).rows,
+    ).toContainEqual({ capability_id: "cap-base-hoodie", value: "123" });
   });
 
   it("detects changed applied migrations rather than silently accepting drift", async () => {

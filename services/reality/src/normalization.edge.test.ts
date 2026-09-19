@@ -4,6 +4,16 @@ import { normalizeValue, toCanonicalClaim } from "./ingestion.js";
 import { resolveClaims } from "./resolution.js";
 
 describe("deterministic normalization boundaries", () => {
+  it("normalizes inventory identifiers consistently and rejects malformed stock", () => {
+    expect(normalizeValue("inventory.cap-base-hoodie", "200 units")).toEqual({
+      ok: true,
+      value: 200,
+    });
+    for (const value of ["unknown", -1, Infinity, { available: 200 }]) {
+      expect(normalizeValue("inventory.cap-base-hoodie", value).ok).toBe(false);
+    }
+    expect(normalizeValue("cap-base-hoodie.price", "1234,567").ok).toBe(false);
+  });
   it.each([
     ["price", "USD 10"],
     ["price", "10 per item"],
