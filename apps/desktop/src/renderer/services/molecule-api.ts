@@ -3,6 +3,7 @@ import {
   DesktopCommandSchema,
   DesktopResultSchema,
   MAX_CONTEXT_BYTES,
+  MarketplaceSnapshotSchema,
   RealtimeSessionSchema,
   type DesktopCommand,
   type DesktopResult,
@@ -32,9 +33,14 @@ export class MoleculeApi {
   private async request(path: string, init: RequestInit = {}) {
     for (let attempt = 0; ; attempt += 1) {
       try {
+        init.signal?.throwIfAborted();
         const response = await this.transport(`${this.base}${path}`, {
           ...init,
-          signal: init.signal ?? AbortSignal.timeout(120_000),
+          redirect: "error",
+          signal: AbortSignal.any([
+            ...(init.signal ? [init.signal] : []),
+            AbortSignal.timeout(init.method === "POST" ? 120_000 : 15_000),
+          ]),
         });
         if (!response.ok) {
           const body = z
@@ -42,25 +48,39 @@ export class MoleculeApi {
               message: z.string().optional(),
               error: z.string().optional(),
             })
-            .safeParse(await response.json());
+            .safeParse(await response.json().catch(() => null));
           throw new ApiError(
-            body.success
+            body.success && response.status < 500
               ? (body.data.message ?? body.data.error ?? "Request failed")
-              : "Request failed",
+              : `Molecule request failed (${response.status}). Please retry.`,
             response.status,
           );
         }
-        return (await response.json()) as unknown;
+        try {
+          return (await response.json()) as unknown;
+        } catch {
+          throw new ApiError(
+            "Molecule returned an invalid response.",
+            response.status,
+          );
+        }
       } catch (error) {
-        if (
-          error instanceof ApiError ||
-          attempt === 2 ||
-          init.signal?.aborted
-        ) {
+        if (init.signal?.aborted)
+          throw new DOMException("Request cancelled", "AbortError");
+        if (error instanceof ApiError || attempt === 2) {
           if (error instanceof ApiError) throw error;
           throw new ApiError("Can’t reach Molecule right now.", 0);
         }
-        await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            init.signal?.removeEventListener("abort", finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, 300 * 2 ** attempt);
+          init.signal?.addEventListener("abort", finish, { once: true });
+          if (init.signal?.aborted) finish();
+        });
       }
     }
   }
@@ -74,14 +94,19 @@ export class MoleculeApi {
   async config() {
     return DesktopConfigSchema.parse(await this.request("/api/desktop/config"));
   }
-  async createProject(actionId = crypto.randomUUID()) {
+  async marketplace() {
+    return MarketplaceSnapshotSchema.parse(
+      await this.request("/api/marketplace"),
+    );
+  }
+  async createProject(actionId: string = crypto.randomUUID()) {
     return DesktopResultSchema.parse(
       await this.post("/api/projects", { actionId, source: "desktop" }),
     );
   }
-  async getProject(id: string) {
+  async getProject(id: string, signal?: AbortSignal) {
     return DesktopResultSchema.parse(
-      await this.request(`/api/projects/${encodeURIComponent(id)}`),
+      await this.request(`/api/projects/${encodeURIComponent(id)}`, { signal }),
     );
   }
   async command(
@@ -142,6 +167,8 @@ const contentTypes: Record<string, string> = {
   json: "application/json",
 };
 export function validateContext(file: File) {
+  if (file.name.length > 255 || /[\\/\x00-\x1f\x7f]/u.test(file.name))
+    throw new Error("Choose a file with a valid filename.");
   const mimeType =
     contentTypes[file.name.split(".").at(-1)?.toLowerCase() ?? ""];
   if (!mimeType) throw new Error("That file type isn’t supported yet.");

@@ -18,6 +18,59 @@ function stream(chunks: string[]) {
   });
 }
 describe("replayable backend events", () => {
+  it("cancels a stalled reader immediately on project switch", async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    const completion = consumeEvents(
+      new ReadableStream({ cancel }),
+      vi.fn(),
+      controller.signal,
+    );
+    controller.abort();
+    await completion;
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it("cancels the event response if snapshot reconciliation fails", async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const controller = new AbortController();
+    const completion = subscribeEvents({
+      url: "http://localhost/events",
+      signal: controller.signal,
+      transport: vi.fn(
+        async () => new Response(new ReadableStream({ cancel })),
+      ),
+      refresh: async () => {
+        controller.abort();
+        throw new Error("snapshot unavailable");
+      },
+      onStatus: vi.fn(),
+      onEvent: vi.fn(),
+    });
+    await completion;
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it("resets consecutive failures after a successful ready frame", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    let connections = 0;
+    const transport = vi.fn(async () => {
+      connections += 1;
+      if (connections === 8) controller.abort();
+      return new Response(stream(["event: ready\ndata: {}\n\n"]));
+    });
+    const completion = subscribeEvents({
+      url: "http://localhost/events",
+      signal: controller.signal,
+      transport,
+      refresh: async () => undefined,
+      onStatus: vi.fn(),
+      onEvent: vi.fn(),
+    });
+    await vi.runAllTimersAsync();
+    await completion;
+    expect(connections).toBe(8);
+  });
   it("parses fragmented SSE with CRLF, comments, IDs and multiline data", async () => {
     const frames: EventFrame[] = [];
     await consumeEvents(

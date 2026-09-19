@@ -17,10 +17,15 @@ import { z } from "zod";
 import { OverlayModeSchema, SettingsSchema } from "../shared/bridge.js";
 import {
   allowsMediaRequest,
+  allowsMediaCheck,
+  allowsIpcSender,
   dashboardUrl,
   projectFromLink,
   registerShortcut,
   toggleWindow,
+  rendererOrigin,
+  serviceOrigin,
+  isTrustedFrame,
 } from "./policy.js";
 import { SettingsStore } from "./settings.js";
 import { OverlayWindow } from "./window.js";
@@ -37,19 +42,14 @@ app.setName("Molecule");
 const rendererUrl = !app.isPackaged
   ? process.env.DESKTOP_RENDERER_URL
   : undefined;
-const apiUrl = new URL(process.env.ORCHESTRATOR_URL ?? "http://localhost:3001");
-const webUrl = process.env.WEB_APP_URL ?? "http://localhost:3000";
-if (!["https:", "http:"].includes(apiUrl.protocol))
-  throw new Error("Invalid backend URL");
-if (
-  rendererUrl &&
-  !["localhost", "127.0.0.1"].includes(new URL(rendererUrl).hostname)
-)
-  throw new Error("Renderer must be local");
-const trustedOrigin = rendererUrl
-  ? new URL(rendererUrl).origin
-  : "app://molecule";
-const isTrusted = (url: string) => url.startsWith(`${trustedOrigin}/`);
+const apiUrl = new URL(
+  serviceOrigin(process.env.ORCHESTRATOR_URL ?? "http://localhost:3001"),
+);
+const webUrl = serviceOrigin(
+  process.env.WEB_APP_URL ?? "http://localhost:3000",
+);
+const trustedOrigin = rendererOrigin(rendererUrl);
+const isTrusted = (url: string) => isTrustedFrame(url, trustedOrigin);
 let overlay: OverlayWindow;
 let shortcut: string | null = null;
 let tray: Tray;
@@ -76,11 +76,15 @@ else
       await settings.load();
       const root = resolve(__dirname, "../renderer");
       protocol.handle("app", (request) => {
-        const url = new URL(request.url);
-        const file = resolve(root, `.${decodeURIComponent(url.pathname)}`);
-        if (url.hostname !== "molecule" || !file.startsWith(root + sep))
-          return new Response(null, { status: 403 });
-        return net.fetch(pathToFileURL(file).href);
+        try {
+          const url = new URL(request.url);
+          const file = resolve(root, `.${decodeURIComponent(url.pathname)}`);
+          if (url.hostname !== "molecule" || !file.startsWith(root + sep))
+            return new Response(null, { status: 403 });
+          return net.fetch(pathToFileURL(file).href);
+        } catch {
+          return new Response(null, { status: 400 });
+        }
       });
       session.defaultSession.webRequest.onHeadersReceived(
         (details, callback) => {
@@ -113,12 +117,12 @@ else
         (contents, permission, origin, details) =>
           contents === overlay?.window.webContents &&
           details.isMainFrame &&
-          ((permission === "media" &&
-            (details.mediaType === "audio" ||
-              details.mediaType === "unknown")) ||
-            (permission === "display-capture" &&
-              screenContext?.hasSelection() === true)) &&
-          (origin === trustedOrigin || origin === `${trustedOrigin}/`),
+          allowsMediaCheck(
+            permission,
+            details.mediaType,
+            screenContext?.hasSelection() === true,
+          ) &&
+          isTrusted(origin),
       );
       overlay = new OverlayWindow(settings, rendererUrl);
       screenContext = new ScreenContext(
@@ -157,9 +161,16 @@ else
       function handle(channel: string, action: (value: unknown) => unknown) {
         ipcMain.handle(channel, (event, value: unknown) => {
           if (
-            event.sender !== overlay.window.webContents ||
-            event.senderFrame !== overlay.window.webContents.mainFrame ||
-            !isTrusted(event.senderFrame.url)
+            !allowsIpcSender(
+              {
+                id: event.sender.id,
+                mainFrame:
+                  event.senderFrame === overlay.window.webContents.mainFrame,
+                url: event.senderFrame?.url ?? "",
+              },
+              overlay.window.webContents.id,
+              trustedOrigin,
+            )
           )
             throw new Error("Untrusted IPC sender");
           return action(value);
@@ -186,11 +197,12 @@ else
       );
       handle("desktop:settings", async (value) => {
         const next = SettingsSchema.parse(value);
-        if (next.shortcut !== settings.get().shortcut) {
+        const previousShortcut = settings.get().shortcut;
+        await settings.save(next);
+        if (next.shortcut !== previousShortcut) {
           if (shortcut) globalShortcut.unregister(shortcut);
           shortcut = registerShortcut(globalShortcut, next.shortcut, toggle);
         }
-        await settings.save(next);
         return bootstrap();
       });
       handle("desktop:permissions", () => ({

@@ -106,7 +106,12 @@ export function parseFrame(block: string): EventFrame {
     const name = index < 0 ? line : line.slice(0, index);
     const value = index < 0 ? "" : line.slice(index + 1).replace(/^ /, "");
     if (name === "event") event = value;
-    if (name === "id" && /^\d+$/.test(value)) id = Number(value);
+    if (
+      name === "id" &&
+      /^\d+$/.test(value) &&
+      Number.isSafeInteger(Number(value))
+    )
+      id = Number(value);
     if (name === "data") data.push(value);
   }
   return { event, id, data: data.join("\n") };
@@ -114,17 +119,25 @@ export function parseFrame(block: string): EventFrame {
 export async function consumeEvents(
   stream: ReadableStream<Uint8Array>,
   onFrame: (frame: EventFrame) => void,
+  signal?: AbortSignal,
 ) {
   const reader = stream.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
   let buffer = "";
   try {
-    for (;;) {
+    while (!signal?.aborted) {
       const { done, value } = await reader.read();
       if (done) return;
       buffer += decoder.decode(value, { stream: true });
       let delimiter = /\r?\n\r?\n/.exec(buffer);
       while (delimiter) {
+        if (signal?.aborted) return;
+        if (delimiter.index > 1_000_000)
+          throw new Error("Event frame too large");
         onFrame(parseFrame(buffer.slice(0, delimiter.index)));
         buffer = buffer.slice(delimiter.index + delimiter[0].length);
         delimiter = /\r?\n\r?\n/.exec(buffer);
@@ -132,6 +145,8 @@ export async function consumeEvents(
       if (buffer.length > 1_000_000) throw new Error("Event frame too large");
     }
   } finally {
+    signal?.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -144,6 +159,7 @@ function delay(ms: number, signal: AbortSignal) {
     };
     const timer = setTimeout(finish, ms);
     signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
   });
 }
 export function subscribeEvents(options: {
@@ -155,7 +171,7 @@ export function subscribeEvents(options: {
   onStatus: (
     status: "connecting" | "connected" | "reconnecting" | "offline",
   ) => void;
-  refresh: () => Promise<void>;
+  refresh: (signal?: AbortSignal) => Promise<void>;
 }) {
   let cursor = options.cursor ?? 0;
   return (async () => {
@@ -164,28 +180,50 @@ export function subscribeEvents(options: {
       options.onStatus(failures ? "reconnecting" : "connecting");
       try {
         let replay = true;
-        const response = await (options.transport ?? fetch)(options.url, {
-          headers: {
-            Accept: "text/event-stream",
-            "Last-Event-ID": String(cursor),
-          },
-          signal: options.signal,
-        });
-        if (!response.ok || !response.body)
-          throw new Error("Stream unavailable");
-        await options.refresh();
-        await consumeEvents(response.body, (frame) => {
-          if (frame.event === "ready") {
-            replay = false;
-            options.onStatus("connected");
-            return;
-          }
-          if (frame.event !== "molecule" || !frame.id || frame.id <= cursor)
-            return;
-          const event = MoleculeEventSchema.parse(JSON.parse(frame.data));
-          cursor = frame.id;
-          options.onEvent(event, cursor, replay);
-        });
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        options.signal.addEventListener("abort", abort, { once: true });
+        let timer = setTimeout(abort, 30_000);
+        let response: Response | undefined;
+        try {
+          response = await (options.transport ?? fetch)(options.url, {
+            headers: {
+              Accept: "text/event-stream",
+              "Last-Event-ID": String(cursor),
+            },
+            signal: controller.signal,
+            redirect: "error",
+          });
+          if (!response.ok || !response.body)
+            throw new Error("Stream unavailable");
+          await options.refresh(controller.signal);
+          await consumeEvents(
+            response.body,
+            (frame) => {
+              if (options.signal.aborted) return;
+              clearTimeout(timer);
+              timer = setTimeout(abort, 45_000);
+              if (frame.event === "ready") {
+                replay = false;
+                failures = 0;
+                options.onStatus("connected");
+                return;
+              }
+              if (frame.event !== "molecule" || !frame.id || frame.id <= cursor)
+                return;
+              const event = MoleculeEventSchema.parse(JSON.parse(frame.data));
+              cursor = frame.id;
+              options.onEvent(event, cursor, replay);
+            },
+            controller.signal,
+          );
+        } finally {
+          clearTimeout(timer);
+          options.signal.removeEventListener("abort", abort);
+          controller.abort();
+          if (response?.body && !response.body.locked)
+            await response.body.cancel().catch(() => undefined);
+        }
         throw new Error("Stream closed");
       } catch {
         if (options.signal.aborted) return;

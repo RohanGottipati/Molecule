@@ -33,7 +33,7 @@ const RealtimeEventSchema = z.object({
   error: z.object({ code: z.string().optional() }).optional(),
 });
 export interface RealtimeDependencies {
-  createSession: () => Promise<{ value: string }>;
+  createSession: (projectId: string) => Promise<{ value: string }>;
   permission: () => Promise<boolean>;
   refresh: () => Promise<DesktopResult>;
   tools: ToolDispatcher;
@@ -67,6 +67,7 @@ export class RealtimeClient {
   private wanted = false;
   private generation = 0;
   private reconnects = 0;
+  private turn = 0;
   private activeResponse?: string;
   private readonly interrupted = new Set<string>();
   private readonly answered = new Set<string>();
@@ -90,6 +91,8 @@ export class RealtimeClient {
     this.stop();
     this.wanted = true;
     this.reconnects = 0;
+    this.interrupted.clear();
+    this.answered.clear();
     this.patch({ muted: false, transcript: "", response: "", error: null });
     await this.connect();
   }
@@ -103,7 +106,9 @@ export class RealtimeClient {
       error: null,
     });
     try {
-      if (!(await this.deps.permission())) {
+      const permitted = await this.deps.permission();
+      if (!this.wanted || generation !== this.generation) return;
+      if (!permitted) {
         this.wanted = false;
         this.patch({
           state: "error",
@@ -130,9 +135,13 @@ export class RealtimeClient {
       this.microphone = microphone;
       microphone.getAudioTracks().forEach((track) => {
         track.enabled = !this.snapshot.muted;
+        track.onended = () => {
+          if (generation === this.generation) this.reconnect();
+        };
       });
       const context = await this.deps.refresh();
-      const secret = await this.deps.createSession();
+      if (!this.wanted || generation !== this.generation) return;
+      const secret = await this.deps.createSession(context.project.orderId);
       if (!this.wanted || generation !== this.generation) return;
       const peer = this.deps.createPeer?.() ?? new RTCPeerConnection();
       this.peer = peer;
@@ -151,6 +160,7 @@ export class RealtimeClient {
       channel.onopen = () => {
         if (generation !== this.generation) return;
         clearTimeout(this.connectTimer);
+        this.reconnects = 0;
         this.patch({ state: "listening", error: null });
         this.context(context);
         this.meter(microphone);
@@ -171,11 +181,14 @@ export class RealtimeClient {
           this.reconnect();
       };
       const offer = await peer.createOffer();
+      if (!this.wanted || generation !== this.generation) return;
       await peer.setLocalDescription(offer);
+      if (!this.wanted || generation !== this.generation) return;
       const response = await (this.deps.transport ?? fetch)(
         "https://api.openai.com/v1/realtime/calls",
         {
           method: "POST",
+          redirect: "error",
           body: offer.sdp,
           headers: {
             Authorization: `Bearer ${secret.value}`,
@@ -189,10 +202,13 @@ export class RealtimeClient {
       );
       if (!response.ok) throw new Error("Voice negotiation failed");
       if (!this.wanted || generation !== this.generation) return;
+      const sdp = await response.text();
+      if (!this.wanted || generation !== this.generation) return;
       await peer.setRemoteDescription({
         type: "answer",
-        sdp: await response.text(),
+        sdp,
       });
+      if (!this.wanted || generation !== this.generation) return;
       if (channel.readyState !== "open")
         this.connectTimer = setTimeout(() => {
           if (generation === this.generation) this.reconnect();
@@ -240,12 +256,15 @@ export class RealtimeClient {
     }, delay);
   }
   interrupt() {
+    this.turn += 1;
     if (this.audio) {
       this.audio.muted = true;
       this.audio.pause();
     }
     if (this.activeResponse) {
       this.interrupted.add(this.activeResponse);
+      if (this.interrupted.size > 1000)
+        this.interrupted.delete(this.interrupted.values().next().value!);
       this.send({ type: "response.cancel", response_id: this.activeResponse });
     }
     this.send({ type: "output_audio_buffer.clear" });
@@ -288,6 +307,7 @@ export class RealtimeClient {
     });
   }
   private async receive(raw: string, generation: number) {
+    const turn = this.turn;
     try {
       const event = RealtimeEventSchema.parse(JSON.parse(raw));
       if (event.type === "input_audio_buffer.speech_started") {
@@ -305,28 +325,37 @@ export class RealtimeClient {
           transcript: this.snapshot.transcript + (event.delta ?? ""),
         });
       if (event.type === "response.created" && event.response) {
+        if (this.interrupted.has(event.response.id)) return;
         this.activeResponse = event.response.id;
         this.patch({ state: "thinking", response: "" });
       }
+      const responseId =
+        event.response_id ?? event.response?.id ?? this.activeResponse;
+      const currentResponse = () =>
+        generation === this.generation &&
+        this.wanted &&
+        (responseId
+          ? !this.interrupted.has(responseId) &&
+            (!this.activeResponse || responseId === this.activeResponse)
+          : this.snapshot.state !== "interrupted");
       if (
         event.type === "response.output_audio_transcript.delta" &&
-        (!event.response_id || !this.interrupted.has(event.response_id))
+        currentResponse()
       ) {
         this.patch({ response: this.snapshot.response + (event.delta ?? "") });
       }
-      if (
-        event.type === "output_audio_buffer.started" &&
-        (!event.response_id || !this.interrupted.has(event.response_id))
-      ) {
+      if (event.type === "output_audio_buffer.started" && currentResponse()) {
         if (this.audio) {
           this.audio.muted = false;
           await this.audio.play();
         }
+        if (!currentResponse() || turn !== this.turn) return;
         this.patch({ state: "speaking" });
       }
       if (
-        event.type === "output_audio_buffer.stopped" ||
-        event.type === "output_audio_buffer.cleared"
+        (event.type === "output_audio_buffer.stopped" && currentResponse()) ||
+        (event.type === "output_audio_buffer.cleared" &&
+          this.snapshot.state === "interrupted")
       )
         this.patch({ state: "listening" });
       if (
@@ -337,8 +366,9 @@ export class RealtimeClient {
       ) {
         if (this.answered.has(event.call_id)) return;
         this.answered.add(event.call_id);
-        const cancelled =
-          event.response_id && this.interrupted.has(event.response_id);
+        if (this.answered.size > 1000)
+          this.answered.delete(this.answered.values().next().value!);
+        const cancelled = !currentResponse();
         let output: unknown = {
           error: "Interrupted before execution. Follow the latest instruction.",
         };
@@ -383,13 +413,21 @@ export class RealtimeClient {
             output: JSON.stringify(output),
           },
         });
-        if (
-          !cancelled &&
-          (!event.response_id || !this.interrupted.has(event.response_id))
-        )
+        if (!cancelled && currentResponse() && turn === this.turn)
           this.send({ type: "response.create" });
       }
-      if (event.type === "response.done" && event.response?.status === "failed")
+      if (
+        event.type === "response.done" &&
+        currentResponse() &&
+        event.response?.status !== "failed" &&
+        this.snapshot.state === "thinking"
+      )
+        this.patch({ state: "listening" });
+      if (
+        event.type === "response.done" &&
+        event.response?.status === "failed" &&
+        currentResponse()
+      )
         this.patch({
           state: "listening",
           error: "Voice response failed. You can keep using text.",
@@ -404,6 +442,8 @@ export class RealtimeClient {
         this.patch({ error: "Voice is unavailable. You can keep using text." });
       }
     } catch {
+      if (generation !== this.generation || !this.wanted || turn !== this.turn)
+        return;
       this.patch({
         error:
           "Voice response could not be processed. You can keep using text.",
@@ -438,7 +478,8 @@ export class RealtimeClient {
     clearTimeout(this.connectTimer);
     this.controller?.abort();
     if (this.frame !== undefined) cancelAnimationFrame(this.frame);
-    if (this.audioContext) void this.audioContext.close();
+    if (this.audioContext)
+      void this.audioContext.close().catch(() => undefined);
     this.audioContext = undefined;
     if (this.channel) {
       this.channel.onclose = null;
@@ -451,7 +492,10 @@ export class RealtimeClient {
       this.peer.ontrack = null;
       this.peer.close();
     }
-    this.microphone?.getTracks().forEach((track) => track.stop());
+    this.microphone?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
     if (this.audio) {
       this.audio.pause();
       this.audio.srcObject = null;

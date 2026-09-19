@@ -78,6 +78,169 @@ afterEach(() => {
 });
 
 describe("Realtime lifecycle without paid calls", () => {
+  it("requests a realtime grant for the project in the refreshed snapshot", async () => {
+    const createSession = vi.fn(async () => ({
+      value: "ephemeral-test-secret",
+    }));
+    const snapshot = projectResult();
+    const { client } = fixture({
+      createSession,
+      refresh: async () => snapshot,
+    });
+    await client.start();
+    expect(createSession).toHaveBeenCalledWith(snapshot.project.orderId);
+    client.stop();
+  });
+  it("ignores late permission denial after stopping", async () => {
+    let permit!: (value: boolean) => void;
+    const createSession = vi.fn(async () => ({ value: "unused" }));
+    const { client } = fixture({
+      permission: () =>
+        new Promise((resolve) => {
+          permit = resolve;
+        }),
+      createSession,
+    });
+    const starting = client.start();
+    client.stop();
+    permit(false);
+    await starting;
+    expect(client.getSnapshot().state).toBe("idle");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+  it("releases a microphone acquired after the conversation was stopped", async () => {
+    let provide!: (stream: MediaStream) => void;
+    const stop = vi.fn();
+    const media = {
+      getUserMedia: vi.fn(
+        () =>
+          new Promise<MediaStream>((resolve) => {
+            provide = resolve;
+          }),
+      ),
+    };
+    const { client } = fixture({ media });
+    const starting = client.start();
+    await vi.waitFor(() => expect(media.getUserMedia).toHaveBeenCalled());
+    client.stop();
+    provide({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+    await starting;
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(client.getSnapshot().state).toBe("idle");
+  });
+  it("does not create a session after a stopped context refresh", async () => {
+    let finish!: (value: ReturnType<typeof projectResult>) => void;
+    const refresh = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof projectResult>>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const createSession = vi.fn(async () => ({ value: "unused" }));
+    const { client, track } = fixture({ refresh, createSession });
+    const starting = client.start();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+    client.stop();
+    finish(projectResult());
+    await starting;
+    expect(createSession).not.toHaveBeenCalled();
+    expect(track.stop).toHaveBeenCalled();
+  });
+  it("keeps an interrupted turn silent when audio playback settles late", async () => {
+    let played!: (value?: undefined) => void;
+    const { client, channel, audio } = fixture();
+    audio.play.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          played = resolve;
+        }),
+    );
+    await client.start();
+    channel.open();
+    channel.emit({ type: "response.created", response: { id: "old" } });
+    channel.emit({ type: "output_audio_buffer.started", response_id: "old" });
+    client.interrupt();
+    played();
+    await Promise.resolve();
+    expect(client.getSnapshot().state).toBe("interrupted");
+    expect(audio.muted).toBe(true);
+    client.stop();
+  });
+  it("does not apply old turn audio completion or text to a new response", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "response.created", response: { id: "old" } });
+    client.interrupt();
+    channel.emit({ type: "response.created", response: { id: "new" } });
+    channel.emit({
+      type: "response.output_audio_transcript.delta",
+      response_id: "new",
+      delta: "Current",
+    });
+    channel.emit({
+      type: "response.output_audio_transcript.delta",
+      response_id: "old",
+      delta: "Stale",
+    });
+    channel.emit({ type: "output_audio_buffer.stopped", response_id: "old" });
+    expect(client.getSnapshot()).toMatchObject({
+      state: "thinking",
+      response: "Current",
+    });
+    client.stop();
+  });
+  it("suppresses untagged tools after interruption and completes silent turns", async () => {
+    const { client, channel, execute } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "response.created", response: { id: "old" } });
+    client.interrupt();
+    channel.emit({
+      type: "response.function_call_arguments.done",
+      call_id: "late",
+      name: "cancel_project",
+      arguments: "{}",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    channel.emit({ type: "response.created", response: { id: "new" } });
+    channel.emit({
+      type: "response.done",
+      response: { id: "new", status: "completed" },
+    });
+    expect(client.getSnapshot().state).toBe("listening");
+    client.stop();
+  });
+  it("does not create another response for an interrupted in-flight tool", async () => {
+    let finish!: (value: ReturnType<typeof projectResult>) => void;
+    const execute = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof projectResult>>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { client, channel } = fixture({ tools: new ToolDispatcher(execute) });
+    await client.start();
+    channel.open();
+    channel.emit({ type: "response.created", response: { id: "old" } });
+    channel.emit({
+      type: "response.function_call_arguments.done",
+      response_id: "old",
+      call_id: "ongoing",
+      name: "cancel_project",
+      arguments: "{}",
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    client.interrupt();
+    finish(projectResult());
+    await Promise.resolve();
+    expect(
+      channel.send.mock.calls.some(
+        ([raw]) => JSON.parse(String(raw)).type === "response.create",
+      ),
+    ).toBe(false);
+    client.stop();
+  });
   it("stops playback immediately and sends supported WebRTC interruption events", async () => {
     const { client, channel, audio, track, peer } = fixture();
     await client.start();
