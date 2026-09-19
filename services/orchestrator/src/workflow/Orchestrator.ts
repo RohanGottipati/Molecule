@@ -2,7 +2,7 @@ import {
   CompileIntentRequestSchema,
   ProductIntentSchema,
   ProductionPlanSchema,
-  QuoteRequestSchema,
+  CurrentQuoteRequestSchema,
   QuoteResponseSchema,
   SolverInputSchema,
   type CompileIntentRequest,
@@ -343,7 +343,7 @@ export class Orchestrator {
         this.deps.quoteTimeoutMs ?? 8_000,
       );
       try {
-        const request = QuoteRequestSchema.parse({
+        const request = CurrentQuoteRequestSchema.parse({
           orderId: session.orderId,
           traceId: session.traceId,
           merchantId: candidate.merchantId,

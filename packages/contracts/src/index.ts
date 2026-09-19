@@ -301,6 +301,14 @@ export const QuoteRequestSchema = z
   });
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
 
+export const CurrentQuoteRequestSchema = QuoteRequestSchema.refine(
+  (request) => request.deadline !== undefined,
+  {
+    message: "An executable quote request requires a deadline",
+    path: ["deadline"],
+  },
+);
+
 export const QuoteResponseSchema = z.object({
   merchantId: z.string(),
   capabilityId: z.string(),
@@ -627,6 +635,60 @@ export const MoleculeEventSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 export type MoleculeEvent = z.infer<typeof MoleculeEventSchema>;
+
+export const ProviderStatusSchema = z.object({
+  name: z.enum(["openai", "backboard", "shopify", "tiger", "rox", "solver"]),
+  mode: z.enum(["live", "demo", "unavailable"]),
+  status: z.enum(["ready", "degraded", "unavailable"]),
+  detail: z.string(),
+});
+export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
+
+export const MerchantTwinSummarySchema = z.object({
+  merchantId: z.string(),
+  name: z.string(),
+  status: z.enum(["online", "offline", "unknown"]),
+  capabilities: z.array(CandidateCapabilitySchema),
+  claims: z.array(CanonicalClaimSchema),
+  memories: z.array(MerchantMemoryCardEntrySchema),
+  policies: z.array(z.string()),
+  documents: z.array(
+    z.object({
+      documentId: z.string(),
+      name: z.string(),
+      status: z.string(),
+    }),
+  ),
+  assistantId: z.string().optional(),
+});
+export type MerchantTwinSummary = z.infer<typeof MerchantTwinSummarySchema>;
+
+export const OperationsMetricsSchema = z.object({
+  orderCount: z.number().int().nonnegative(),
+  validatedPlanCount: z.number().int().nonnegative(),
+  committedOrderCount: z.number().int().nonnegative(),
+  eventCount: z.number().int().nonnegative(),
+  reservationCount: z.number().int().nonnegative(),
+  conflictCount: z.number().int().nonnegative(),
+  recoveriesCompleted: z.number().int().nonnegative(),
+  eventCounts: z.array(
+    z.object({
+      eventType: z.string(),
+      count: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type OperationsMetrics = z.infer<typeof OperationsMetricsSchema>;
+
+export const MarketplaceSnapshotSchema = z.object({
+  generatedAt: z.iso.datetime(),
+  mode: z.enum(["live", "demo", "hybrid"]),
+  providers: z.array(ProviderStatusSchema),
+  merchants: z.array(MerchantTwinSummarySchema),
+  metrics: OperationsMetricsSchema,
+  recentEvents: z.array(MoleculeEventSchema),
+});
+export type MarketplaceSnapshot = z.infer<typeof MarketplaceSnapshotSchema>;
 
 export const ActionIdSchema = z.string().min(1).max(160);
 export const DesktopConstraintSchema = ConstraintSchema.omit({
