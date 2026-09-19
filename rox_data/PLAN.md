@@ -7,26 +7,27 @@ Judged on technical complexity, creativity, handling of real-world mess, practic
 
 ## 1. What already exists (do not rebuild)
 
-| Asset | Where | State |
-|---|---|---|
-| Tiger Cloud PG18 + TimescaleDB 2.30 + pgvector 0.8.6 (+ pg_trgm, vectorscale available) | `db-37507`, `DATABASE_URL` in `.env.local` | live, 2.25 GB |
-| Claim layer: `raw_artifacts` → `canonical_claims` → `claim_conflicts` / `quarantined_claims` | `sql/001_core.sql` | live, 45 claims, 41 artifacts, 1 quarantined |
-| Deterministic resolver: 0.35·authority + 0.30·recency + 0.25·confidence + 0.10·corroboration, conflict margin 0.08 | `services/reality/src/resolution.ts` | tested |
-| Deterministic normalizer + quarantine | `services/reality/src/ingestion.ts` | tested, numeric fields only |
-| LLM claim extraction (mock + real) | `packages/openai/src/extractClaims.ts` | thin — mock is 2 regexes |
-| Merchant Twins / RAG / vision model routing | `packages/backboard` | built |
-| 8 Shopify dev stores, Admin GraphQL 2026-07, client-credentials | `SHOPIFY_STORES` | live |
-| Shopify → DB sync + DB → Admin metafield write-back | `scripts/shopify-sync.mjs`, `scripts/shopify-writeback.mjs` | built, §9 of SHOPIFY_DATA_PIPELINE unchecked |
-| Real messy commerce data at scale | `bulk_order_lines` 3,773,954 rows (UCI Online Retail II), `bulk_products` 112,141 (Open Food Facts) | loaded |
-| 20,000 OFF products pushed into 2 Shopify stores | `bulk_shopify_fill` | loaded |
+| Asset                                                                                                              | Where                                                                                               | State                                        |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Tiger Cloud PG18 + TimescaleDB 2.30 + pgvector 0.8.6 (+ pg_trgm, vectorscale available)                            | `db-37507`, `DATABASE_URL` in `.env.local`                                                          | live, 2.25 GB                                |
+| Claim layer: `raw_artifacts` → `canonical_claims` → `claim_conflicts` / `quarantined_claims`                       | `sql/001_core.sql`                                                                                  | live, 45 claims, 41 artifacts, 1 quarantined |
+| Deterministic resolver: 0.35·authority + 0.30·recency + 0.25·confidence + 0.10·corroboration, conflict margin 0.08 | `services/reality/src/resolution.ts`                                                                | tested                                       |
+| Deterministic normalizer + quarantine                                                                              | `services/reality/src/ingestion.ts`                                                                 | tested, numeric fields only                  |
+| LLM claim extraction (mock + real)                                                                                 | `packages/openai/src/extractClaims.ts`                                                              | thin — mock is 2 regexes                     |
+| Merchant Twins / RAG / vision model routing                                                                        | `packages/backboard`                                                                                | built                                        |
+| 8 Shopify dev stores, Admin GraphQL 2026-07, client-credentials                                                    | `SHOPIFY_STORES`                                                                                    | live                                         |
+| Shopify → DB sync + DB → Admin metafield write-back                                                                | `scripts/shopify-sync.mjs`, `scripts/shopify-writeback.mjs`                                         | built, §9 of SHOPIFY_DATA_PIPELINE unchecked |
+| Real messy commerce data at scale                                                                                  | `bulk_order_lines` 3,773,954 rows (UCI Online Retail II), `bulk_products` 112,141 (Open Food Facts) | loaded                                       |
+| 20,000 OFF products pushed into 2 Shopify stores                                                                   | `bulk_shopify_fill`                                                                                 | loaded                                       |
 
-The Rox-shaped skeleton is already here. What is missing is (a) messy *unstructured* input at volume and variety, (b) the agentic layer that turns it into claims, (c) entity resolution, (d) a measured scorecard, (e) the actions loop closing back into Shopify.
+The Rox-shaped skeleton is already here. What is missing is (a) messy _unstructured_ input at volume and variety, (b) the agentic layer that turns it into claims, (c) entity resolution, (d) a measured scorecard, (e) the actions loop closing back into Shopify.
 
 ## 2. The thesis (one sentence for judges)
 
 > Point it at a supplier's inbox, their spreadsheets, their call recordings and their three disagreeing inventory systems; it lands every fact in Tiger with provenance, refuses to guess when sources conflict, and writes the resolved truth back into Shopify Admin — measured against a hidden ground truth, not vibes.
 
 Two non-obvious claims we can defend:
+
 1. **LLMs propose, deterministic code certifies.** The model never picks a winner between conflicting facts; it extracts candidates with evidence spans, and the scored resolver decides — or stays `conflicted`. Every number in Shopify traces to a claim id, a source reference and a checksum.
 2. **LLM as rule compiler, not row processor.** For the 3.7M-row / 112k-product tail we do not call a model per row. The model mines parsing rules from samples, the rules are validated against ground truth, and plain SQL applies them to millions of rows; only the residual long tail escalates to the model.
 
@@ -34,26 +35,26 @@ Two non-obvious claims we can defend:
 
 Generated by `rox_data/corpus/generate.mjs` with a seeded RNG → byte-identical corpus from a seed, plus `truth.jsonl` (hidden ground truth: merchant, field, true value, unit, observed_at, whether it should quarantine/conflict).
 
-| # | Artifact | Format | Vol | Facts it carries | Signature mess |
-|---|---|---|---|---|---|
-| 1 | Supplier capacity/delay emails | `.eml` | 120 | capacity, lead time, shutdown windows | hedging ("about 400/day, give or take"), quoted reply chains, FR-CA, signatures with stale numbers |
-| 2 | Price sheets | `.csv` + `.xlsx` | 40 | tier prices, setup fees, MOQ | title rows above headers, merged tier cells, mixed CAD/USD/GBP, "call for pricing", trailing notes rows |
-| 3 | Capability / spec sheets | PDF | 24 | machine specs, max stitch count, materials | multi-column, tables as text, units in mm and in |
-| 4 | WhatsApp / SMS threads | `.txt` | 60 | ad-hoc capacity + availability | no punctuation, emoji, "k so 200 not 400", voice-note placeholders |
-| 5 | Call transcripts (diarized) | `.json` | 40 | verbal commitments | disfluency, crosstalk, speaker mislabels, numbers as words |
-| 6 | Support tickets / RMA log | `.json` export | 800 | defect rate, damage, wrong item | schema drift across 3 export versions, nested free text |
-| 7 | Product reviews | `.jsonl` | 5,000 | quality signal, allergen complaints | multilingual, sarcasm, 1-star-but-positive |
-| 8 | WMS inventory snapshots | `.csv` daily × 30 | 30 | on-hand per SKU | disagrees with Shopify and with the supplier portal by design |
-| 9 | Supplier portal API pulls | `.json` | 30 | capacity, lead time | stale `observed_at`, partial payloads, nulls as `"N/A"` |
-| 10 | Carrier tracking webhooks | `.json` | 3,000 | fulfillment actuals → `fulfillment_samples` | duplicates, out-of-order delivery, retries |
-| 11 | Shopify webhooks (`orders/create`, `inventory_levels/update`) | `.json` | replay | live capacity + order truth | at-least-once delivery, replayed on the real store |
-| 12 | Scanned invoice OCR text | `.txt` | 60 | invoiced qty/price vs PO | OCR confusions (l/1, O/0, rn/m), broken line order |
-| 13 | Legacy ERP export | fixed-width | 6 | SKU master, vendor codes | EBCDIC-ish padding, implied decimals, no header |
-| 14 | Compliance / cert docs | PDF + `.txt` | 30 | vegan, no-leather, OEKO-TEX, expiry | expired certs presented as current, scope ambiguity |
-| 15 | Factory shutdown / holiday notices | `.eml` | 12 | capacity = 0 windows | relative dates ("next two weeks"), no year |
-| 16 | Customer intake briefs + revisions | `.txt` | 50 | the canonical demo intent + contradictions | "no polyester" arriving after the plan |
-| 17 | Scraped supplier pages | `.html` | 16 | public price/lead-time claims | boilerplate, marketing rounding, stale cache header |
-| 18 | Handwritten job-card photos | `.png` | 12 | daily run counts | vision path via Backboard vision model |
+| #   | Artifact                                                      | Format            | Vol    | Facts it carries                            | Signature mess                                                                                          |
+| --- | ------------------------------------------------------------- | ----------------- | ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1   | Supplier capacity/delay emails                                | `.eml`            | 120    | capacity, lead time, shutdown windows       | hedging ("about 400/day, give or take"), quoted reply chains, FR-CA, signatures with stale numbers      |
+| 2   | Price sheets                                                  | `.csv` + `.xlsx`  | 40     | tier prices, setup fees, MOQ                | title rows above headers, merged tier cells, mixed CAD/USD/GBP, "call for pricing", trailing notes rows |
+| 3   | Capability / spec sheets                                      | PDF               | 24     | machine specs, max stitch count, materials  | multi-column, tables as text, units in mm and in                                                        |
+| 4   | WhatsApp / SMS threads                                        | `.txt`            | 60     | ad-hoc capacity + availability              | no punctuation, emoji, "k so 200 not 400", voice-note placeholders                                      |
+| 5   | Call transcripts (diarized)                                   | `.json`           | 40     | verbal commitments                          | disfluency, crosstalk, speaker mislabels, numbers as words                                              |
+| 6   | Support tickets / RMA log                                     | `.json` export    | 800    | defect rate, damage, wrong item             | schema drift across 3 export versions, nested free text                                                 |
+| 7   | Product reviews                                               | `.jsonl`          | 5,000  | quality signal, allergen complaints         | multilingual, sarcasm, 1-star-but-positive                                                              |
+| 8   | WMS inventory snapshots                                       | `.csv` daily × 30 | 30     | on-hand per SKU                             | disagrees with Shopify and with the supplier portal by design                                           |
+| 9   | Supplier portal API pulls                                     | `.json`           | 30     | capacity, lead time                         | stale `observed_at`, partial payloads, nulls as `"N/A"`                                                 |
+| 10  | Carrier tracking webhooks                                     | `.json`           | 3,000  | fulfillment actuals → `fulfillment_samples` | duplicates, out-of-order delivery, retries                                                              |
+| 11  | Shopify webhooks (`orders/create`, `inventory_levels/update`) | `.json`           | replay | live capacity + order truth                 | at-least-once delivery, replayed on the real store                                                      |
+| 12  | Scanned invoice OCR text                                      | `.txt`            | 60     | invoiced qty/price vs PO                    | OCR confusions (l/1, O/0, rn/m), broken line order                                                      |
+| 13  | Legacy ERP export                                             | fixed-width       | 6      | SKU master, vendor codes                    | EBCDIC-ish padding, implied decimals, no header                                                         |
+| 14  | Compliance / cert docs                                        | PDF + `.txt`      | 30     | vegan, no-leather, OEKO-TEX, expiry         | expired certs presented as current, scope ambiguity                                                     |
+| 15  | Factory shutdown / holiday notices                            | `.eml`            | 12     | capacity = 0 windows                        | relative dates ("next two weeks"), no year                                                              |
+| 16  | Customer intake briefs + revisions                            | `.txt`            | 50     | the canonical demo intent + contradictions  | "no polyester" arriving after the plan                                                                  |
+| 17  | Scraped supplier pages                                        | `.html`           | 16     | public price/lead-time claims               | boilerplate, marketing rounding, stale cache header                                                     |
+| 18  | Handwritten job-card photos                                   | `.png`            | 12     | daily run counts                            | vision path via Backboard vision model                                                                  |
 
 Real (not emulated) messy data already in Tiger stays in the story: UCI invoices carry cancellations (`C` invoices), negative quantities, 25% missing `customer_id`, £0 lines, junk descriptions ("?", "damaged", "found"); OFF carries missing brands, `quantity` as free text ("500 g", "1,5L", "6x33cl"), duplicate barcodes, nutrition outliers, 30+ languages.
 
@@ -69,16 +70,16 @@ The injection dimension is deliberate: the defense rate is a scoreboard number, 
 
 Pipeline `rox_data/pipeline/`, seven stages, each emitting `MoleculeEvent`s and its own counters. LLM vs deterministic is an explicit column because it is the design argument.
 
-| Stage | Agent | Engine | Output |
-|---|---|---|---|
-| 0 Generate | corpus generator | deterministic, seeded | `rox_data/corpus/inbox/**` + `truth.jsonl` |
-| 1 Intake | `intake` | deterministic | MIME/encoding sniff, decode, checksum dedupe, `raw_artifacts` row — original bytes never mutated |
-| 2 Parse | `parse` | deterministic + vision LLM for images/PDF scans | plain text + layout hints, `parse_status` |
-| 3 Extract | `extract` | **LLM**, structured output, evidence spans required | candidate claims {entity hint, field, raw value, unit, evidence span, confidence, ambiguity} → `rox_extractions`; no evidence span ⇒ dropped |
-| 4 Normalize | `normalize` | deterministic (extends `services/reality/src/ingestion.ts`) | units, FX, dates/TZ, ranges, enums; failure ⇒ `quarantined_claims` with a reason, never a guess |
-| 5 Resolve entities | `link` | hybrid: pg_trgm + pgvector blocking, **LLM adjudicates only the ambiguous band** | `rox_entity_links` with method + score; low confidence ⇒ `needs_review`, not a merge |
-| 6 Decide | `resolve` | **deterministic** `resolveClaims()` | `canonical_resolutions` or `claim_conflicts`; LLM writes only the human-readable explanation |
-| 7 Act | `act` | LLM drafts, human/policy gate approves | Shopify metafield write-back, capacity reconcile, supplier follow-up email draft for unknown/conflicted fields, review-queue task, orchestrator replan trigger |
+| Stage              | Agent            | Engine                                                                           | Output                                                                                                                                                         |
+| ------------------ | ---------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 Generate         | corpus generator | deterministic, seeded                                                            | `rox_data/corpus/inbox/**` + `truth.jsonl`                                                                                                                     |
+| 1 Intake           | `intake`         | deterministic                                                                    | MIME/encoding sniff, decode, checksum dedupe, `raw_artifacts` row — original bytes never mutated                                                               |
+| 2 Parse            | `parse`          | deterministic + vision LLM for images/PDF scans                                  | plain text + layout hints, `parse_status`                                                                                                                      |
+| 3 Extract          | `extract`        | **LLM**, structured output, evidence spans required                              | candidate claims {entity hint, field, raw value, unit, evidence span, confidence, ambiguity} → `rox_extractions`; no evidence span ⇒ dropped                   |
+| 4 Normalize        | `normalize`      | deterministic (extends `services/reality/src/ingestion.ts`)                      | units, FX, dates/TZ, ranges, enums; failure ⇒ `quarantined_claims` with a reason, never a guess                                                                |
+| 5 Resolve entities | `link`           | hybrid: pg_trgm + pgvector blocking, **LLM adjudicates only the ambiguous band** | `rox_entity_links` with method + score; low confidence ⇒ `needs_review`, not a merge                                                                           |
+| 6 Decide           | `resolve`        | **deterministic** `resolveClaims()`                                              | `canonical_resolutions` or `claim_conflicts`; LLM writes only the human-readable explanation                                                                   |
+| 7 Act              | `act`            | LLM drafts, human/policy gate approves                                           | Shopify metafield write-back, capacity reconcile, supplier follow-up email draft for unknown/conflicted fields, review-queue task, orchestrator replan trigger |
 
 Guardrails carried through: artifact text is always passed as data inside a delimited block with an injection classifier ahead of extraction; the model may never emit a value it cannot cite; `unknown` and `conflicted` are terminal states, not failures.
 
@@ -97,6 +98,7 @@ Guardrails carried through: artifact text is always passed as data inside a deli
 ## 7. Scale path (the part that is not a toy demo)
 
 Apply the same pipeline to the data already in Tiger:
+
 1. **Free-text quantity normalization over 112k OFF products.** Model sees a stratified sample, emits candidate regex/unit rules, rules are scored against a hand-labelled holdout, accepted rules run as one SQL update across all rows, residual long tail escalates per-row to the model with a cache keyed by pattern hash. Report: rows covered, rule precision, model calls avoided, cost delta.
 2. **Order-line hygiene over 3.77M rows.** Cancellation pairing, negative-quantity reconciliation, £0 and junk-description classification, duplicate invoice-line detection — deterministic rules mined the same way, applied with TimescaleDB chunk-wise updates.
 3. **Three-way inventory reconciliation.** Shopify (`shopify_variants.available`) vs WMS snapshot vs supplier portal, resolved through the same claim scorer — this is the demo where the answer is legitimately "conflicted, ask the supplier", and the agent drafts that email.
@@ -125,6 +127,7 @@ A baseline column: regex-only extraction vs the agent, on the same corpus. That 
 **P2 — polish for judging.** Vision path (types 3, 12, 18) · live webhook mode · continuous aggregate "data quality over time" · judge-facing dashboard in `apps/web` with a chaos-injector button · one-command demo script.
 
 Layout:
+
 ```
 rox_data/
   PLAN.md
@@ -137,6 +140,7 @@ rox_data/
   prompts/*.md               versioned extraction prompts
 sql/013_rox_ingest.sql
 ```
+
 `rox_data` joins the pnpm workspace as `@molecule/rox-data` so it can import `@molecule/contracts`, `@molecule/openai`, `@molecule/db`. House rules from `AGENTS.md` hold: contracts first, adapters only, every state change emits an event, unknown stays unknown.
 
 ## 11. Status
