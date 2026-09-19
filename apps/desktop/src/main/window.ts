@@ -52,20 +52,12 @@ export class OverlayWindow {
       clearTimeout(this.moveTimer);
       this.moveTimer = setTimeout(() => {
         const [x = 0, y = 0] = this.window.getPosition();
-        void settings
-          .save({ ...settings.get(), position: { x, y } })
-          .catch(() => {
-            console.warn(
-              JSON.stringify({ scope: "main", event: "position.save.failed" }),
-            );
-          });
+        void settings.update({ position: { x, y } }).catch(() => {
+          console.warn(
+            JSON.stringify({ scope: "main", event: "position.save.failed" }),
+          );
+        });
       }, 250);
-    });
-    this.window.webContents.on("before-input-event", (event, input) => {
-      if (input.type === "keyDown" && input.key === "Escape") {
-        event.preventDefault();
-        this.hide();
-      }
     });
     this.window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     this.window.webContents.on("will-navigate", (event) =>

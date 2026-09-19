@@ -165,13 +165,19 @@ export async function reserveCapacity(
           `${input.capabilityId}.capacity`,
           `${input.capabilityId}.capacity_per_day`,
           `${input.capabilityId}.inventory`,
+          `inventory.${input.capabilityId}`,
           "capacity_per_day",
           "capacity",
           "inventory",
         ].includes(fact.field)
       )
         continue;
-      if (fact.status !== "resolved" || typeof fact.value !== "number") {
+      if (
+        fact.status !== "resolved" ||
+        typeof fact.value !== "number" ||
+        !Number.isFinite(fact.value) ||
+        fact.value < 0
+      ) {
         throw new ReservationError(
           "UNAVAILABLE",
           "Capacity or inventory is unresolved",

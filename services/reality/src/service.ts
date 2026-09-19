@@ -1,5 +1,6 @@
 import {
   CandidateCapabilitySchema,
+  CanonicalClaimSchema,
   ChaosRequestSchema,
   MerchantCapabilitySchema,
   MerchantTwinSummarySchema,
@@ -55,12 +56,22 @@ function applyFacts(
   facts: ResolvedFact[],
   blocked: string[],
 ) {
+  let unknownPrice = false;
+  let unknownCapacity = false;
   for (const fact of facts) {
     const prefix = `${capability.capabilityId}.`;
-    if (fact.field.includes(".") && !fact.field.startsWith(prefix)) continue;
-    const field = fact.field.startsWith(prefix)
-      ? fact.field.slice(prefix.length)
-      : fact.field;
+    const inventory = fact.field === `inventory.${capability.capabilityId}`;
+    if (
+      fact.field.includes(".") &&
+      !fact.field.startsWith(prefix) &&
+      !inventory
+    )
+      continue;
+    const field = inventory
+      ? "inventory"
+      : fact.field.startsWith(prefix)
+        ? fact.field.slice(prefix.length)
+        : fact.field;
     if (
       ![
         "price",
@@ -79,10 +90,9 @@ function applyFacts(
       continue;
     if (fact.status !== "resolved") {
       blocked.push(`${fact.field} is ${fact.status}`);
-      if (field === "price" || field === "unitPrice")
-        delete capability.pricing.unitPrice;
+      if (field === "price" || field === "unitPrice") unknownPrice = true;
       if (["capacity", "capacity_per_day", "inventory"].includes(field))
-        delete capability.capacity.available;
+        unknownCapacity = true;
       continue;
     }
     if (fact.winningClaimId)
@@ -103,6 +113,9 @@ function applyFacts(
         fact.value < 0)
     ) {
       blocked.push(`${fact.field} has an invalid resolved numeric value`);
+      if (field === "price" || field === "unitPrice") unknownPrice = true;
+      if (["capacity", "capacity_per_day", "inventory"].includes(field))
+        unknownCapacity = true;
       continue;
     }
     if (
@@ -120,8 +133,7 @@ function applyFacts(
       if (field === "price" || field === "unitPrice")
         capability.pricing.unitPrice = fact.value;
       if (field === "setup_fee") capability.pricing.setupFee = fact.value;
-      if (field === "capacity") capability.capacity.available = fact.value;
-      if (field === "capacity_per_day" || field === "inventory") {
+      if (["capacity", "capacity_per_day", "inventory"].includes(field)) {
         capability.capacity.available = Math.min(
           capability.capacity.available ?? fact.value,
           fact.value,
@@ -143,6 +155,8 @@ function applyFacts(
     } else if (field === "status" && fact.value !== "online")
       blocked.push("Merchant is offline");
   }
+  if (unknownPrice) delete capability.pricing.unitPrice;
+  if (unknownCapacity) delete capability.capacity.available;
   capability.sourceClaimIds = [...new Set(capability.sourceClaimIds)].sort();
 }
 
@@ -295,6 +309,19 @@ export function createRealityService(
       client,
       now(),
     );
+    const status = facts.find((fact) => fact.field === "status");
+    if (status) {
+      merchant.status =
+        status.status === "resolved" &&
+        (status.value === "online" || status.value === "offline")
+          ? status.value
+          : "unknown";
+    }
+    const activeClaimIds = new Set(
+      (await listMerchantClaims(merchant.merchant_id, client))
+        .filter((claim) => claim.resolutionStatus === "active")
+        .map((claim) => claim.claimId),
+    );
     const rows = await client.query<{ capability_json: unknown }>(
       "select capability_json from capabilities where merchant_id=$1 order by capability_id",
       [merchant.merchant_id],
@@ -302,6 +329,9 @@ export function createRealityService(
     const result: CandidateCapability[] = [];
     for (const row of rows.rows) {
       const capability = MerchantCapabilitySchema.parse(row.capability_json);
+      capability.sourceClaimIds = capability.sourceClaimIds.filter((claimId) =>
+        activeClaimIds.has(claimId),
+      );
       const blocked =
         merchant.status === "online"
           ? []
@@ -349,14 +379,12 @@ export function createRealityService(
   return {
     async searchCandidates(input, excludedMerchantIds = []) {
       const intent = ProductIntentSchema.parse(input);
-      if (
-        !Array.isArray(excludedMerchantIds) ||
-        excludedMerchantIds.some((id) => typeof id !== "string")
-      )
-        throw new Error("Invalid merchant exclusions");
+      excludedMerchantIds = CanonicalClaimSchema.shape.merchantId
+        .array()
+        .parse(excludedMerchantIds);
       return transaction(async (client) => {
         const merchants = await client.query<MerchantRow>(
-          "select * from merchants where status='online' and not(merchant_id=any($1::text[])) order by merchant_id",
+          "select * from merchants where not(merchant_id=any($1::text[])) order by merchant_id",
           [excludedMerchantIds],
         );
         const candidates: CandidateCapability[] = [];

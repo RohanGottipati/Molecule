@@ -47,6 +47,14 @@ pnpm verify:secrets && pnpm verify:desktop && pnpm verify:kit
 
 Database adapter and durable runtime acceptance commands are in [the runbook](docs/RELEASE.md). Browser interaction, physical macOS permissions, live voice, and paid provider acceptance are separate from these automated checks.
 
+## Workspace interaction
+
+The command center follows the persisted workflow: brief, merchant quotes, solver validation, then execution. Status and recovery messages describe confirmed server state. Use Ctrl/⌘+Enter to send a brief; attach context after the project exists, then send a correction to include it in compilation. Brief editing closes during processing and after execution. Start a new project for another request; the original receipts remain available.
+
+On phones, the five workspace views move into a labeled bottom navigation bar. Graph nodes also have a keyboard-accessible production sequence. Motion uses shared timing/easing tokens and respects reduced-motion preferences. Marketplace and configuration failures have explicit retry controls.
+
+Orchestrator exceptions use the shared `ApiError` envelope with a trace ID and sanitized messages. Validation errors return 400, stale/conflicting actions return 409, provider limits return 429, provider failures return 502/504, and unexpected failures return 500. Refresh the project before retrying an action with an uncertain outcome; commerce mutations are not automatically replayed.
+
 ## Repository map
 
 ```text

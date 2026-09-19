@@ -5,6 +5,93 @@ import type { CompositeProductPlan, SupplierJobPlanNode } from "./types.js";
 const STORES = ["stitchworks-test", "molecule-test"] as const;
 
 describe("MockShopifyAdapter", () => {
+  it("refuses to put a composite product in a supplier store when the central store is missing", async () => {
+    const adapter = new MockShopifyAdapter({ stores: ["stitchworks-test"] });
+    const before = await adapter.getSnapshot("stitchworks-test");
+    await expect(
+      adapter.upsertCompositeProduct({
+        actionKey: "product",
+        traceId: "trace",
+        orderId: "order",
+        planId: "plan",
+        intentVersion: 1,
+        title: "Kit",
+        variants: [
+          { optionValues: { Title: "Kit" }, price: "10.00", sku: "KIT" },
+        ],
+        riskScore: 0,
+        provenance: "Synthetic",
+      }),
+    ).rejects.toThrow("CENTRAL_STORE_NOT_CONFIGURED");
+    expect(await adapter.getSnapshot("stitchworks-test")).toEqual(before);
+  });
+
+  it("rejects invalid monetary amounts and fractional draft quantities without reserving action keys", async () => {
+    const adapter = new MockShopifyAdapter({ stores: STORES });
+    const node: SupplierJobPlanNode = {
+      actionKey: "supplier",
+      traceId: "trace",
+      shop: "stitchworks-test",
+      planId: "plan",
+      nodeId: "node",
+      lineItems: [{ title: "Embroidery", quantity: 1, price: "4.50" }],
+    };
+    for (const price of ["NaN", "Infinity", "-1.00", "1.001", " "]) {
+      await expect(
+        adapter.createSupplierJob({
+          ...node,
+          lineItems: [{ title: "Embroidery", quantity: 1, price }],
+        }),
+      ).rejects.toThrow();
+      await expect(
+        adapter.createCustomerCheckout({
+          actionKey: "checkout",
+          traceId: "trace",
+          shop: "molecule-test",
+          orderId: "order",
+          planId: "plan",
+          lineItemTitle: "Kit",
+          price,
+          currency: "CAD",
+        }),
+      ).rejects.toThrow();
+      await expect(
+        adapter.upsertCompositeProduct({
+          actionKey: "product",
+          traceId: "trace",
+          orderId: "order",
+          planId: "plan",
+          intentVersion: 1,
+          title: "Kit",
+          variants: [{ optionValues: { Title: "Kit" }, price, sku: "KIT" }],
+          riskScore: 0,
+          provenance: "Synthetic",
+        }),
+      ).rejects.toThrow();
+    }
+    await expect(
+      adapter.createSupplierJob({
+        ...node,
+        lineItems: [{ title: "Embroidery", quantity: 0.5, price: "4.50" }],
+      }),
+    ).rejects.toThrow();
+    await expect(adapter.createSupplierJob(node)).resolves.toMatchObject({
+      created: true,
+    });
+    await expect(
+      adapter.createCustomerCheckout({
+        actionKey: "checkout",
+        traceId: "trace",
+        shop: "molecule-test",
+        orderId: "order",
+        planId: "plan",
+        lineItemTitle: "Kit",
+        price: "4.50",
+        currency: "CAD",
+      }),
+    ).resolves.toMatchObject({ created: true });
+  });
+
   it("works with no network and no env, loading the seed catalog deterministically", async () => {
     const adapter = new MockShopifyAdapter({ stores: STORES });
     const snapshot = await adapter.getSnapshot("stitchworks-test");

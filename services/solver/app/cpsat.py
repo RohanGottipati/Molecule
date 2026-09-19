@@ -36,6 +36,17 @@ class Choice:
     earliest_completion: int
 
 
+class SolverNumericRangeError(ValueError):
+    pass
+
+
+def _integer(value: int | float | Decimal) -> int:
+    exact = Decimal(str(value))
+    if not exact.is_finite() or not cp_model.INT_MIN < exact < cp_model.INT_MAX:
+        raise SolverNumericRangeError("Numeric inputs exceed the solver's integer range.")
+    return int(exact)
+
+
 def _date(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
@@ -48,7 +59,7 @@ def _iso(value: datetime) -> str:
 
 
 def _cents(value: float, rounding: str = ROUND_CEILING) -> int:
-    return int((Decimal(str(value)) * 100).to_integral_value(rounding=rounding))
+    return _integer((Decimal(str(value)) * 100).to_integral_value(rounding=rounding))
 
 
 def _choice(
@@ -85,6 +96,10 @@ def _choice(
         return None
     if (need.kind == "SUPPLY" or capability.capacity.period is None) and available < need.quantity:
         return None
+    if len(need.outputs) > 1 and any(
+        not any(port.name == reference for port in ports) for reference in need.outputs
+    ):
+        return None
     if any(
         not satisfies(rule, candidate, need, ports, data.intent)
         for rule in data.intent.hard_constraints
@@ -114,6 +129,8 @@ def _choice(
         duration = max(duration, need.quantity / available * period)
     total = Decimal(str(quote.unit_price)) * need.quantity + Decimal(str(quote.setup_fee))
     total = max(total, Decimal(str(capability.pricing.minimum_total or 0)))
+    cents = _integer((total * 100).to_integral_value(rounding=ROUND_CEILING))
+    _integer(cents * OBJECTIVE_WEIGHTS.cost)
     completion = (
         max(0, ceil((_date(quote.completion_estimate) - _date(data.now)).total_seconds() / 60))
         if quote.completion_estimate
@@ -123,8 +140,8 @@ def _choice(
         candidate,
         quote,
         ports,
-        int((total * 100).to_integral_value(rounding=ROUND_CEILING)),
-        ceil(duration),
+        cents,
+        _integer(Decimal(str(duration)).to_integral_value(rounding=ROUND_CEILING)),
         completion,
     )
 
@@ -166,8 +183,8 @@ def _numeric_constraint(
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
     exact = Decimal(str(value)) * scale
-    floor = int(exact.to_integral_value(rounding=ROUND_FLOOR))
-    ceiling = int(exact.to_integral_value(rounding=ROUND_CEILING))
+    floor = _integer(exact.to_integral_value(rounding=ROUND_FLOOR))
+    ceiling = _integer(exact.to_integral_value(rounding=ROUND_CEILING))
     match constraint.operator:
         case "lte":
             model.add(expression <= floor)
@@ -190,6 +207,13 @@ def _numeric_constraint(
 
 
 def solve(data: SolverInput) -> ProductionPlan:
+    try:
+        return _solve(data)
+    except SolverNumericRangeError as error:
+        return _unsat(data, str(error))
+
+
+def _solve(data: SolverInput) -> ProductionPlan:
     if data.intent.ambiguity_flags:
         return _unsat(data, "Customer requirements still need clarification.")
     try:
@@ -212,6 +236,7 @@ def solve(data: SolverInput) -> ProductionPlan:
             )
     groups: dict[str, list[Choice]] = {}
     for need in needs:
+        _integer(need.quantity)
         groups[need.key] = [
             choice
             for candidate in sorted(data.candidates, key=lambda c: c.capability_id)
@@ -261,15 +286,22 @@ def solve(data: SolverInput) -> ProductionPlan:
         capability = choices[0][2].candidate.capability
         quote = choices[0][2].quote
         total_quantity = sum(need.quantity * variables[need.key, i] for need, i, _ in choices)
-        model.add(total_quantity <= int(capability.quantity.max))
+        model.add(total_quantity <= _integer(capability.quantity.max))
         if quote.max_quantity is not None:
-            model.add(total_quantity <= quote.max_quantity)
+            model.add(total_quantity <= _integer(quote.max_quantity))
         if capability.kind == "SUPPLY" or capability.capacity.period is None:
-            model.add(total_quantity <= int(capability.capacity.available or 0))
-        for port in choices[0][2].ports:
+            model.add(total_quantity <= _integer(capability.capacity.available or 0))
+        for port in capability.produces:
+            if not any(port in choice.ports for _, _, choice in choices):
+                continue
             inventory = port.attributes.get("inventory")
             if isinstance(inventory, (float, int)):
-                model.add(total_quantity <= int(inventory))
+                port_quantity = sum(
+                    need.quantity * variables[need.key, i]
+                    for need, i, choice in choices
+                    if port in choice.ports
+                )
+                model.add(port_quantity <= _integer(inventory))
 
     for edge in dependencies:
         model.add(starts[edge.target] >= ends[edge.source])
@@ -277,7 +309,12 @@ def solve(data: SolverInput) -> ProductionPlan:
             produced = _edge_ports(upstream, by_key[edge.source], edge.reference)
             for j, downstream in enumerate(groups[edge.target]):
                 if not any(
-                    ports_compatible(a, b)
+                    ports_compatible(
+                        a,
+                        b,
+                        upstream.candidate.capability.quantity.unit,
+                        downstream.candidate.capability.quantity.unit,
+                    )
                     for a in produced
                     for b in downstream.candidate.capability.accepts
                 ):
@@ -291,7 +328,12 @@ def solve(data: SolverInput) -> ProductionPlan:
                     for edge in incoming
                     for i, upstream in enumerate(groups[edge.source])
                     if any(
-                        ports_compatible(port, accepted)
+                        ports_compatible(
+                            port,
+                            accepted,
+                            upstream.candidate.capability.quantity.unit,
+                            choice.candidate.capability.quantity.unit,
+                        )
                         for port in _edge_ports(upstream, by_key[edge.source], edge.reference)
                     )
                 ]
@@ -426,14 +468,8 @@ def solve(data: SolverInput) -> ProductionPlan:
             for rule in data.intent.hard_constraints
         ],
     ]
-    fingerprint = ":".join(node.node_id for node in nodes)
-    return ProductionPlan(
-        plan_id=str(
-            uuid5(
-                NAMESPACE_URL,
-                f"{data.order_id}:{data.intent.version}:{data.generation}:{fingerprint}",
-            )
-        ),
+    plan = ProductionPlan(
+        plan_id="",
         order_id=data.order_id,
         intent_version=data.intent.version,
         status="VALID",
@@ -445,6 +481,10 @@ def solve(data: SolverInput) -> ProductionPlan:
         risk_score=min(1, solver.value(makespan) / max(1, horizon)),
         constraint_results=results,
         unsat_relaxations=[],
+    )
+    fingerprint = plan.model_dump_json(exclude={"plan_id"})
+    return plan.model_copy(
+        update={"plan_id": str(uuid5(NAMESPACE_URL, f"{data.generation}:{fingerprint}"))}
     )
 
 

@@ -234,9 +234,10 @@ export class MockShopifyAdapter implements ShopifyAdapter {
       "product",
       plan,
       () => {
-        const shop =
-          this.storeHandles.find((s) => roleForStore(s) === "molecule") ??
-          this.storeHandles[0]!;
+        const shop = this.storeHandles.find(
+          (s) => roleForStore(s) === "molecule",
+        );
+        if (!shop) throw new ShopifyError("CENTRAL_STORE_NOT_CONFIGURED");
         const store = this.requireStore(shop);
         const handle = `molecule-${plan.orderId}-v${plan.intentVersion}`;
         const existing = store.get(handle);

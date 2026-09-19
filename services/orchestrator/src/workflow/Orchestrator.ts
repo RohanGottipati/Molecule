@@ -28,6 +28,7 @@ import { Serial } from "../serial.js";
 import type { OrderSession } from "../session/OrderSession.js";
 import { isStale } from "../session/staleGuard.js";
 import { canAcceptCorrection, transition } from "../session/transitions.js";
+import { RequestProblem } from "../errors.js";
 
 export interface OrchestratorDependencies {
   sessions: SessionRepository;
@@ -47,7 +48,12 @@ export class Orchestrator {
 
   private async load(orderId: string): Promise<OrderSession> {
     const session = await this.deps.sessions.get(orderId);
-    if (!session) throw new Error(`Order ${orderId} not found`);
+    if (!session)
+      throw new RequestProblem(
+        404,
+        "NOT_FOUND",
+        "Project not found. Check the link or start a new project.",
+      );
     return session;
   }
 
@@ -143,7 +149,9 @@ export class Orchestrator {
     return this.transitions.run(async () => {
       const session = await this.load(orderId);
       if (!canAcceptCorrection(session.state))
-        throw new Error(
+        throw new RequestProblem(
+          409,
+          "INVALID_TRANSITION",
           `Order cannot accept a correction while ${session.state}`,
         );
       const revision = session.revision;
@@ -153,6 +161,7 @@ export class Orchestrator {
       session.activePlan = null;
       session.candidates = [];
       session.quotes = [];
+      session.lastErrorCode = null;
       session.state = "COMPILING_INTENT";
       session.revision += 1;
       session.updatedAt = new Date().toISOString();
@@ -354,10 +363,18 @@ export class Orchestrator {
         candidate.merchantId,
       );
       const controller = new AbortController();
-      const timer = setTimeout(
-        () => controller.abort(),
-        this.deps.quoteTimeoutMs ?? 8_000,
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(
+            new DOMException(
+              "Merchant quote deadline exceeded",
+              "TimeoutError",
+            ),
+          );
+        }, this.deps.quoteTimeoutMs ?? 8_000);
+      });
       try {
         const request = CurrentQuoteRequestSchema.parse({
           orderId: session.orderId,
@@ -387,8 +404,16 @@ export class Orchestrator {
           actionKey: `${session.orderId}:quote:${intent.version}:${session.planGeneration}:${candidate.capabilityId}`,
         });
         const quote = QuoteResponseSchema.parse(
-          await this.deps.merchantAgents.quote(request, controller.signal),
+          await Promise.race([
+            this.deps.merchantAgents.quote(request, controller.signal),
+            deadline,
+          ]),
         );
+        if (
+          quote.merchantId !== candidate.merchantId ||
+          quote.capabilityId !== candidate.capabilityId
+        )
+          throw new Error("Quote does not match the requested capability");
         await this.emit(
           session,
           "merchant.quote.received",
@@ -515,7 +540,9 @@ export class Orchestrator {
       session.intentVersion !== intentVersion ||
       session.activePlan.status !== "VALID"
     ) {
-      throw new Error(
+      throw new RequestProblem(
+        409,
+        "STALE_VERSION",
         "Approval is stale or does not match the active solver plan",
       );
     }

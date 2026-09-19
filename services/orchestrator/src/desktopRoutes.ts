@@ -13,6 +13,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ActionLedger } from "./ActionLedger.js";
+import { RequestProblem } from "./errors.js";
 import { makeEvent } from "./events/EventStore.js";
 import { LocalStore } from "./LocalStore.js";
 import type { ServerDependencies } from "./server.js";
@@ -26,7 +27,12 @@ export function registerDesktopRoutes(
   const actions = new ActionLedger(store);
   const result = async (orderId: string): Promise<DesktopResult> => {
     const session = await deps.sessions.get(orderId);
-    if (!session) throw new Error("Project not found");
+    if (!session)
+      throw new RequestProblem(
+        404,
+        "NOT_FOUND",
+        "Project not found. Check the link or start a new project.",
+      );
     return {
       project: toSnapshot(session),
       contexts: (await store.contexts(orderId))
@@ -120,7 +126,11 @@ export function registerDesktopRoutes(
                 (item) => item.asset.assetId === command.args.contextId,
               );
               if (!context)
-                throw new Error("Context not found on this project");
+                throw new RequestProblem(
+                  404,
+                  "NOT_FOUND",
+                  "Context not found on this project.",
+                );
               if (!context.attached) {
                 await store.saveContext({ ...context, attached: true });
                 const session = (await result(id)).project;
@@ -182,14 +192,22 @@ export function registerDesktopRoutes(
         ),
       });
       if (/[\\/\x00-\x1f]/u.test(metadata.name))
-        throw new Error("Invalid filename");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "Use a filename without slashes or control characters.",
+        );
       const bytes = request.body;
       if (
         !Buffer.isBuffer(bytes) ||
         bytes.length === 0 ||
         bytes.length > MAX_CONTEXT_BYTES
       )
-        throw new Error("File must be between 1 byte and 10 MB");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "File must be between 1 byte and 10 MB.",
+        );
       const extensions: Record<typeof metadata.mimeType, RegExp> = {
         "image/png": /\.png$/i,
         "image/jpeg": /\.jpe?g$/i,
@@ -199,7 +217,11 @@ export function registerDesktopRoutes(
         "application/json": /\.json$/i,
       };
       if (!extensions[metadata.mimeType].test(metadata.name))
-        throw new Error("That file type isn’t supported yet.");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "The filename extension must match its supported file type.",
+        );
       if (
         (metadata.mimeType === "image/png" &&
           bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") ||
@@ -208,7 +230,11 @@ export function registerDesktopRoutes(
         (metadata.mimeType === "application/pdf" &&
           bytes.subarray(0, 5).toString() !== "%PDF-")
       )
-        throw new Error("File contents do not match its type");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "File contents do not match its type.",
+        );
       const checksum = createHash("sha256").update(bytes).digest("hex");
       return actions.run(
         `${id}:upload:${metadata.actionId}`,

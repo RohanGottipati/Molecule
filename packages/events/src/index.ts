@@ -35,7 +35,20 @@ export interface SubscriptionOptions {
   afterCursor?: number;
   orderId?: string;
   pollMs?: number;
-  onError?: (error: unknown) => void;
+  onError?: (error: unknown) => void | Promise<void>;
+}
+
+async function reportSubscriptionError(
+  error: unknown,
+  options: SubscriptionOptions,
+  message: string,
+): Promise<void> {
+  try {
+    if (options.onError) await options.onError(error);
+    else console.error(message);
+  } catch {
+    console.error("Persisted event subscription error handler failed");
+  }
 }
 
 export async function subscribePersisted(
@@ -74,8 +87,11 @@ export async function subscribePersisted(
         cursor = entry.cursor;
       }
     } catch (error) {
-      if (options.onError) options.onError(error);
-      else console.error("Persisted event subscription failed; retrying");
+      await reportSubscriptionError(
+        error,
+        options,
+        "Persisted event subscription failed; retrying",
+      );
     }
     if (!stopped) timer = setTimeout(() => void poll(), options.pollMs ?? 100);
   };
@@ -97,10 +113,13 @@ export function subscribe(
       unsubscribe = stop;
       if (stopped) stop();
     })
-    .catch((error: unknown) => {
-      if (options.onError) options.onError(error);
-      else console.error("Persisted event subscription could not start");
-    });
+    .catch((error: unknown) =>
+      reportSubscriptionError(
+        error,
+        options,
+        "Persisted event subscription could not start",
+      ),
+    );
   return () => {
     stopped = true;
     unsubscribe?.();
