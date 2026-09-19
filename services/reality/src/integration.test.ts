@@ -32,6 +32,96 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
   });
   afterAll(closePool);
 
+  it("retains unresolved artifacts through reset without listing the placeholder as a merchant", async () => {
+    const artifactId = randomUUID();
+    try {
+      await getPool().query(
+        `insert into raw_artifacts
+          (artifact_id,merchant_id,source_kind,source_reference,checksum,raw_content)
+         values($1,'m-unresolved','document',$1,$1,'{"supplier":"unidentified"}')`,
+        [artifactId],
+      );
+      await service.resetDemo();
+      const merchants = await service.listMerchants();
+      expect(merchants.map(({ merchantId }) => merchantId)).not.toContain(
+        "m-unresolved",
+      );
+      expect(
+        (
+          await getPool().query(
+            "select status,is_placeholder from merchants where merchant_id='m-unresolved'",
+          )
+        ).rows,
+      ).toEqual([{ status: "unknown", is_placeholder: true }]);
+      expect(
+        (
+          await getPool().query(
+            "select merchant_id,raw_content from raw_artifacts where artifact_id=$1",
+            [artifactId],
+          )
+        ).rows,
+      ).toEqual([
+        {
+          merchant_id: "m-unresolved",
+          raw_content: { supplier: "unidentified" },
+        },
+      ]);
+    } finally {
+      await getPool().query("delete from raw_artifacts where artifact_id=$1", [
+        artifactId,
+      ]);
+    }
+  });
+
+  it.each(["unknown", "offline"] as const)(
+    "keeps genuine %s merchants visible without capabilities",
+    async (status) => {
+      const merchantId = randomUUID();
+      try {
+        await getPool().query(
+          "insert into merchants(merchant_id,name,status) values($1,'Unconfigured supplier',$2)",
+          [merchantId, status],
+        );
+        await service.resetDemo();
+        expect(
+          (await service.listMerchants()).find(
+            (merchant) => merchant.merchantId === merchantId,
+          ),
+        ).toMatchObject({ merchantId, status, capabilities: [] });
+      } finally {
+        await getPool().query("delete from merchants where merchant_id=$1", [
+          merchantId,
+        ]);
+      }
+    },
+  );
+
+  it("excludes any placeholder from listing and candidate search even with an eligible capability", async () => {
+    const intent = kitIntent(now);
+    expect(
+      (await service.searchCandidates(intent)).some(
+        ({ merchantId }) => merchantId === "thread-forge",
+      ),
+    ).toBe(true);
+    try {
+      await getPool().query(
+        "update merchants set is_placeholder=true where merchant_id='thread-forge'",
+      );
+      expect(
+        (await service.listMerchants()).map(({ merchantId }) => merchantId),
+      ).not.toContain("thread-forge");
+      expect(
+        (await service.searchCandidates(intent)).map(
+          ({ merchantId }) => merchantId,
+        ),
+      ).not.toContain("thread-forge");
+    } finally {
+      await getPool().query(
+        "update merchants set is_placeholder=false where merchant_id='thread-forge'",
+      );
+    }
+  });
+
   it.each(["resolved", "unknown"] as const)(
     "honors %s prefixed inventory in candidate reads and reservations",
     async (status) => {
