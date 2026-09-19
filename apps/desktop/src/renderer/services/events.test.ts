@@ -18,6 +18,28 @@ function stream(chunks: string[]) {
   });
 }
 describe("replayable backend events", () => {
+  it.each([
+    "workflow.failed",
+    "intent.unsupported",
+    "execution.failed",
+    "execution.incomplete",
+    "order.needs_human",
+    "intent.clarification.required",
+  ])("surfaces %s without rendering private event payloads", (kind) => {
+    const activity = mapEvent(
+      backendEvent(kind, {
+        message: "private provider output",
+        reasoning: "private reasoning",
+      }),
+    );
+    expect(activity).toMatchObject({
+      kind,
+      alert: true,
+      notification: expect.any(String),
+    });
+    expect(JSON.stringify(activity)).not.toContain("private");
+    expect(activity?.severity).not.toBe("success");
+  });
   it("cancels a stalled reader immediately on project switch", async () => {
     const controller = new AbortController();
     const cancel = vi.fn();

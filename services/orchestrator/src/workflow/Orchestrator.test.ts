@@ -124,6 +124,7 @@ async function fixture(
   const orchestrator = new Orchestrator({
     sessions,
     events,
+    contexts: { contexts: () => [] },
     openai,
     reality: new MockRealityClient(),
     merchantAgents,

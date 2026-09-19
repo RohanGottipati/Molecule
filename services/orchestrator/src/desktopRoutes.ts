@@ -22,9 +22,9 @@ import { createOrderSession, toSnapshot } from "./session/OrderSession.js";
 export function registerDesktopRoutes(
   app: FastifyInstance,
   deps: ServerDependencies,
+  actions = new ActionLedger(deps.desktopStore),
 ) {
   const store = deps.desktopStore ?? new LocalStore();
-  const actions = new ActionLedger(store);
   const result = async (orderId: string): Promise<DesktopResult> => {
     const session = await deps.sessions.get(orderId);
     if (!session)
@@ -93,23 +93,37 @@ export function registerDesktopRoutes(
           switch (command.name) {
             case "start_project": {
               const session = (await result(id)).project;
-              await deps.orchestrator.submitMessage({
-                orderId: id,
-                traceId: session.traceId,
-                text: command.args.intent,
-                requestedAt: new Date().toISOString(),
-                locale: body.locale,
-                timeZone: body.timeZone,
-                assets: (await store.contexts(id))
-                  .filter((item) => item.attached)
-                  .map((item) => item.asset),
-              });
+              await deps.orchestrator.submitMessage(
+                {
+                  orderId: id,
+                  traceId: session.traceId,
+                  text: command.args.intent,
+                  requestedAt: new Date().toISOString(),
+                  locale: body.locale,
+                  timeZone: body.timeZone,
+                  assets: (await store.contexts(id))
+                    .filter((item) => item.attached)
+                    .map((item) => item.asset),
+                },
+                {
+                  messageId: body.actionId,
+                  source: "desktop",
+                  expectedRevision: body.expectedRevision,
+                  originalText: body.originalText,
+                },
+              );
               break;
             }
             case "add_constraint":
             case "remove_constraint":
             case "request_recompile":
-              await deps.orchestrator.revise(id, command, body.actionId);
+              await deps.orchestrator.revise(
+                id,
+                command,
+                body.actionId,
+                body.originalText,
+                body.expectedRevision,
+              );
               break;
             case "approve_action":
               await deps.orchestrator.approve(
@@ -122,31 +136,7 @@ export function registerDesktopRoutes(
               await deps.orchestrator.cancel(id);
               break;
             case "attach_context": {
-              const context = (await store.contexts(id)).find(
-                (item) => item.asset.assetId === command.args.contextId,
-              );
-              if (!context)
-                throw new RequestProblem(
-                  404,
-                  "NOT_FOUND",
-                  "Context not found on this project.",
-                );
-              if (!context.attached) {
-                await store.saveContext({ ...context, attached: true });
-                const session = (await result(id)).project;
-                await deps.events.append(
-                  makeEvent({
-                    traceId: session.traceId,
-                    orderId: id,
-                    eventType: "context.attached",
-                    source: "ui",
-                    payload: {
-                      contextId: context.asset.assetId,
-                      name: context.asset.name,
-                    },
-                  }),
-                );
-              }
+              await store.attachContext(id, command.args.contextId);
               break;
             }
             case "get_project_status":

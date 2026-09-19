@@ -1,7 +1,13 @@
 import type { OrderSession } from "./session/OrderSession.js";
-import type { MoleculeEvent } from "@molecule/contracts";
+import type {
+  MoleculeEvent,
+  ProjectList,
+  ProjectListQuery,
+} from "@molecule/contracts";
+import { listProjectSnapshots } from "./projectDiscovery.js";
 
 export interface SessionRepository {
+  listProjects(query: ProjectListQuery): Promise<ProjectList>;
   create(session: OrderSession): Promise<void>;
   get(orderId: string): Promise<OrderSession | null>;
   save(session: OrderSession, expectedRevision: number): Promise<void>;
@@ -13,9 +19,14 @@ export interface SessionRepository {
 }
 
 export class SessionConflictError extends Error {}
+export class SupersededSubmissionError extends SessionConflictError {}
 
 export class InMemorySessionRepository implements SessionRepository {
   private readonly sessions = new Map<string, OrderSession>();
+
+  async listProjects(query: ProjectListQuery) {
+    return listProjectSnapshots([...this.sessions.values()], query);
+  }
 
   async create(session: OrderSession): Promise<void> {
     if (this.sessions.has(session.orderId)) throw new SessionConflictError();

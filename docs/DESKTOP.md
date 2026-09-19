@@ -90,7 +90,7 @@ Desktop calls use shared Zod schemas from `@molecule/contracts`:
 
 The generic action endpoint replaces separate constraint/recompile/approval routes. Its bounded commands are `start_project`, `add_constraint`, `remove_constraint`, `attach_context`, `get_project_status`, `get_active_plan`, `explain_decision`, `request_recompile`, `approve_action`, `cancel_project`, and `open_command_center`. Status/plan/explanation tools return the same authoritative snapshot, including public quote and constraint explanations.
 
-Realtime call IDs map to `voice:{callId}`; transport retries retain action IDs. The backend coalesces in-flight calls and persists receipts. Different arguments under one ID fail. A pending receipt surviving a server crash is an unknown outcome and is not executed again automatically: refresh first. This prevents blind duplication; it is not a claim of distributed transactional exactly-once delivery.
+Realtime call IDs include a project-selection scope before mapping to `voice:{scopedCallId}`; transport retries retain action IDs and the originally observed revision. Switching projects clears voice history and replaces the scope so cached results cannot cross projects. The backend coalesces in-flight calls and persists receipts. Different arguments under one ID fail. A pending receipt surviving a server crash is an unknown outcome and is not executed again automatically: refresh first. This prevents blind duplication; it is not a claim of distributed transactional exactly-once delivery.
 
 ## Voice, context, and interruption
 
@@ -106,9 +106,11 @@ VoiceBeam's published defaults include breathing at zero. The input therefore hi
 
 Files: PNG, JPG/JPEG, PDF, CSV, TXT, JSON; 1 byte–10 MB each and at most eight per operation. The backend checks extension/MIME agreement and image/PDF signatures. XLSX is not supported because the existing backend has no parser. Explicit paste accepts text, files, or images; the clipboard is not polled.
 
-Drop, file selection, paste-context, and screen capture stage removable files in the draft. Sending uploads and attaches them before submitting the instruction; sending context alone attaches it to the current project. Failed files remain staged for retry using the same action identity. Switching projects clears the staged files and invalidates pending capture/upload results. Alerts and expansion never clear the draft.
+Drop, file selection, paste-context, and screen capture stage removable files in the draft. Sending uploads and attaches them before submitting the instruction; sending context alone attaches it to the current project. Only confirmed attachments leave the staging area. Failed or uncertain files remain staged; an explicit retry retains the same action identity and reuses a confirmed upload receipt instead of uploading again. Pending backend receipts still require reconciliation. Switching projects clears the staged files and invalidates pending capture/upload results. Alerts and expansion never clear the draft.
 
 Uploaded files pass through the OpenAI adapter and are included in subsequent compiler input. An attachment alone does not change product requirements: say or type “Put this on the hoodie.” For voice, send staged context before referring to it. Mock mode retains bytes/metadata but does not interpret image or document content.
+
+Approval stays unavailable while attached context is absent from the current compiled intent. Typed constraint edits alone do not compile new context; submit a brief update first. The backend enforces this for every execution entry point. Attachment, its event, and the project revision commit together, so a racing approval cannot execute the earlier plan. Projects that cannot accept corrections also reject new attachments.
 
 “Share screen or window” explains the operation, lists sources, and authorizes one chosen source for 30 seconds. The renderer captures one frame, stops all display tracks, and stages the image for the same context API. It never starts continuous surveillance.
 
@@ -191,6 +193,7 @@ Controls are keyboard accessible, statuses include text, and animation respects 
 - Microphone: **“Microphone access is off. Enable it in System Settings.”**
 - Screen: **“Screen context requires Screen Recording permission.”**
 - File: **“That file type isn’t supported yet.”**
+- Clarification: unresolved customer details remain `NEEDS_CLARIFICATION` after constraint changes or recompile requests. The backend persists the questions and intent version without searching merchants or solving. The dock and voice expose those questions; supplying the details through `start_project` lets the compiler resolve them. Direct solver requests with ambiguity flags return the missing-detail explanations and no budget, deadline, or quantity relaxations.
 - UNSAT: **“No valid company can satisfy all current requirements.”** Public solver explanations follow.
 - Cancellation only stops planning before execution. It does not undo completed commerce.
 

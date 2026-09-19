@@ -1,9 +1,12 @@
-import type {
-  AssetRef,
-  DesktopCommand,
-  DesktopResult,
-  MoleculeEvent,
-  MarketplaceSnapshot,
+import {
+  deriveProjectCapabilities,
+  hasUncompiledContext,
+  type AssetRef,
+  type DesktopCommand,
+  type DesktopResult,
+  type MoleculeEvent,
+  type MarketplaceSnapshot,
+  type ContextReceipt,
 } from "@molecule/contracts";
 import type {
   DesktopBootstrap,
@@ -16,7 +19,85 @@ import {
   subscribeEvents,
   type Activity,
 } from "../services/events.js";
-import { MoleculeApi, validateContext } from "../services/molecule-api.js";
+import {
+  ApiError,
+  MoleculeApi,
+  validateContext,
+} from "../services/molecule-api.js";
+
+export interface PendingOperation {
+  actionId: string;
+  name: DesktopCommand["name"] | "supplier_offline";
+}
+export interface UploadResult {
+  name: string;
+  actionId: string;
+  attachActionId: string;
+  stage: "upload" | "attach";
+  outcome: "confirmed" | "failed" | "unknown";
+  contextId?: string;
+  error: string | null;
+}
+interface UploadOperation {
+  actionId: string;
+  receipt?: ContextReceipt;
+  result?: UploadResult;
+  pending?: Promise<UploadResult>;
+}
+
+interface CommandOperation {
+  fingerprint: string;
+  expectedRevision?: number;
+  result?: Promise<DesktopResult>;
+}
+
+function failedUpload(name: string, error: string): UploadResult {
+  const actionId = crypto.randomUUID();
+  return {
+    name,
+    actionId,
+    attachActionId: `${actionId}:attach`,
+    stage: "upload",
+    outcome: "failed",
+    error,
+  };
+}
+
+function mergeAttachments(current: AssetRef[], incoming: AssetRef[]) {
+  return [
+    ...new Map(
+      [...current, ...incoming].map((asset) => [asset.assetId, asset]),
+    ).values(),
+  ];
+}
+
+function activeRecovery(
+  project: DesktopResult["project"] | null,
+  history: MoleculeEvent["payload"][],
+  invalidated: ReadonlySet<string>,
+) {
+  const plan = project?.activePlan;
+  if (
+    !plan ||
+    invalidated.has(plan.planId) ||
+    plan.status !== "VALID" ||
+    plan.intentVersion !== project.intentVersion ||
+    ![
+      "AWAITING_APPROVAL",
+      "EXECUTING",
+      "SKU_CREATED",
+      "SUPPLIER_JOBS_CREATED",
+      "CUSTOMER_ORDER_CREATED",
+      "COMPLETED",
+    ].includes(project.state)
+  )
+    return null;
+  return (
+    [...history]
+      .reverse()
+      .find((payload) => payload.replacementPlanId === plan.planId) ?? null
+  );
+}
 
 export interface StagedContext {
   id: string;
@@ -28,16 +109,22 @@ export interface DesktopState {
   mode: OverlayMode;
   visible: boolean;
   project: DesktopResult["project"] | null;
+  selectionEpoch: number;
   attachments: AssetRef[];
   staged: StagedContext[];
   uploading: string[];
+  uploadResults: UploadResult[];
   activity: Activity[];
   alert: Activity | null;
   failedMerchants: string[];
+  failedMerchantHistory: string[];
   recovery: MoleculeEvent["payload"] | null;
+  recoveryHistory: MoleculeEvent["payload"][];
   connection: "connecting" | "connected" | "reconnecting" | "offline";
   pending: number;
+  pendingOperations: PendingOperation[];
   error: string | null;
+  errorDetails: ApiError | null;
   demoMode: boolean;
   mockProviders: string[];
   marketplace: MarketplaceSnapshot | null;
@@ -49,16 +136,22 @@ export class DesktopStore {
     mode: "compact",
     visible: false,
     project: null,
+    selectionEpoch: 0,
     attachments: [],
     staged: [],
     uploading: [],
+    uploadResults: [],
     activity: [],
     alert: null,
     failedMerchants: [],
+    failedMerchantHistory: [],
     recovery: null,
+    recoveryHistory: [],
     connection: "connecting",
     pending: 0,
+    pendingOperations: [],
     error: null,
+    errorDetails: null,
     demoMode: false,
     mockProviders: [],
     marketplace: null,
@@ -75,11 +168,10 @@ export class DesktopStore {
   private disposed = false;
   private selection = new AbortController();
   private readonly seenEvents = new Set<string>();
-  private readonly commands = new Map<
-    string,
-    { fingerprint: string; result?: Promise<DesktopResult> }
-  >();
+  private readonly commands = new Map<string, CommandOperation>();
   private readonly automaticActions = new Map<string, string>();
+  private readonly uploads = new Map<string, UploadOperation>();
+  private readonly invalidatedRecoveryPlans = new Set<string>();
   private checking?: Promise<void>;
   private checkingProviders?: Promise<void>;
   private savingSettings = Promise.resolve();
@@ -90,6 +182,60 @@ export class DesktopStore {
   onProjectChanging?: () => void;
   constructor(readonly bridge: DesktopBridge) {}
   getSnapshot = () => this.state;
+  private approvalContextReason() {
+    if (this.state.staged.length || this.state.uploading.length)
+      return "Send or remove staged context before approval.";
+    if (this.state.uploadResults.some((item) => item.outcome === "unknown"))
+      return "Reconcile the uncertain attachment before approval.";
+    if (hasUncompiledContext(this.state.project, this.state.attachments))
+      return "Submit a brief update to compile the attached context before approval.";
+    return null;
+  }
+  getCapabilities() {
+    const project = this.state.project;
+    const planning =
+      !project ||
+      [
+        "REQUESTED",
+        "NEEDS_CLARIFICATION",
+        "NEEDS_HUMAN",
+        "FAILED",
+        "COMPILING_INTENT",
+        "INTENT_COMPILED",
+        "DISCOVERING",
+        "CANDIDATES_READY",
+        "QUOTING",
+        "QUOTED",
+        "SOLVING",
+        "PLAN_VALIDATED",
+        "PLAN_UNSAT",
+        "AWAITING_APPROVAL",
+      ].includes(project.state);
+    const committing = this.state.pendingOperations.some(({ name }) =>
+      ["approve_action", "supplier_offline", "cancel_project"].includes(name),
+    );
+    const mutating = this.state.pendingOperations.some(
+      ({ name }) =>
+        ![
+          "get_project_status",
+          "get_active_plan",
+          "explain_decision",
+          "open_command_center",
+        ].includes(name),
+    );
+    return {
+      canSubmitBrief: planning && !committing,
+      canCancelPlanning: Boolean(project) && planning && !committing,
+      canApprove:
+        !!project &&
+        deriveProjectCapabilities(project, false, this.state.attachments)
+          .canApprove &&
+        !this.approvalContextReason() &&
+        !mutating,
+      approvalBlockedReason: this.approvalContextReason(),
+      canRefresh: Boolean(project),
+    };
+  }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {
@@ -107,6 +253,7 @@ export class DesktopStore {
   error(cause: unknown) {
     if (cause instanceof DOMException && cause.name === "AbortError") return;
     this.patch({
+      errorDetails: cause instanceof ApiError ? cause : null,
       error:
         cause instanceof Error
           ? cause.message
@@ -114,7 +261,7 @@ export class DesktopStore {
     });
   }
   clearError() {
-    this.patch({ error: null });
+    this.patch({ error: null, errorDetails: null });
   }
   async initialize() {
     try {
@@ -203,8 +350,26 @@ export class DesktopStore {
   private apply(result: DesktopResult) {
     const current = this.state.project;
     if (current && current.orderId !== result.project.orderId) return;
-    if (current && current.revision > result.project.revision) return;
-    this.patch({ project: result.project, attachments: result.contexts });
+    const project =
+      current && current.revision > result.project.revision
+        ? current
+        : result.project;
+    const recovery = activeRecovery(
+      project,
+      this.state.recoveryHistory,
+      this.invalidatedRecoveryPlans,
+    );
+    const replaced =
+      current?.activePlan?.planId !== project.activePlan?.planId ||
+      current?.planGeneration !== project.planGeneration;
+    this.patch({
+      project,
+      attachments: mergeAttachments(this.state.attachments, result.contexts),
+      recovery,
+      ...(!project.activePlan || (replaced && !recovery)
+        ? { failedMerchants: [] }
+        : {}),
+    });
   }
   async ensureProject(): Promise<DesktopResult> {
     if (this.state.project)
@@ -239,27 +404,48 @@ export class DesktopStore {
     this.creating = undefined;
     this.commands.clear();
     this.automaticActions.clear();
+    this.uploads.clear();
+    this.invalidatedRecoveryPlans.clear();
     this.seenEvents.clear();
     this.cursor = 0;
     this.createActionId = crypto.randomUUID();
     this.patch({
       project: null,
+      selectionEpoch: this.generation,
       attachments: [],
       staged: [],
       uploading: [],
+      uploadResults: [],
       pending: 0,
+      pendingOperations: [],
       activity: [],
       alert: null,
       failedMerchants: [],
+      failedMerchantHistory: [],
       recovery: null,
+      recoveryHistory: [],
       error: null,
+      errorDetails: null,
     });
+    this.syncActiveProject(null);
     this.flushing = undefined;
     return this.generation;
+  }
+  private syncActiveProject(projectId: string | null) {
+    const generation = this.generation;
+    void this.bridge.setActiveProject?.(projectId).catch(() => {
+      if (generation === this.generation)
+        this.error(
+          new Error(
+            "The menu-bar project could not be updated. Open Command Center from this project.",
+          ),
+        );
+    });
   }
   private async select(result: DesktopResult, generation: number) {
     this.assertCurrent(generation);
     this.patch({ project: result.project, attachments: result.contexts });
+    this.syncActiveProject(result.project.orderId);
     this.connectEvents();
     const settings = this.state.bootstrap?.settings;
     if (settings)
@@ -356,36 +542,76 @@ export class DesktopStore {
           failedMerchants: [
             ...new Set([...this.state.failedMerchants, merchantId]),
           ],
+          failedMerchantHistory: [
+            ...new Set([...this.state.failedMerchantHistory, merchantId]),
+          ],
           recovery: null,
         });
     }
     if (
       event.eventType === "recovery.completed" ||
       event.eventType === "recovery.approval.required"
-    )
-      this.patch({ recovery: event.payload });
+    ) {
+      const recoveryHistory = [...this.state.recoveryHistory, event.payload];
+      this.patch({
+        recoveryHistory,
+        recovery: activeRecovery(
+          this.state.project,
+          recoveryHistory,
+          this.invalidatedRecoveryPlans,
+        ),
+      });
+    }
+    if (
+      ["intent.received", "project.cancelled", "recovery.failed"].includes(
+        event.eventType,
+      ) ||
+      (event.eventType === "plan.invalidated" &&
+        event.payload.reason !== "supplier_offline")
+    ) {
+      const planId =
+        typeof event.payload.previousPlanId === "string"
+          ? event.payload.previousPlanId
+          : !replay
+            ? this.state.project?.activePlan?.planId
+            : undefined;
+      if (planId) this.invalidatedRecoveryPlans.add(planId);
+      this.patch({ recovery: null, failedMerchants: [] });
+    }
     if (!activity) return;
+    const redundantAttention =
+      event.eventType === "order.needs_human" &&
+      [
+        "solver.unsat",
+        "intent.unsupported",
+        "workflow.failed",
+        "execution.failed",
+        "execution.incomplete",
+        "recovery.failed",
+      ].includes(this.state.alert?.kind ?? "");
     this.patch({
       activity: [
         ...this.state.activity.filter((item) => item.id !== activity.id),
         activity,
       ].slice(-40),
-      alert: activity.alert
-        ? activity
-        : [
-              "intent.received",
-              "plan.invalidated",
-              "execution.started",
-              "order.completed",
-              "project.cancelled",
-            ].includes(event.eventType)
-          ? null
-          : this.state.alert,
+      alert: redundantAttention
+        ? this.state.alert
+        : activity.alert
+          ? activity
+          : [
+                "intent.received",
+                "plan.invalidated",
+                "execution.started",
+                "order.completed",
+                "project.cancelled",
+              ].includes(event.eventType)
+            ? null
+            : this.state.alert,
     });
     if (!replay) {
       if (activity.alert && this.state.bootstrap?.settings.autoExpandOnAlert)
         void this.mode("alert").catch((error) => this.error(error));
-      if (activity.notification)
+      if (activity.notification && !this.state.visible && !redundantAttention)
         void this.bridge
           .notify({
             eventId: event.eventId,
@@ -398,6 +624,9 @@ export class DesktopStore {
     }
   }
   command(command: DesktopCommand, actionId?: string): Promise<DesktopResult> {
+    const blockedReason =
+      command.name === "approve_action" ? this.approvalContextReason() : null;
+    if (blockedReason) return Promise.reject(new Error(blockedReason));
     const fingerprint = JSON.stringify(command);
     const automatic = actionId === undefined;
     actionId ??= this.automaticActions.get(fingerprint) ?? crypto.randomUUID();
@@ -411,17 +640,22 @@ export class DesktopStore {
     }
     const id = actionId;
     if (automatic) this.automaticActions.set(fingerprint, id);
-    const result = this.execute(command, actionId);
-    this.commands.set(actionId, { fingerprint, result });
+    const operation = existing ?? { fingerprint };
+    this.commands.set(actionId, operation);
+    const result = this.execute(command, actionId, operation);
+    operation.result = result;
     void result
       .then(
         () => {
-          if (this.automaticActions.get(fingerprint) === id)
+          if (
+            command.name !== "approve_action" &&
+            this.automaticActions.get(fingerprint) === id
+          )
             this.automaticActions.delete(fingerprint);
         },
         () => {
           if (this.commands.get(id)?.result === result)
-            this.commands.set(id, { fingerprint });
+            operation.result = undefined;
         },
       )
       .finally(() => {
@@ -434,13 +668,28 @@ export class DesktopStore {
   private async execute(
     command: DesktopCommand,
     actionId: string,
+    operation: CommandOperation,
   ): Promise<DesktopResult> {
     const generation = this.generation;
-    this.patch({ pending: this.state.pending + 1, error: null });
+    this.patch({
+      pending: this.state.pending + 1,
+      error: null,
+      errorDetails: null,
+      pendingOperations: [
+        ...this.state.pendingOperations,
+        { actionId, name: command.name },
+      ],
+    });
     try {
       const { project } = await this.ensureProject();
       this.assertCurrent(generation);
-      const result = await this.api.command(project.orderId, command, actionId);
+      operation.expectedRevision ??= project.revision;
+      const result = await this.api.command(
+        project.orderId,
+        command,
+        actionId,
+        operation.expectedRevision,
+      );
       this.assertCurrent(generation);
       this.apply(result);
       if (command.name === "open_command_center")
@@ -456,7 +705,12 @@ export class DesktopStore {
       throw error;
     } finally {
       if (generation === this.generation)
-        this.patch({ pending: Math.max(0, this.state.pending - 1) });
+        this.patch({
+          pending: Math.max(0, this.state.pending - 1),
+          pendingOperations: this.state.pendingOperations.filter(
+            (operation) => operation.actionId !== actionId,
+          ),
+        });
     }
   }
   stage(files: File[]) {
@@ -481,9 +735,9 @@ export class DesktopStore {
     const batch = this.state.staged;
     const flush = (async () => {
       for (const { id, file } of batch) {
-        const attached = await this.upload([file], id);
+        const results = await this.upload([file], id);
         this.assertCurrent(generation);
-        if (!attached)
+        if (results.length !== 1 || results[0]?.outcome !== "confirmed")
           throw new Error(
             this.state.error ??
               "Context could not be attached. Try sending again.",
@@ -501,39 +755,44 @@ export class DesktopStore {
       .catch(() => undefined);
     return flush;
   }
-  async upload(files: File[], batchId?: string) {
+  async upload(files: File[], batchId?: string): Promise<UploadResult[]> {
     if (files.length > 8) throw new Error("Attach up to eight files at a time");
-    if (!files.length) return true;
-    files.forEach(validateContext);
+    if (!files.length) return [];
     const generation = this.generation;
     const { project } = await this.ensureProject();
     this.assertCurrent(generation);
-    let succeeded = true;
+    const results: UploadResult[] = [];
     for (const [index, file] of files.entries()) {
       try {
         this.assertCurrent(generation);
         this.patch({
           uploading: [...this.state.uploading, file.name],
-          error: null,
         });
-        const actionId = batchId ? `${batchId}:${index}` : crypto.randomUUID();
-        const context = await this.api.uploadContext(
+        const result = await this.uploadFile(
           project.orderId,
           file,
-          actionId,
+          generation,
+          batchId ? `${batchId}:${index}` : undefined,
         );
         this.assertCurrent(generation);
-        const result = await this.api.command(
-          project.orderId,
-          { name: "attach_context", args: { contextId: context.contextId } },
-          `${actionId}:attach`,
+        results.push(result);
+        const uploadResults = [
+          ...this.state.uploadResults.filter(
+            (previous) => previous.actionId !== result.actionId,
+          ),
+          result,
+        ];
+        const failures = uploadResults.filter(
+          (item) => item.outcome !== "confirmed",
         );
-        this.assertCurrent(generation);
-        this.apply(result);
-        this.onContextAttached?.();
+        this.patch({
+          uploadResults,
+          error: failures.length
+            ? failures.map((item) => `${item.name}: ${item.error}`).join(" ")
+            : null,
+        });
       } catch (error) {
-        if (generation !== this.generation) return false;
-        succeeded = false;
+        if (generation !== this.generation) return results;
         this.error(error);
       } finally {
         if (generation === this.generation)
@@ -544,7 +803,117 @@ export class DesktopStore {
           });
       }
     }
-    return succeeded;
+    return results;
+  }
+  private async uploadFile(
+    projectId: string,
+    file: File,
+    generation: number,
+    actionId?: string,
+  ): Promise<UploadResult> {
+    let mimeType: string;
+    try {
+      mimeType = validateContext(file);
+    } catch (error) {
+      return failedUpload(
+        file.name,
+        error instanceof Error ? error.message : "Unsupported attachment.",
+      );
+    }
+    let digest: ArrayBuffer;
+    try {
+      digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    } catch {
+      return failedUpload(
+        file.name,
+        "Could not read this attachment. Select it again.",
+      );
+    }
+    this.assertCurrent(generation);
+    const fingerprint = JSON.stringify([
+      actionId,
+      file.name,
+      mimeType,
+      Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join(""),
+    ]);
+    const operation = this.uploads.get(fingerprint) ?? {
+      actionId: actionId ?? crypto.randomUUID(),
+    };
+    this.uploads.set(fingerprint, operation);
+    if (operation.pending) return operation.pending;
+    if (operation.result?.outcome === "confirmed") return operation.result;
+    operation.pending = this.performUpload(
+      projectId,
+      file,
+      generation,
+      operation,
+    );
+    try {
+      operation.result = await operation.pending;
+      return operation.result;
+    } finally {
+      operation.pending = undefined;
+    }
+  }
+  private async performUpload(
+    projectId: string,
+    file: File,
+    generation: number,
+    operation: UploadOperation,
+  ): Promise<UploadResult> {
+    const result: UploadResult = {
+      name: file.name,
+      actionId: operation.actionId,
+      attachActionId: `${operation.actionId}:attach`,
+      stage: operation.receipt ? "attach" : "upload",
+      outcome: "unknown",
+      error: null,
+    };
+    try {
+      operation.receipt ??= await this.api.uploadContext(
+        projectId,
+        file,
+        operation.actionId,
+      );
+      this.assertCurrent(generation);
+      result.stage = "attach";
+      result.contextId = operation.receipt.contextId;
+      const attached = await this.api.command(
+        projectId,
+        { name: "attach_context", args: { contextId: result.contextId } },
+        result.attachActionId,
+      );
+      this.assertCurrent(generation);
+      this.apply(attached);
+      if (
+        !this.state.attachments.some(
+          (asset) => asset.assetId === result.contextId,
+        )
+      )
+        throw new ApiError(
+          "Attachment was not confirmed. Refresh before another attempt.",
+          200,
+          "INVALID_RESPONSE",
+        );
+      result.outcome = "confirmed";
+      this.onContextAttached?.();
+    } catch (error) {
+      this.assertCurrent(generation);
+      result.error =
+        error instanceof ApiError
+          ? error.message
+          : "Attachment outcome is unknown. Refresh and reconcile before another attempt.";
+      if (
+        error instanceof ApiError &&
+        error.code === "VALIDATION_ERROR" &&
+        error.status < 500
+      )
+        result.outcome = "failed";
+      this.patch({ errorDetails: error instanceof ApiError ? error : null });
+    }
+    return result;
   }
   async uploadFrom(
     read: (signal: AbortSignal) => Promise<File[]>,
@@ -559,7 +928,7 @@ export class DesktopStore {
     signal.throwIfAborted();
     this.assertCurrent(generation);
     if (stage) this.stage(files);
-    else await this.upload(files);
+    else return this.upload(files);
   }
   async chaos() {
     if (!this.state.demoMode)
@@ -575,18 +944,41 @@ export class DesktopStore {
     });
     if (!project || !supplier)
       throw new Error("No embroidery supplier is selected.");
-    this.patch({ pending: this.state.pending + 1 });
+    const fingerprint = JSON.stringify([
+      "supplier_offline",
+      project.orderId,
+      supplier.merchantId,
+    ]);
+    const actionId =
+      this.automaticActions.get(fingerprint) ?? crypto.randomUUID();
+    this.automaticActions.set(fingerprint, actionId);
+    this.patch({
+      pending: this.state.pending + 1,
+      pendingOperations: [
+        ...this.state.pendingOperations,
+        { actionId, name: "supplier_offline" },
+      ],
+    });
     try {
       const result = await this.api.supplierOffline(
         project.orderId,
         supplier.merchantId,
-        crypto.randomUUID(),
+        actionId,
       );
       this.assertCurrent(generation);
       this.apply(result);
+      this.automaticActions.delete(fingerprint);
+    } catch (error) {
+      if (generation === this.generation) this.error(error);
+      throw error;
     } finally {
       if (generation === this.generation)
-        this.patch({ pending: Math.max(0, this.state.pending - 1) });
+        this.patch({
+          pending: Math.max(0, this.state.pending - 1),
+          pendingOperations: this.state.pendingOperations.filter(
+            (operation) => operation.actionId !== actionId,
+          ),
+        });
     }
   }
   dispose() {

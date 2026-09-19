@@ -2,7 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 import cors from "@fastify/cors";
 import {
-  AssetRefSchema,
+  ActionIdSchema,
+  ActionStatusQuerySchema,
+  ProjectListQuerySchema,
+  ProjectListSchema,
+  MessageHistoryQuerySchema,
+  ProjectCapabilitiesEnvelopeSchema,
+  MessageSubmissionSchema,
   CompileIntentRequestSchema,
   SolverInputSchema,
   OrderSessionSnapshotSchema,
@@ -23,26 +29,7 @@ import { registerDesktopRoutes } from "./desktopRoutes.js";
 import type { ContextStore } from "./LocalStore.js";
 import { ActionLedger } from "./ActionLedger.js";
 import { apiFailure } from "./errors.js";
-
-const MessageBody = z.object({
-  text: z.string().min(1),
-  locale: z.string().default("en-CA"),
-  timeZone: z.string().default("UTC"),
-  assets: z.array(AssetRefSchema).default([]),
-  correction: z
-    .object({
-      kind: z.enum([
-        "constraint",
-        "preference",
-        "quantity",
-        "deadline",
-        "budget",
-        "other",
-      ]),
-      text: z.string().min(1),
-    })
-    .optional(),
-});
+import { readMessageHistory } from "./messageHistory.js";
 
 export interface ServerDependencies {
   config: Config;
@@ -75,8 +62,52 @@ export async function buildServer(deps: ServerDependencies) {
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/ready", async () => ({ status: "ready" }));
-  registerDesktopRoutes(app, deps);
   const chaosActions = new ActionLedger(deps.desktopStore);
+  registerDesktopRoutes(app, deps, chaosActions);
+  app.get("/api/projects", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return ProjectListSchema.parse(
+      await deps.sessions.listProjects(
+        ProjectListQuerySchema.parse(request.query),
+      ),
+    );
+  });
+  app.get<{ Params: { id: string } }>(
+    "/api/orders/:id/messages",
+    async (request, reply) => {
+      if (!(await deps.sessions.get(request.params.id)))
+        return reply.code(404).send({ error: "not_found" });
+      const query = MessageHistoryQuerySchema.parse(request.query);
+      reply.header("Cache-Control", "no-store");
+      return readMessageHistory(
+        deps.events,
+        request.params.id,
+        query.afterCursor,
+        query.limit,
+      );
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/orders/:id/actions",
+    async (request, reply) => {
+      if (!(await deps.sessions.get(request.params.id)))
+        return reply.code(404).send({ error: "not_found" });
+      reply.header("Cache-Control", "no-store");
+      return chaosActions.status(
+        request.params.id,
+        ActionStatusQuerySchema.parse(request.query),
+      );
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/orders/:id/capabilities",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return ProjectCapabilitiesEnvelopeSchema.parse(
+        await deps.orchestrator.capabilities(request.params.id),
+      );
+    },
+  );
   app.get("/api/marketplace", async (_request, reply) => {
     if (!deps.marketplace)
       return reply.code(503).send({ message: "Marketplace is unavailable" });
@@ -128,7 +159,10 @@ export async function buildServer(deps: ServerDependencies) {
     async (request, reply) => {
       const session = await deps.sessions.get(request.params.id);
       if (!session) return reply.code(404).send({ error: "not_found" });
-      const body = MessageBody.parse(request.body);
+      const body = MessageSubmissionSchema.parse(request.body);
+      const messageId = ActionIdSchema.parse(
+        request.headers["x-action-id"] ?? randomUUID(),
+      );
       const input = CompileIntentRequestSchema.parse({
         orderId: session.orderId,
         traceId: session.traceId,
@@ -145,10 +179,17 @@ export async function buildServer(deps: ServerDependencies) {
         correction: body.correction,
       });
       return chaosActions.run(
-        `${session.orderId}:message:${request.headers["x-action-id"] ?? randomUUID()}`,
+        `${session.orderId}:message:${messageId}`,
         body,
         OrderSessionSnapshotSchema.parse,
-        async () => toSnapshot(await deps.orchestrator.submitMessage(input)),
+        async () =>
+          toSnapshot(
+            await deps.orchestrator.submitMessage(input, {
+              messageId,
+              source: "web",
+              expectedRevision: body.expectedRevision,
+            }),
+          ),
       );
     },
   );

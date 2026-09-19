@@ -55,6 +55,35 @@ afterEach(() => {
 });
 
 describe("project event reconnection", () => {
+  it("replays an invalid frame even when later valid and ready frames arrive", () => {
+    const callbacks = setup();
+    const source = latest();
+    source.emit(JSON.stringify(event), "7");
+    source.emit("{broken", "8");
+    source.emit(
+      JSON.stringify({ ...event, eventType: "order.completed" }),
+      "9",
+    );
+    source.ready();
+    expect(callbacks.onEvent).toHaveBeenCalledOnce();
+    expect(callbacks.onReady).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(500);
+    expect(latest().url).toBe("/api/orders/project-one/events?after=7");
+    callbacks.stop();
+  });
+  it("backs off a persistent invalid frame even when each stream announces ready", () => {
+    const callbacks = setup();
+    for (const delay of [500, 1000, 2000]) {
+      latest().ready();
+      latest().emit("{broken", "1");
+      const count = MockEventSource.instances.length;
+      vi.advanceTimersByTime(delay - 1);
+      expect(MockEventSource.instances).toHaveLength(count);
+      vi.advanceTimersByTime(1);
+      expect(MockEventSource.instances).toHaveLength(count + 1);
+    }
+    callbacks.stop();
+  });
   it("recreates failed streams with the last cursor and suppresses replay and retired sources", () => {
     const callbacks = setup();
     const first = latest();

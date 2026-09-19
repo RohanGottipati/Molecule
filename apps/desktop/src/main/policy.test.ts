@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ActiveProjectSchema,
+  DashboardRequestSchema,
+} from "../shared/bridge.js";
+import {
   allowsMediaRequest,
   clampPosition,
   dashboardUrl,
@@ -15,6 +19,34 @@ import {
 } from "./policy.js";
 
 describe("desktop platform policy", () => {
+  it("accepts only UUID/null selection and exact supported dashboard views", () => {
+    const projectId = "bc812dea-31c8-4258-a81d-08c7eeb14b97";
+    expect(ActiveProjectSchema.parse(null)).toBeNull();
+    expect(ActiveProjectSchema.parse(projectId)).toBe(projectId);
+    for (const value of ["", "../../secret", undefined, { projectId }])
+      expect(ActiveProjectSchema.safeParse(value).success).toBe(false);
+    for (const view of [
+      "command",
+      "merchants",
+      "reality",
+      "operations",
+      "execution",
+    ] as const)
+      expect(dashboardUrl("https://molecule.example", projectId, view)).toBe(
+        `https://molecule.example/projects/${projectId}?view=${view}`,
+      );
+    expect(
+      DashboardRequestSchema.safeParse({ projectId, view: "https://evil" })
+        .success,
+    ).toBe(false);
+    expect(
+      DashboardRequestSchema.safeParse({ projectId, url: "https://evil" })
+        .success,
+    ).toBe(false);
+    expect(() =>
+      dashboardUrl("https://molecule.example", undefined, "execution"),
+    ).toThrow("project");
+  });
   it("focuses a visible dock behind another app, then hides on repeat activation", () => {
     let focused = false;
     const window = {
