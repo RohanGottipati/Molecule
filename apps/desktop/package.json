@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "package:mac": "pnpm build && electron-packager . Molecule --platform=darwin --arch=arm64,x64 --out=release --asar --ignore='^/(src|scripts|node_modules|release)' --app-bundle-id=ai.molecule.desktop --extend-info=Info.plist"
+    "package:mac": "pnpm build && electron-packager . Molecule --platform=darwin --arch=arm64,x64 --out=release --asar --ignore='^/(src|scripts|node_modules|release)' --app-bundle-id=ai.molecule.desktop --extend-info=Info.plist",
+    "package:mac:local": "pnpm build && node scripts/package-mac-local.mjs"
   },
   "dependencies": {
     "@molecule/contracts": "workspace:*",

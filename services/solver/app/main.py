@@ -11,6 +11,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/solve", response_model=ProductionPlan, response_model_by_alias=True)
+@app.post(
+    "/solve",
+    response_model=ProductionPlan,
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+)
 def solve_route(data: SolverInput) -> ProductionPlan:
     return solve(data)
