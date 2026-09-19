@@ -117,6 +117,23 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     return response.json();
   }
 
+  it("keeps the ingestion placeholder out of the marketplace and merchant-agent initialization", async () => {
+    const response = await app.inject("/api/marketplace");
+    expect(response.statusCode).toBe(200);
+    const marketplace = MarketplaceSnapshotSchema.parse(response.json());
+    expect(marketplace.merchants).not.toHaveLength(0);
+    expect(
+      marketplace.merchants.map(({ merchantId }) => merchantId),
+    ).not.toContain("m-unresolved");
+    expect(
+      (
+        await getPool().query(
+          "select status,backboard_assistant_id from merchants where merchant_id='m-unresolved'",
+        )
+      ).rows,
+    ).toEqual([{ status: "unknown", backboard_assistant_id: null }]);
+  });
+
   it("rolls back events with failed revisions and claims actions across workers", async () => {
     const session = createOrderSession();
     await store.create(session);

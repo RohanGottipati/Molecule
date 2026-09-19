@@ -15,6 +15,7 @@ import {
   isTrustedFrame,
   allowsIpcSender,
   allowsMediaCheck,
+  overlaySize,
 } from "./policy.js";
 
 describe("desktop platform policy", () => {
@@ -45,6 +46,35 @@ describe("desktop platform policy", () => {
     expect(() =>
       dashboardUrl("https://molecule.example", undefined, "execution"),
     ).toThrow("project");
+  });
+  it("focuses a visible dock behind another app, then hides on repeat activation", () => {
+    let focused = false;
+    const window = {
+      isVisible: () => true,
+      isFocused: () => focused,
+      show: vi.fn(() => {
+        focused = true;
+      }),
+      hide: vi.fn(),
+    };
+    toggleWindow(window);
+    expect(window.show).toHaveBeenCalledOnce();
+    expect(window.hide).not.toHaveBeenCalled();
+    toggleWindow(window);
+    expect(window.hide).toHaveBeenCalledOnce();
+  });
+  it("fits every dock mode into a smaller or rotated display", () => {
+    for (const mode of ["compact", "conversation", "company", "alert"]) {
+      const area = { x: -320, y: 20, width: 320, height: 580 };
+      const size = overlaySize(mode, area);
+      const position = clampPosition({ x: 5000, y: 5000 }, size, area);
+      expect(size.width).toBeLessThanOrEqual(area.width);
+      expect(size.height).toBeLessThanOrEqual(area.height);
+      expect(position.x + size.width).toBeLessThanOrEqual(area.x + area.width);
+      expect(position.y + size.height).toBeLessThanOrEqual(
+        area.y + area.height,
+      );
+    }
   });
   it.each([
     "https://user:secret@example.com",

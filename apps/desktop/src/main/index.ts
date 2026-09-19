@@ -216,8 +216,9 @@ else
       });
       handle("desktop:settings", async (value) => {
         const next = SettingsPatchSchema.parse(value);
+        const previousShortcut = settings.get().shortcut;
         await settings.update(next);
-        if (next.shortcut !== undefined) {
+        if (next.shortcut !== undefined && next.shortcut !== previousShortcut) {
           if (shortcut) globalShortcut.unregister(shortcut);
           shortcut = registerShortcut(
             globalShortcut,

@@ -351,11 +351,19 @@ export class Orchestrator {
           ...session.intent,
           budgetMax: session.intent?.budgetMax ?? undefined,
         });
-        if (!complete.success) {
+        if (!complete.success || complete.data.ambiguityFlags.length > 0) {
           const clarified = await this.move(
             session,
             "NEEDS_CLARIFICATION",
             "intent.clarification.required",
+            "orchestrator",
+            {
+              questions:
+                session.intent?.ambiguityFlags.map(
+                  ({ question, reason }) => question ?? reason,
+                ) ?? [],
+              intentVersion: session.intentVersion,
+            },
           );
           if (originalText)
             await this.messageOutcome(accepted, actionId, clarified);

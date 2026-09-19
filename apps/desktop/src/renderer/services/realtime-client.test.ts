@@ -56,10 +56,14 @@ function fixture(overrides: Partial<RealtimeDependencies> = {}) {
     createAudioContext: () =>
       ({
         close: async () => undefined,
-        createMediaStreamSource: () => ({ connect: () => undefined }),
+        createMediaStreamSource: () => ({
+          connect: () => undefined,
+          disconnect: () => undefined,
+        }),
         createAnalyser: () => ({
           fftSize: 256,
           getFloatTimeDomainData: () => undefined,
+          disconnect: () => undefined,
         }),
       }) as unknown as AudioContext,
     transport: vi.fn(async () => new Response("answer")),
@@ -78,6 +82,28 @@ afterEach(() => {
 });
 
 describe("Realtime lifecycle without paid calls", () => {
+  it("clears archived voice turns when selecting another project", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Private project A",
+    });
+    client.stop();
+    await client.start();
+    channel.open();
+    expect(client.getSnapshot().history).toMatchObject([
+      { speaker: "You", text: "Private project A" },
+    ]);
+    client.resetProject();
+    expect(client.getSnapshot()).toMatchObject({
+      state: "idle",
+      transcript: "",
+      response: "",
+      history: [],
+    });
+  });
   it("does not replay another project's cached tool result when call IDs collide", async () => {
     const { client, channel, execute } = fixture();
     const call = {
@@ -151,6 +177,138 @@ describe("Realtime lifecycle without paid calls", () => {
       state: "listening",
     });
     expect(execute).not.toHaveBeenCalled();
+    client.stop();
+  });
+  it("samples the transmitted stream without notifying React and releases every meter resource", async () => {
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    let amplitude = 0.08;
+    const analyser = {
+      fftSize: 256,
+      getFloatTimeDomainData: (samples: Float32Array) =>
+        samples.fill(amplitude),
+      disconnect: vi.fn(),
+    };
+    const context = {
+      state: "suspended",
+      resume: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      createMediaStreamSource: vi.fn((_stream: MediaStream) => source),
+      createAnalyser: () => analyser,
+    };
+    const { client, channel, peer, track } = fixture({
+      createAudioContext: () => context as unknown as AudioContext,
+    });
+    let frame!: FrameRequestCallback;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        frame = callback;
+        return 1;
+      }),
+    );
+    await client.start();
+    channel.open();
+    const render = vi.fn();
+    const level = vi.fn();
+    const unsubscribe = client.subscribe(render);
+    const unmeter = client.subscribeLevel(level);
+    frame(16);
+    expect(client.getLevel()).toBeCloseTo(0.4);
+    amplitude = 0.5;
+    frame(32);
+    expect(client.getLevel()).toBe(1);
+    amplitude = 0;
+    frame(48);
+    expect(client.getLevel()).toBe(0);
+    expect(render).not.toHaveBeenCalled();
+    expect(context.createMediaStreamSource.mock.calls[0]?.[0]).toBe(
+      peer.addTrack.mock.calls[0]?.[1],
+    );
+    expect(context.resume).toHaveBeenCalledOnce();
+    amplitude = 0.1;
+    frame(64);
+    client.mute(true);
+    expect(client.getLevel()).toBe(0);
+    frame(80);
+    expect(client.getLevel()).toBe(0);
+    client.stop();
+    expect(source.disconnect).toHaveBeenCalledOnce();
+    expect(analyser.disconnect).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+    const count = level.mock.calls.length;
+    frame(96);
+    expect(level).toHaveBeenCalledTimes(count);
+    unsubscribe();
+    unmeter();
+  });
+  it("keeps speech attention and transcripts on the latest input item", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "first",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "first",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "second",
+    });
+    channel.emit({ type: "response.created", response: { id: "late" } });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "first",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "first",
+      transcript: "Old request",
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      state: "user-speaking",
+      transcript: "",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "second",
+      delta: "Current request",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "second",
+    });
+    channel.emit({ type: "response.created", response: { id: "current" } });
+    channel.emit({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant",
+      response_id: "current",
+      delta: "Understood",
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      state: "thinking",
+      transcript: "Current request",
+      response: "Understood",
+    });
+    client.stop();
+  });
+  it("bounds reconnects even when each unstable connection briefly opens", async () => {
+    vi.useFakeTimers();
+    const { client, channel } = fixture();
+    await client.start();
+    for (const delay of [500, 1000, 2000]) {
+      channel.open();
+      channel.onclose?.();
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+    channel.open();
+    channel.onclose?.();
+    expect(client.getSnapshot().state).toBe("error");
+    expect(client.getLevel()).toBe(0);
     client.stop();
   });
   it("releases captured audio when backend setup stalls and ignores its late result", async () => {

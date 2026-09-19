@@ -125,6 +125,54 @@ async function fixture(directory?: string) {
 }
 
 describe("shared brain read models", () => {
+  it("retains correction history and outcomes while unresolved details require clarification", async () => {
+    const { orchestrator, openai, solver, store, input, session } =
+      await fixture();
+    const compiled = await openai.compileIntent(input);
+    if (compiled.status !== "READY") throw new Error("Expected ready intent");
+    const ambiguityFlags = [
+      {
+        field: "artwork",
+        reason: "Missing artwork",
+        question: "Supply a logo.",
+      },
+    ];
+    vi.spyOn(openai, "compileIntent").mockResolvedValueOnce({
+      status: "NEEDS_CLARIFICATION",
+      draft: { ...compiled.intent, ambiguityFlags },
+      questions: ["Supply a logo."],
+    });
+    const initial = await orchestrator.submitMessage(input);
+    expect(initial.state).toBe("NEEDS_CLARIFICATION");
+    const result = await orchestrator.revise(
+      session.orderId,
+      { name: "request_recompile", args: {} },
+      "retry-clarification",
+      "Try that plan again.",
+      initial.revision,
+    );
+    expect(result.state).toBe("NEEDS_CLARIFICATION");
+    expect(result.activePlan).toBeNull();
+    expect(solver.solve).not.toHaveBeenCalled();
+    const events = await store.list(session.orderId, 0);
+    expect(events.map(({ event }) => event)).toContainEqual(
+      expect.objectContaining({
+        eventType: "intent.clarification.required",
+        payload: {
+          questions: ["Supply a logo."],
+          intentVersion: result.intentVersion,
+          state: "NEEDS_CLARIFICATION",
+        },
+      }),
+    );
+    const history = await readMessageHistory(store, session.orderId, 0, 50);
+    expect(history.messages.at(-1)).toMatchObject({
+      messageId: "retry-clarification",
+      text: "Try that plan again.",
+      source: "desktop",
+      outcome: { status: "succeeded", resultRevision: result.revision },
+    });
+  });
   it.each(["memory", "local"])(
     "pages %s projects stably across updates with tied timestamps",
     async (kind) => {

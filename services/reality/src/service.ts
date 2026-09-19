@@ -384,7 +384,7 @@ export function createRealityService(
         .parse(excludedMerchantIds);
       return transaction(async (client) => {
         const merchants = await client.query<MerchantRow>(
-          "select * from merchants where not(merchant_id=any($1::text[])) order by merchant_id",
+          "select * from merchants where not is_placeholder and not(merchant_id=any($1::text[])) order by merchant_id",
           [excludedMerchantIds],
         );
         const candidates: CandidateCapability[] = [];
@@ -435,7 +435,7 @@ export function createRealityService(
     async listMerchants() {
       return transaction(async (client) => {
         const rows = await client.query<MerchantRow>(
-          "select * from merchants order by merchant_id",
+          "select * from merchants where not is_placeholder order by merchant_id",
         );
         const summaries: MerchantTwinSummary[] = [];
         for (const merchant of rows.rows) {

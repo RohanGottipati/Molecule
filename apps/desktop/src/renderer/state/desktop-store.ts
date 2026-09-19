@@ -97,6 +97,11 @@ function activeRecovery(
   );
 }
 
+export interface StagedContext {
+  id: string;
+  file: File;
+}
+
 export interface DesktopState {
   bootstrap?: DesktopBootstrap;
   mode: OverlayMode;
@@ -104,6 +109,7 @@ export interface DesktopState {
   project: DesktopResult["project"] | null;
   selectionEpoch: number;
   attachments: AssetRef[];
+  staged: StagedContext[];
   uploading: string[];
   uploadResults: UploadResult[];
   activity: Activity[];
@@ -130,6 +136,7 @@ export class DesktopStore {
     project: null,
     selectionEpoch: 0,
     attachments: [],
+    staged: [],
     uploading: [],
     uploadResults: [],
     activity: [],
@@ -167,6 +174,7 @@ export class DesktopStore {
   private checkingProviders?: Promise<void>;
   private savingSettings = Promise.resolve();
   private capture = new AbortController();
+  private flushing?: Promise<void>;
   onBackendEvent?: (event: MoleculeEvent) => void;
   onContextAttached?: () => void;
   onProjectChanging?: () => void;
@@ -392,6 +400,7 @@ export class DesktopStore {
       project: null,
       selectionEpoch: this.generation,
       attachments: [],
+      staged: [],
       uploading: [],
       uploadResults: [],
       pending: 0,
@@ -406,6 +415,7 @@ export class DesktopStore {
       errorDetails: null,
     });
     this.syncActiveProject(null);
+    this.flushing = undefined;
     return this.generation;
   }
   private syncActiveProject(projectId: string | null) {
@@ -687,20 +697,67 @@ export class DesktopStore {
         });
     }
   }
-  async upload(files: File[]): Promise<UploadResult[]> {
+  stage(files: File[]) {
+    if (this.state.staged.length + files.length > 8)
+      throw new Error("Attach up to eight files at a time.");
+    files.forEach(validateContext);
+    this.patch({
+      staged: [
+        ...this.state.staged,
+        ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+      ],
+      error: null,
+    });
+  }
+  removeStaged(id: string) {
+    if (this.flushing) return;
+    this.patch({ staged: this.state.staged.filter((item) => item.id !== id) });
+  }
+  flushContext() {
+    if (this.flushing) return this.flushing;
+    const generation = this.generation;
+    const batch = this.state.staged;
+    const flush = (async () => {
+      for (const { id, file } of batch) {
+        const results = await this.upload([file], id);
+        this.assertCurrent(generation);
+        if (results.length !== 1 || results[0]?.outcome !== "confirmed")
+          throw new Error(
+            this.state.error ??
+              "Context could not be attached. Try sending again.",
+          );
+        this.patch({
+          staged: this.state.staged.filter((item) => item.id !== id),
+        });
+      }
+    })();
+    this.flushing = flush;
+    void flush
+      .finally(() => {
+        if (this.flushing === flush) this.flushing = undefined;
+      })
+      .catch(() => undefined);
+    return flush;
+  }
+  async upload(files: File[], batchId?: string): Promise<UploadResult[]> {
     if (files.length > 8) throw new Error("Attach up to eight files at a time");
     if (!files.length) return [];
     const generation = this.generation;
     const { project } = await this.ensureProject();
     this.assertCurrent(generation);
     const results: UploadResult[] = [];
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
       try {
         this.assertCurrent(generation);
         this.patch({
           uploading: [...this.state.uploading, file.name],
         });
-        const result = await this.uploadFile(project.orderId, file, generation);
+        const result = await this.uploadFile(
+          project.orderId,
+          file,
+          generation,
+          batchId ? `${batchId}:${index}` : undefined,
+        );
         this.assertCurrent(generation);
         results.push(result);
         const uploadResults = [
@@ -736,6 +793,7 @@ export class DesktopStore {
     projectId: string,
     file: File,
     generation: number,
+    actionId?: string,
   ): Promise<UploadResult> {
     let mimeType: string;
     try {
@@ -757,6 +815,7 @@ export class DesktopStore {
     }
     this.assertCurrent(generation);
     const fingerprint = JSON.stringify([
+      actionId,
       file.name,
       mimeType,
       Array.from(new Uint8Array(digest), (byte) =>
@@ -764,7 +823,7 @@ export class DesktopStore {
       ).join(""),
     ]);
     const operation = this.uploads.get(fingerprint) ?? {
-      actionId: crypto.randomUUID(),
+      actionId: actionId ?? crypto.randomUUID(),
     };
     this.uploads.set(fingerprint, operation);
     if (operation.pending) return operation.pending;
@@ -840,7 +899,10 @@ export class DesktopStore {
     }
     return result;
   }
-  async uploadFrom(read: (signal: AbortSignal) => Promise<File[]>) {
+  async uploadFrom(
+    read: (signal: AbortSignal) => Promise<File[]>,
+    stage = false,
+  ) {
     const generation = this.generation;
     const signal = AbortSignal.any([
       this.selection.signal,
@@ -849,7 +911,8 @@ export class DesktopStore {
     const files = await read(signal);
     signal.throwIfAborted();
     this.assertCurrent(generation);
-    return this.upload(files);
+    if (stage) this.stage(files);
+    else return this.upload(files);
   }
   async chaos() {
     if (!this.state.demoMode)

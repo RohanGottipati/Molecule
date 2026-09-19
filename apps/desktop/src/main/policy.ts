@@ -134,11 +134,25 @@ export function registerShortcut(
 
 export function toggleWindow(window: {
   isVisible(): boolean;
+  isFocused?(): boolean;
   show(): void;
   hide(): void;
 }) {
-  if (window.isVisible()) window.hide();
+  if (window.isVisible() && (window.isFocused?.() ?? true)) window.hide();
   else window.show();
+}
+
+export function overlaySize(
+  mode: string,
+  area: { width: number; height: number },
+) {
+  return {
+    width: Math.min(mode === "compact" ? 420 : 480, area.width),
+    height: Math.min(
+      mode === "compact" ? 188 : mode === "company" ? 760 : 660,
+      area.height,
+    ),
+  };
 }
 
 export function clampPosition(
