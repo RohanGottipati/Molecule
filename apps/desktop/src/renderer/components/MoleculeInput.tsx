@@ -34,6 +34,7 @@ export function voiceLabel(audio: VoiceSnapshot): string {
 
 export interface MoleculeInputProps {
   inputRef: RefObject<HTMLTextAreaElement | null>;
+  screenRef: RefObject<HTMLButtonElement | null>;
   text: string;
   onText: (text: string) => void;
   onSubmit: () => void;
@@ -149,6 +150,7 @@ export function MoleculeInput(props: MoleculeInputProps) {
         </button>
         {!compact && (
           <button
+            ref={props.screenRef}
             type="button"
             className="icon-button"
             aria-label="Share screen or window"

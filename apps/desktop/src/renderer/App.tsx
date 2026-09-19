@@ -24,6 +24,7 @@ export function App() {
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
+  const screenButton = useRef<HTMLButtonElement>(null);
   const submitted = useRef(new Set<string>());
   const selection = useRef(0);
   const compact = state.mode === "compact";
@@ -42,7 +43,7 @@ export function App() {
   };
   const closeScreen = () => {
     setShowScreen(false);
-    input.current?.focus();
+    requestAnimationFrame(() => screenButton.current?.focus());
   };
   useEffect(() => {
     void store.initialize().then(() => store.refreshProviders());
@@ -371,6 +372,7 @@ export function App() {
           voice={voice}
           visible={state.visible}
           inputRef={input}
+          screenRef={screenButton}
           text={text}
           onText={setText}
           onSubmit={() => run(submit())}
