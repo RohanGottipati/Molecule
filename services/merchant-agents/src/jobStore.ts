@@ -63,6 +63,7 @@ export interface JobDecisionStore {
 export class InMemoryJobDecisionStore implements JobDecisionStore {
   private readonly decisionsByKey = new Map<string, JobDecision>();
   private readonly decisionsByActionKey = new Map<string, JobDecision>();
+  private readonly inputsByActionKey = new Map<string, string>();
 
   private key(merchantId: string, orderId: string, nodeId: string): string {
     return `${merchantId}::${orderId}::${nodeId}`;
@@ -77,6 +78,8 @@ export class InMemoryJobDecisionStore implements JobDecisionStore {
   }
 
   async acceptJob(input: AcceptJobInput): Promise<JobDecision> {
+    const identity = this.identity(input, "accepted");
+    this.checkAction(input.actionKey, identity);
     const existing = this.decisionsByActionKey.get(input.actionKey);
     if (existing) {
       return existing;
@@ -90,11 +93,13 @@ export class InMemoryJobDecisionStore implements JobDecisionStore {
       actionKey: input.actionKey,
       updatedAt: new Date().toISOString(),
     };
-    this.store(decision);
+    this.store(decision, identity);
     return decision;
   }
 
   async declineJob(input: DeclineJobInput): Promise<JobDecision> {
+    const identity = this.identity(input, "declined");
+    this.checkAction(input.actionKey, identity);
     const existing = this.decisionsByActionKey.get(input.actionKey);
     if (existing) {
       return existing;
@@ -108,11 +113,13 @@ export class InMemoryJobDecisionStore implements JobDecisionStore {
       actionKey: input.actionKey,
       updatedAt: new Date().toISOString(),
     };
-    this.store(decision);
+    this.store(decision, identity);
     return decision;
   }
 
   async updateEta(input: UpdateEtaInput): Promise<JobDecision> {
+    const identity = this.identity(input, "eta");
+    this.checkAction(input.actionKey, identity);
     const existing = this.decisionsByActionKey.get(input.actionKey);
     if (existing) {
       return existing;
@@ -129,15 +136,37 @@ export class InMemoryJobDecisionStore implements JobDecisionStore {
       actionKey: input.actionKey,
       updatedAt: new Date().toISOString(),
     };
-    this.store(decision);
+    this.store(decision, identity);
     return decision;
   }
 
-  private store(decision: JobDecision): void {
+  private identity(
+    input: AcceptJobInput | DeclineJobInput | UpdateEtaInput,
+    kind: string,
+  ): string {
+    return JSON.stringify([
+      kind,
+      input.merchantId,
+      input.orderId,
+      input.nodeId,
+      "eta" in input ? input.eta : undefined,
+      "reason" in input ? input.reason : undefined,
+    ]);
+  }
+
+  private checkAction(actionKey: string, identity: string): void {
+    if (!actionKey) throw new Error("Action requires actionKey");
+    const prior = this.inputsByActionKey.get(actionKey);
+    if (prior !== undefined && prior !== identity)
+      throw new Error("Idempotency key conflicts with input");
+  }
+
+  private store(decision: JobDecision, identity: string): void {
     this.decisionsByKey.set(
       this.key(decision.merchantId, decision.orderId, decision.nodeId),
       decision,
     );
     this.decisionsByActionKey.set(decision.actionKey, decision);
+    this.inputsByActionKey.set(decision.actionKey, identity);
   }
 }
