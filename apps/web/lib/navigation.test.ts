@@ -108,4 +108,47 @@ describe("safe relaxation drafts", () => {
     expect(relaxationDraft("budgetMax", 8000, "USD")).toBeNull();
     expect(relaxationDraft("polyester", 10)).toBeNull();
   });
+
+  it.each([
+    ["budgetMax", 125],
+    ["quantity", 10],
+  ] as const)(
+    "compiles a reviewed %s draft with the correction payload used by the web",
+    async (field, value) => {
+      const adapter = new MockOpenAIAdapter();
+      const request = {
+        orderId: "one",
+        traceId: "trace-one",
+        requestedAt: "2026-09-19T10:00:00Z",
+        locale: "en-CA",
+        timeZone: "UTC",
+        assets: [],
+      };
+      const initial = await adapter.compileIntent({
+        ...request,
+        text: "200 premium onboarding kits by Friday under CAD 100, black, no leather, logo on hoodie, engraved names on bottles, vegan snacks, individually packaged.",
+      });
+      expect(initial.status).toBe("READY");
+      if (initial.status !== "READY")
+        throw new Error("Fixture did not compile");
+      const text = relaxationDraft(field, value)!;
+      const result = await adapter.compileIntent({
+        ...request,
+        text,
+        correction: { kind: "other", text },
+        previousIntent: initial.intent,
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY")
+        throw new Error("Reviewed relaxation did not compile");
+      expect(result.intent[field]).toBe(value);
+      expect(result.intent.deadline).toBe(initial.intent.deadline);
+      expect(result.intent.transformations).toEqual(
+        initial.intent.transformations,
+      );
+      expect(result.intent.hardConstraints).toEqual(
+        initial.intent.hardConstraints,
+      );
+    },
+  );
 });

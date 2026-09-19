@@ -63,7 +63,7 @@ export function relaxationDraft(
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
     return null;
   if (field === "quantity")
-    return Number.isSafeInteger(value) ? `Set quantity ${value}` : null;
+    return Number.isSafeInteger(value) ? `Quantity ${value}` : null;
   if (
     field === "budgetMax" &&
     currency === "CAD" &&
@@ -71,6 +71,6 @@ export function relaxationDraft(
     value < 1e15 &&
     Number(value.toFixed(2)) === value
   )
-    return `Set budget CAD ${value.toLocaleString("en-CA", { useGrouping: false, maximumFractionDigits: 2 })}`;
+    return `Budget CAD ${value.toLocaleString("en-CA", { useGrouping: false, maximumFractionDigits: 2 })}`;
   return null;
 }
