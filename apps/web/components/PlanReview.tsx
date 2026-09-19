@@ -230,7 +230,9 @@ export function PlanReview({
           <ExecutionView
             order={order}
             marketplace={marketplace}
-            busy={actionsBlocked}
+            busy={workspace.operation === "approval"}
+            actionsBlocked={actionsBlocked}
+            blockedReason={workspace.capabilities.reason}
             demoMode={
               workspace.demoMode &&
               !workspace.configLoading &&

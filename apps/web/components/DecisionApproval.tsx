@@ -14,12 +14,16 @@ export function DecisionApproval({
   order,
   marketplace,
   busy,
+  actionsBlocked = false,
+  blockedReason,
   events,
   onApprove,
 }: {
   order: OrderSessionSnapshot;
   marketplace: MarketplaceSnapshot | null;
   busy: boolean;
+  actionsBlocked?: boolean;
+  blockedReason?: string | null;
   events: MoleculeEvent[];
   onApprove: () => void;
 }) {
@@ -196,7 +200,7 @@ export function DecisionApproval({
         <button
           className="primary"
           type="button"
-          disabled={!canApproveDecision(order) || busy}
+          disabled={!canApproveDecision(order) || busy || actionsBlocked}
           onClick={onApprove}
         >
           {busy || status === "executing"
@@ -209,6 +213,12 @@ export function DecisionApproval({
       {busy && status !== "executing" && (
         <p className="decision-status" role="status">
           Request in progress. No new execution success is confirmed yet.
+        </p>
+      )}
+      {actionsBlocked && !busy && status === "awaiting" && (
+        <p className="decision-status" role="status">
+          {blockedReason ??
+            "Refresh and review the current project before approving."}
         </p>
       )}
       {!plan && (

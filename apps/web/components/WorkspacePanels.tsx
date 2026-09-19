@@ -619,6 +619,8 @@ export function ExecutionView({
   order,
   marketplace,
   busy,
+  actionsBlocked = false,
+  blockedReason,
   demoMode,
   onApprove,
   onOffline,
@@ -627,6 +629,8 @@ export function ExecutionView({
   order: OrderSessionSnapshot | null;
   marketplace: MarketplaceSnapshot | null;
   busy: boolean;
+  actionsBlocked?: boolean;
+  blockedReason?: string | null;
   demoMode: boolean;
   onApprove: () => void;
   onOffline: (merchantId: string) => void;
@@ -652,6 +656,8 @@ export function ExecutionView({
               order={order}
               marketplace={marketplace}
               busy={busy}
+              actionsBlocked={actionsBlocked}
+              blockedReason={blockedReason}
               events={events}
               onApprove={onApprove}
             />
@@ -668,7 +674,7 @@ export function ExecutionView({
         key={order?.orderId ?? "no-project"}
         order={order}
         marketplace={marketplace}
-        busy={busy}
+        busy={busy || actionsBlocked}
         demoMode={demoMode}
         onOffline={onOffline}
       />
