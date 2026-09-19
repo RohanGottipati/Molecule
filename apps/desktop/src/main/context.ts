@@ -74,6 +74,7 @@ export class ScreenContext {
 export async function pasteFiles(): Promise<CapturedFile[]> {
   const items = await clipboard.read();
   const urls: string[] = [];
+  let text: Blob | undefined;
   for (const item of items) {
     if (item.types.includes("image/png")) {
       const blob = await item.getType("image/png");
@@ -88,6 +89,10 @@ export async function pasteFiles(): Promise<CapturedFile[]> {
         },
       ];
     }
+    if (!text && item.types.includes("text/plain")) {
+      const blob = await item.getType("text/plain");
+      if (blob instanceof Blob) text = blob;
+    }
     const format = item.types.find(
       (type) =>
         type === 'electron application/osclipboard;format="public.file-url"' ||
@@ -101,6 +106,19 @@ export async function pasteFiles(): Promise<CapturedFile[]> {
           .split(/[\r\n\0]+/)
           .filter((value) => value.startsWith("file://")),
       );
+  }
+  if (!urls.length) {
+    if (!text?.size)
+      throw new Error("Copy text, an image, or a supported file first.");
+    if (text.size > MAX_CONTEXT_BYTES)
+      throw new Error("Clipboard text exceeds 10 MB");
+    return [
+      {
+        name: "pasted-text.txt",
+        mimeType: "text/plain",
+        bytes: new Uint8Array(await text.arrayBuffer()),
+      },
+    ];
   }
   if (urls.length > 8) throw new Error("Paste up to eight files at a time");
   const types: Record<string, string> = {
