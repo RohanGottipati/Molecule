@@ -29,6 +29,7 @@
     "db:reset": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/reset.ts"
   },
   "devDependencies": {
+    "@shopify/cli": "4.8.0",
     "@types/node": "26.6.2",
     "prettier": "3.9.8",
     "tsx": "4.23.13",
