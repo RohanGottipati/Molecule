@@ -89,6 +89,7 @@ export function PlanReview({
             )}
             {plan.nodes.length ? (
               <PlanGraph
+                key={plan.planId}
                 plan={plan}
                 previousPlan={previousPlan}
                 merchants={marketplace?.merchants ?? []}

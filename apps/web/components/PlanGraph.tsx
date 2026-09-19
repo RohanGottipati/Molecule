@@ -12,11 +12,12 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useNodesState,
   type Edge,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { planSelection, type PlanSelection } from "../lib/decisionPlan";
 import { dateLabel, graphPositions, humanize, money } from "../lib/workspace";
 
@@ -182,6 +183,18 @@ export function PlanGraph({
     onSelect,
     onSelectContext,
   ]);
+  const [renderedNodes, setRenderedNodes, onNodesChange] = useNodesState(nodes);
+  useEffect(() => {
+    setRenderedNodes((current) => {
+      const measurements = new Map(
+        current.map((node) => [node.id, node.measured]),
+      );
+      return nodes.map((node) => ({
+        ...node,
+        measured: measurements.get(node.id),
+      }));
+    });
+  }, [nodes, setRenderedNodes]);
 
   return (
     <div className="decision-plan-graph">
@@ -196,7 +209,8 @@ export function PlanGraph({
           fitViewOptions={{ padding: 0.16 }}
           minZoom={0.25}
           maxZoom={1.4}
-          nodes={nodes}
+          nodes={renderedNodes}
+          onNodesChange={onNodesChange}
           edges={edges}
           nodeTypes={nodeTypes}
           nodesDraggable={false}
