@@ -186,6 +186,20 @@ losing assets. Both adapters preserve prior IDs and omitted prior components,
 operations, preferences and assets on additive corrections. Explicit removals
 should use the parent-owned structured constraint/removal workflow.
 
+Operations are associated by clause rather than by adjacency, so "hoodie logo
+embroidery", "hoodies with embroidered logo" and "logo on hoodie" all target the
+single component named in that clause; a clause naming several or no components
+falls back to the only requested component, otherwise it asks which component
+needs the operation. A detached color clause in a kit request ("... , black, ...")
+scopes to the requested wearable; unsupported components and qualifiers such as
+"logo on umbrellas" or "matte black" still ask for clarification.
+
+The Python solver runs as a subprocess in the package integration test. Each
+solve is bounded at 20s and `packages/openai/vitest.config.ts` sets a 30s
+`testTimeout`, which covers hosted-runner CPU contention without relaxing any
+assertion; locally the complete-kit test takes about 2s and about 6s under
+four competing busy loops on two cores.
+
 Relative dates use `requestedAt` and the caller's IANA time zone. "Friday"
 means the upcoming occurrence, including today; "next Friday" on Friday means
 seven days later. No specified time means local 23:59:59, including DST changes.

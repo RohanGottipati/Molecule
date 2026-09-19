@@ -24,6 +24,8 @@ const base = {
 };
 const acceptance =
   "200 premium black onboarding kits by next Friday under CAD 7,000, no leather, hoodie logo embroidery, named engraved bottles, vegan snacks and individual packaging";
+const canonical =
+  "200 premium onboarding kits by Friday under CAD 7,000, black, no leather, logo on hoodie, engraved names on bottles, vegan snacks, individually packaged.";
 const extraction: IntentExtraction = {
   outcome: "EXTRACTED",
   unsupportedReason: null,
@@ -74,6 +76,7 @@ print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True))
       cwd: root,
       encoding: "utf8",
       input: JSON.stringify({ intent, offline, generation }),
+      timeout: 20_000,
       env: {
         ...process.env,
         PYTHONPATH: `${root}/services/solver:${root}/services/solver/tests`,
@@ -87,6 +90,7 @@ describe("compiler and solver release acceptance", () => {
   it.each([
     "Make 200 premium black onboarding kits by next Friday (2026-09-25) under CAD 7000. No leather. Each kit needs a black hoodie with embroidered logo, a bottle engraved with the recipient's name, vegan snacks, individual packaging and fulfillment.",
     "200 premium black onboarding kits by next Friday under CAD 7000. No leather. Hoodie logo embroidery, named engraved bottles, vegan snacks, individual packaging and fulfillment.",
+    canonical,
   ])("compiles the integrated kit request: %s", async (text) => {
     const result = await new MockOpenAIAdapter().compileIntent({
       ...base,
@@ -214,6 +218,8 @@ describe("compiler and solver release acceptance", () => {
   it.each([
     ["hoodies with embroidered logo", "embroidery"],
     ["shirts with printed artwork", "printing"],
+    ["logo on hoodies", "embroidery"],
+    ["engraved names on bottles", "engraving"],
     ["bottles engraved with the recipient's name", "engraving"],
     ["bottles engraved with recipients' names", "engraving"],
     ["bottles engraved with the recipient’s name", "engraving"],
@@ -243,6 +249,9 @@ describe("compiler and solver release acceptance", () => {
   it.each([
     "hoodies with embroidered fireproof coating",
     "hoodies with embroidered logo and umbrellas",
+    "logo on umbrellas",
+    "engraved names on carbon plates",
+    "matte black",
     "hoodies with printed unknown treatment",
     "bottles engraved with the recipient's fingerprint",
     "hoodies with the recipient's name",
@@ -357,6 +366,84 @@ describe("compiler and solver release acceptance", () => {
     expect(recovery.nodes.map((n) => n.merchantId)).not.toContain(
       "stitch-works",
     );
+  });
+
+  it("certifies the canonical brief and its correction through Python", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const first = await adapter.compileIntent({ ...base, text: canonical });
+    expect(first.status).toBe("READY");
+    if (first.status !== "READY")
+      throw new Error("Canonical compilation failed");
+    expect(first.intent.deadline).toBe("2026-09-26T03:59:59.000Z");
+    expect(first.intent.quantity).toBe(200);
+    expect(first.intent.budgetMax).toBe(7000);
+    expect(first.intent.desiredOutputs.map((o) => o.outputId)).toEqual([
+      "hoodie",
+      "bottle",
+      "snacks",
+    ]);
+    expect(first.intent.transformations.map((t) => t.kind)).toEqual([
+      "embroidery",
+      "engraving",
+      "assembly",
+      "fulfillment",
+    ]);
+    expect(first.intent.hardConstraints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "hoodie.color", value: "black" }),
+        expect.objectContaining({ field: "snacks.diet", value: "vegan" }),
+        expect.objectContaining({
+          field: "assembly.packaging",
+          value: "individual",
+        }),
+        expect.objectContaining({
+          field: "material",
+          operator: "not_contains",
+          value: "leather",
+        }),
+      ]),
+    );
+    expect(first.intent.softPreferences).toContainEqual(
+      expect.objectContaining({ field: "quality", value: "premium" }),
+    );
+
+    const plan = pythonSolve(first.intent);
+    expect(plan.status).toBe("VALID");
+    expect(plan.nodes).toHaveLength(7);
+    expect(plan.edges).toHaveLength(6);
+    expect(plan.totalCost).toBe(6380);
+
+    const correction = await adapter.compileIntent({
+      ...base,
+      text: "No polyester",
+      previousIntent: first.intent,
+      requestedAt: "2026-09-20T12:00:00.000Z",
+    });
+    expect(correction.status).toBe("READY");
+    if (correction.status !== "READY")
+      throw new Error("Canonical correction failed");
+    expect(correction.intent.intentId).toBe(first.intent.intentId);
+    expect(correction.intent.version).toBe(2);
+    expect(correction.intent.desiredOutputs).toEqual(
+      first.intent.desiredOutputs,
+    );
+    expect(correction.intent.transformations).toEqual(
+      first.intent.transformations,
+    );
+    expect(correction.intent.hardConstraints).toEqual(
+      expect.arrayContaining([
+        ...first.intent.hardConstraints,
+        expect.objectContaining({
+          field: "material",
+          operator: "not_contains",
+          value: "polyester",
+        }),
+      ]),
+    );
+    const corrected = pythonSolve(correction.intent, false, 2);
+    expect(corrected.status).toBe("VALID");
+    expect(corrected.nodes).toHaveLength(7);
+    expect(corrected.totalCost).toBe(6380);
   });
 
   it("supports varied components and component quantities", async () => {
