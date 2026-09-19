@@ -1,4 +1,5 @@
 import {
+  ApiErrorSchema,
   ContextReceiptSchema,
   DesktopCommandSchema,
   DesktopResultSchema,
@@ -7,6 +8,7 @@ import {
   RealtimeSessionSchema,
   type DesktopCommand,
   type DesktopResult,
+  type ApiError as ApiFailure,
 } from "@molecule/contracts";
 import { z } from "zod";
 
@@ -14,10 +16,44 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code:
+      | ApiFailure["code"]
+      | "REQUEST_FAILED"
+      | "NETWORK_ERROR"
+      | "INVALID_RESPONSE" = "REQUEST_FAILED",
+    readonly traceId?: string,
+    readonly retryable?: boolean,
   ) {
     super(message);
+    this.name = "ApiError";
   }
 }
+const guidance: Record<ApiFailure["code"], string> = {
+  VALIDATION_ERROR: "Check the request fields and supported file types.",
+  CONFLICT:
+    "The action conflicts with the current project or an existing receipt. Refresh and review its outcome before continuing.",
+  STALE_VERSION:
+    "The plan changed. Refresh and review the current plan before approving.",
+  NOT_FOUND:
+    "The project or context is unavailable. Check the selected project.",
+  PROVIDER_TIMEOUT:
+    "The provider timed out. Refresh the project and check its outcome before another attempt.",
+  PROVIDER_AUTH:
+    "The provider could not authenticate. Ask the operator to check its configuration.",
+  RATE_LIMITED:
+    "The provider is busy. Wait briefly, then refresh and check the action outcome.",
+  MODEL_REFUSAL:
+    "The model could not process this request. Review the production brief.",
+  INCOMPLETE_MODEL_OUTPUT:
+    "The model response was incomplete. Refresh the project before continuing.",
+  SOLVER_UNSAT:
+    "No solver-valid plan satisfies the current requirements. Review the constraints.",
+  INVALID_TRANSITION:
+    "The project cannot accept this action now. Refresh its status.",
+  CHAOS_DISABLED: "Supplier-offline controls require demo mode.",
+  INTERNAL:
+    "The service could not complete this action. Refresh and review its outcome.",
+};
 export const DesktopConfigSchema = z.object({
   demoMode: z.boolean(),
   mockProviders: z.record(z.string(), z.boolean()),
@@ -43,25 +79,26 @@ export class MoleculeApi {
           ]),
         });
         if (!response.ok) {
-          const body = z
-            .object({
-              message: z.string().optional(),
-              error: z.string().optional(),
-            })
-            .safeParse(await response.json().catch(() => null));
+          const body = ApiErrorSchema.safeParse(
+            await response.json().catch(() => null),
+          );
           throw new ApiError(
-            body.success && response.status < 500
-              ? (body.data.message ?? body.data.error ?? "Request failed")
-              : `Molecule request failed (${response.status}). Please retry.`,
+            body.success
+              ? guidance[body.data.code]
+              : `Molecule request failed (${response.status}). Refresh and review the action outcome before continuing.`,
             response.status,
+            body.success ? body.data.code : "REQUEST_FAILED",
+            body.success ? body.data.traceId : undefined,
+            body.success ? body.data.retryable : undefined,
           );
         }
         try {
           return (await response.json()) as unknown;
         } catch {
           throw new ApiError(
-            "Molecule returned an invalid response.",
+            "Molecule returned an invalid response. Refresh and review the action outcome.",
             response.status,
+            "INVALID_RESPONSE",
           );
         }
       } catch (error) {
@@ -69,7 +106,11 @@ export class MoleculeApi {
           throw new DOMException("Request cancelled", "AbortError");
         if (error instanceof ApiError || attempt === 2) {
           if (error instanceof ApiError) throw error;
-          throw new ApiError("Can’t reach Molecule right now.", 0);
+          throw new ApiError(
+            "Can’t reach Molecule right now. Refresh and check whether the action completed before continuing.",
+            0,
+            "NETWORK_ERROR",
+          );
         }
         await new Promise<void>((resolve) => {
           const finish = () => {
@@ -91,21 +132,37 @@ export class MoleculeApi {
       body: JSON.stringify(value),
     });
   }
+  private parse<T>(schema: z.ZodType<T>, value: unknown): T {
+    const result = schema.safeParse(value);
+    if (!result.success)
+      throw new ApiError(
+        "Molecule returned an invalid response. Refresh and review the action outcome.",
+        200,
+        "INVALID_RESPONSE",
+      );
+    return result.data;
+  }
   async config() {
-    return DesktopConfigSchema.parse(await this.request("/api/desktop/config"));
+    return this.parse(
+      DesktopConfigSchema,
+      await this.request("/api/desktop/config"),
+    );
   }
   async marketplace() {
-    return MarketplaceSnapshotSchema.parse(
+    return this.parse(
+      MarketplaceSnapshotSchema,
       await this.request("/api/marketplace"),
     );
   }
   async createProject(actionId: string = crypto.randomUUID()) {
-    return DesktopResultSchema.parse(
+    return this.parse(
+      DesktopResultSchema,
       await this.post("/api/projects", { actionId, source: "desktop" }),
     );
   }
   async getProject(id: string, signal?: AbortSignal) {
-    return DesktopResultSchema.parse(
+    return this.parse(
+      DesktopResultSchema,
       await this.request(`/api/projects/${encodeURIComponent(id)}`, { signal }),
     );
   }
@@ -114,7 +171,8 @@ export class MoleculeApi {
     command: DesktopCommand,
     actionId: string,
   ): Promise<DesktopResult> {
-    return DesktopResultSchema.parse(
+    return this.parse(
+      DesktopResultSchema,
       await this.post(`/api/projects/${encodeURIComponent(id)}/actions`, {
         actionId,
         command: DesktopCommandSchema.parse(command),
@@ -124,13 +182,15 @@ export class MoleculeApi {
     );
   }
   async createRealtimeSession(projectId: string) {
-    return RealtimeSessionSchema.parse(
+    return this.parse(
+      RealtimeSessionSchema,
       await this.post("/api/desktop/realtime-session", { projectId }),
     );
   }
   async uploadContext(projectId: string, file: File, actionId: string) {
     const mimeType = validateContext(file);
-    return ContextReceiptSchema.parse(
+    return this.parse(
+      ContextReceiptSchema,
       await this.request(
         `/api/projects/${encodeURIComponent(projectId)}/context`,
         {

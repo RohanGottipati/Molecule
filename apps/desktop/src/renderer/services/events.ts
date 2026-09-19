@@ -15,6 +15,10 @@ const labels: Record<string, string> = {
   "intent.received": "Understanding your request",
   "intent.compiled": "Demand compiled",
   "intent.clarification.required": "A few details are needed",
+  "intent.unsupported":
+    "This request needs supported production requirements. Revise the brief.",
+  "workflow.failed":
+    "Planning stopped. Refresh the project and review the failure.",
   "constraint.added": "Requirement added — rebuilding",
   "constraint.removed": "Requirement removed — rebuilding",
   "context.attached": "Context attached",
@@ -31,6 +35,12 @@ const labels: Record<string, string> = {
   "plan.invalidated": "Previous plan invalidated",
   "execution.approval.requested": "Your approval is required",
   "execution.started": "Creating commerce order",
+  "execution.failed":
+    "Execution could not be confirmed. Review commerce receipts before another attempt.",
+  "execution.incomplete":
+    "Some commerce actions remain unconfirmed. Reconcile receipts before continuing.",
+  "order.needs_human":
+    "This project needs your attention. Review its requirements or execution records.",
   "shopify.product.created": "Shopify product created",
   "shopify.customer_order.created": "Customer order created",
   "supplier.offline": "Supplier lost. Rebuilding company…",
@@ -38,7 +48,7 @@ const labels: Record<string, string> = {
   "recovery.approval.required": "Replacement plan needs your approval",
   "recovery.completed": "Recovered",
   "recovery.failed": "Recovery needs your attention",
-  "order.completed": "Production order completed",
+  "order.completed": "Commerce records and supplier jobs confirmed",
   "project.cancelled": "Project cancelled",
 };
 const alerts = new Set([
@@ -48,6 +58,12 @@ const alerts = new Set([
   "recovery.approval.required",
   "recovery.completed",
   "recovery.failed",
+  "intent.clarification.required",
+  "intent.unsupported",
+  "workflow.failed",
+  "execution.failed",
+  "execution.incomplete",
+  "order.needs_human",
 ]);
 const notifications: Record<string, string> = {
   "supplier.offline":
@@ -58,6 +74,12 @@ const notifications: Record<string, string> = {
   "recovery.completed": "Molecule recovered your supply chain.",
   "recovery.failed": "Molecule needs help to restore your supply chain.",
   "solver.unsat": "No valid company can satisfy all current requirements.",
+  "intent.clarification.required": "Production details are needed to continue.",
+  "intent.unsupported": "Review the production brief to continue.",
+  "workflow.failed": "Planning stopped. Review the project.",
+  "execution.failed": "Execution needs attention. Review commerce receipts.",
+  "execution.incomplete": "Commerce actions need reconciliation.",
+  "order.needs_human": "Your project needs attention.",
 };
 export function mapEvent(event: MoleculeEvent): Activity | null {
   let label = labels[event.eventType];
@@ -80,15 +102,22 @@ export function mapEvent(event: MoleculeEvent): Activity | null {
     merchantId: event.merchantId,
     alert: alerts.has(event.eventType),
     notification: notifications[event.eventType],
-    severity: ["supplier.offline", "solver.unsat", "recovery.failed"].includes(
-      event.eventType,
-    )
+    severity: [
+      "supplier.offline",
+      "solver.unsat",
+      "recovery.failed",
+      "workflow.failed",
+      "execution.failed",
+      "execution.incomplete",
+    ].includes(event.eventType)
       ? "error"
       : ["recovery.completed", "solver.valid"].includes(event.eventType)
         ? "success"
-        : event.severity === "WARN" || event.eventType.includes("approval")
-          ? "warning"
-          : "info",
+        : event.severity === "ERROR"
+          ? "error"
+          : event.severity === "WARN" || alerts.has(event.eventType)
+            ? "warning"
+            : "info",
   };
 }
 

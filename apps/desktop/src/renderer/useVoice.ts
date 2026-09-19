@@ -40,13 +40,10 @@ export function useVoice(store: DesktopStore) {
     await voice.start();
   };
   useEffect(() => {
-    store.onProjectChanging = () => voice.stop();
+    store.onProjectChanging = () => voice.resetProject();
     const unsubscribe = store.bridge.onSignal((signal) => {
-      if (
-        (signal.type === "visibility" && !signal.visible) ||
-        signal.type === "project"
-      )
-        voice.stop();
+      if (signal.type === "visibility" && !signal.visible) voice.stop();
+      if (signal.type === "project") voice.resetProject();
       if (signal.type === "mute") voice.mute(!voice.getSnapshot().muted);
       if (signal.type === "start-voice")
         void toggle().catch((error: unknown) => store.error(error));
