@@ -5,6 +5,7 @@ export * from "./transport.js";
 export * from "./types.js";
 export * from "./webhooks.js";
 export * from "./seed.js";
+export * from "./reality-extract.js";
 export {
   MockShopifyClient as MockShopifyAdapter,
   RealShopifyClient as RealShopifyAdapter,
