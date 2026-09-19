@@ -23,6 +23,7 @@ export function DockConversation({
   onCancel: () => void;
 }) {
   const project = state.project;
+  const capabilities = store.getCapabilities();
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => store.error(error));
   };
@@ -184,7 +185,8 @@ export function DockConversation({
             project.activePlan?.status === "VALID" && (
               <button
                 className="primary approve"
-                disabled={state.pending > 0}
+                disabled={state.pending > 0 || !capabilities.canApprove}
+                title={capabilities.approvalBlockedReason ?? undefined}
                 onClick={() =>
                   run(
                     store.command({
@@ -200,6 +202,12 @@ export function DockConversation({
                 Approve {project.activePlan.currency}{" "}
                 {project.activePlan.totalCost.toFixed(2)} &amp; execute
               </button>
+            )}
+          {project.state === "AWAITING_APPROVAL" &&
+            capabilities.approvalBlockedReason && (
+              <p className="question" role="status">
+                {capabilities.approvalBlockedReason}
+              </p>
             )}
           <details className="activity-section" open>
             <summary>Activity</summary>

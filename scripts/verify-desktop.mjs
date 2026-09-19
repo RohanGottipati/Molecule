@@ -7,10 +7,14 @@ import { join, resolve } from "node:path";
 import { createApp } from "../services/orchestrator/src/index.ts";
 import { consumeEvents } from "../apps/desktop/src/renderer/services/events.ts";
 
-const { ContextReceiptSchema, DesktopResultSchema, MarketplaceSnapshotSchema } =
-  createRequire(new URL("../apps/desktop/package.json", import.meta.url))(
-    "@molecule/contracts",
-  );
+const {
+  ApiErrorSchema,
+  ContextReceiptSchema,
+  DesktopResultSchema,
+  MarketplaceSnapshotSchema,
+} = createRequire(new URL("../apps/desktop/package.json", import.meta.url))(
+  "@molecule/contracts",
+);
 
 const scenario = process.env.DESKTOP_VERIFY_SCENARIO ?? "hoodie";
 assert.ok(
@@ -196,11 +200,59 @@ try {
       .revision,
     changed.project.revision,
   );
+  assert.equal(changed.project.intent.assets.length, 0);
+  const blockedApproval = await app.inject({
+    method: "POST",
+    url: `/api/projects/${id}/actions`,
+    payload: {
+      actionId: "verify-approve-uncompiled-context",
+      command: {
+        name: "approve_action",
+        args: {
+          planId: changed.project.activePlan.planId,
+          intentVersion: changed.project.intentVersion,
+        },
+      },
+    },
+  });
+  assert.equal(blockedApproval.statusCode, 409, blockedApproval.body);
+  const error = ApiErrorSchema.parse(blockedApproval.json());
+  assert.equal(error.code, "CONFLICT");
+  assert.match(error.message, /compile the attached context/);
+  assert.deepEqual(
+    DesktopResultSchema.parse((await app.inject(`/api/projects/${id}`)).json())
+      .project,
+    changed.project,
+  );
+  const blockedState = JSON.parse(
+    await readFile(join(directory, "state.json"), "utf8"),
+  );
+  assert.ok(
+    !blockedState.events.some(
+      ({ event }) => event.eventType === "execution.started",
+    ),
+  );
+  const compiled = await command(
+    "start_project",
+    { intent: "No polyester." },
+    "verify-compile-context",
+  );
+  assert.equal(
+    compiled.project.intentVersion,
+    changed.project.intentVersion + 1,
+  );
+  assert.equal(compiled.project.activePlan?.status, "VALID");
+  assert.deepEqual(compiled.project.intent.assets, attached.contexts);
+  assert.ok(
+    compiled.project.intent.hardConstraints.some(
+      (item) => item.value === "polyester",
+    ),
+  );
   const approved = await command(
     "approve_action",
     {
-      planId: changed.project.activePlan.planId,
-      intentVersion: changed.project.intentVersion,
+      planId: compiled.project.activePlan.planId,
+      intentVersion: compiled.project.intentVersion,
     },
     "verify-approve",
   );

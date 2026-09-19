@@ -15,6 +15,12 @@ const NoticeSchema = z.object({
     "recovery.completed",
     "recovery.failed",
     "solver.unsat",
+    "intent.clarification.required",
+    "intent.unsupported",
+    "workflow.failed",
+    "execution.failed",
+    "execution.incomplete",
+    "order.needs_human",
   ]),
 });
 export class DesktopNotifications {

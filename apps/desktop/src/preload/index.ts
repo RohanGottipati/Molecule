@@ -7,8 +7,13 @@ const bridge: DesktopBridge = {
   hideOverlay: () => ipcRenderer.invoke("desktop:hide"),
   toggleOverlay: () => ipcRenderer.invoke("desktop:toggle"),
   setMode: (mode) => ipcRenderer.invoke("desktop:mode", mode),
-  openDashboard: (projectId) =>
-    ipcRenderer.invoke("desktop:dashboard", projectId),
+  openDashboard: (projectId, view) =>
+    ipcRenderer.invoke(
+      "desktop:dashboard",
+      view ? { projectId, view } : projectId,
+    ),
+  setActiveProject: (projectId) =>
+    ipcRenderer.invoke("desktop:active-project", projectId),
   saveSettings: (settings) => ipcRenderer.invoke("desktop:settings", settings),
   getPermissionStatus: () => ipcRenderer.invoke("desktop:permissions"),
   requestMicrophone: () => ipcRenderer.invoke("desktop:microphone"),

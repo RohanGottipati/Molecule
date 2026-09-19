@@ -99,7 +99,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       .map((source) =>
         numericMatch(
           source,
-          /(?:budget(?:\s+(?:of|is))?|max(?:imum)?|under)\s*(?:cad|usd)?\s*\$?([\d,]+(?:\.\d+)?)/,
+          /\b(?:budget(?:\s+(?:of|is))?|max(?:imum)?|under)\s*(?:cad|usd)?\s*\$?(\d[\d,]*(?:\.\d+)?)/,
         ),
       )
       .find((value) => value !== null) ??

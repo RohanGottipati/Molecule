@@ -48,6 +48,29 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("native notifications", () => {
+  it.each([
+    "workflow.failed",
+    "intent.unsupported",
+    "execution.failed",
+    "execution.incomplete",
+    "order.needs_human",
+    "intent.clarification.required",
+  ])("allows useful hidden %s notices, once and only with consent", (kind) => {
+    const { notifications, overlay, settings } = setup();
+    settings.notificationsEnabled = false;
+    notifications.show({ ...event, kind });
+    settings.notificationsEnabled = true;
+    overlay.isVisible.mockReturnValue(true);
+    notifications.show({ ...event, kind });
+    expect(notices).toHaveLength(0);
+    overlay.isVisible.mockReturnValue(false);
+    notifications.show({ ...event, kind });
+    notifications.show({ ...event, kind });
+    expect(notices).toHaveLength(1);
+    expect(() =>
+      notifications.show({ ...event, kind: "model.reasoning.delta" }),
+    ).toThrow();
+  });
   it("logs requested separately from the native show confirmation", () => {
     const { notifications } = setup();
     notifications.show(event);

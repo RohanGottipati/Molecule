@@ -14,6 +14,7 @@ export function subscribeEvents(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let failures = 0;
+  let invalid = false;
   let cursor = 0;
   const connect = () => {
     if (stopped) return;
@@ -22,9 +23,18 @@ export function subscribeEvents(
     );
     source = current;
     const active = () => !stopped && current === source;
+    const reconnect = () => {
+      if (!active()) return;
+      current.close();
+      source = undefined;
+      clearTimeout(timer);
+      callbacks.onReconnect();
+      timer = setTimeout(connect, Math.min(10_000, 500 * 2 ** failures));
+      failures = Math.min(failures + 1, 5);
+    };
     current.addEventListener("ready", () => {
       if (!active()) return;
-      failures = 0;
+      if (!invalid) failures = 0;
       callbacks.onReady();
     });
     current.addEventListener("molecule", (frame: MessageEvent<string>) => {
@@ -36,22 +46,18 @@ export function subscribeEvents(
         !/^\d+$/.test(frame.lastEventId) ||
         !Number.isSafeInteger(next)
       ) {
+        invalid = true;
         callbacks.onInvalid();
+        reconnect();
         return;
       }
       if (next <= cursor) return;
+      invalid = false;
+      failures = 0;
       cursor = next;
       callbacks.onEvent(event);
     });
-    current.onerror = () => {
-      if (!active()) return;
-      current.close();
-      source = undefined;
-      clearTimeout(timer);
-      callbacks.onReconnect();
-      timer = setTimeout(connect, Math.min(10_000, 500 * 2 ** failures));
-      failures = Math.min(failures + 1, 5);
-    };
+    current.onerror = reconnect;
   };
   connect();
   return () => {

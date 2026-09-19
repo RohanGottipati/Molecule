@@ -1,7 +1,10 @@
 import type { ApiError } from "@molecule/contracts";
 import { MoleculeOpenAIError } from "@molecule/openai";
 import { ZodError } from "zod";
-import { SessionConflictError } from "./repositories.js";
+import {
+  SessionConflictError,
+  SupersededSubmissionError,
+} from "./repositories.js";
 import { InvalidTransitionError } from "./session/transitions.js";
 
 export class RequestProblem extends Error {
@@ -44,7 +47,9 @@ export function apiFailure(
         ? "INVALID_TRANSITION"
         : "CONFLICT";
     message =
-      "The project changed or cannot accept this action. Refresh its status before continuing.";
+      error instanceof SupersededSubmissionError
+        ? "This submission was superseded by a newer project change and was not applied. Review the current brief before submitting again."
+        : "The project changed or cannot accept this action. Refresh its status before continuing.";
   } else if (error instanceof MoleculeOpenAIError) {
     const failures: Record<
       MoleculeOpenAIError["code"],

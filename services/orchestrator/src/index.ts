@@ -42,6 +42,7 @@ export async function createApp() {
   const orchestrator = new Orchestrator({
     sessions,
     events,
+    contexts: store,
     openai,
     reality:
       durable?.reality ?? new MockRealityClient(() => local.offlineMerchants()),
