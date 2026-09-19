@@ -252,6 +252,29 @@ The final focused run at `8045d6e` executed the committed `package:mac:local` co
 
 Fresh notification authorization, transient desktop banners, physical/live voice and distribution signing remain unverified. An incidental microphone prompt was declined normally and text remained usable; this is not comprehensive permission-denial coverage.
 
+The remaining native follow-up at `9585a17` reused the unchanged `8045d6e` package. Dragging the overlay persisted its origin `(212, 227)` through normal Quit/Launch Services restart; compact and expanded windows remained inside the single display's work area. With Molecule's OS microphone permission OFF, Talk showed the prescribed guidance and the Settings link worked. A text request still reached the backend and returned clarification. Disabling voice in app Settings also blocked Talk with enable-voice guidance.
+
+The existing Screen Recording denied/restricted branch showed the permission explanation and Settings link, without enumerating sources or attaching a frame. A controlled deny/allow transition could not be tested: adding Molecule in System Settings required unavailable local account authorization. Permissions were left unchanged. The host reported zero CoreAudio devices and one Apple Virtual display, so physical audio and multiple-display behavior remain unverified.
+
+### Live OpenAI voice acceptance
+
+Actual Electron at `9585a17` connected through backend-minted ephemeral authorization (HTTP 200) to OpenAI WebRTC (HTTP 201), using the account-supported configured model `gpt-realtime-2.1`. `USE_MOCK_OPENAI=false` enabled the real compiler and Realtime adapter. Input was controlled synthetic speech through a Linux virtual microphone; the CP-SAT solver was real, while Reality, merchant quotes and Shopify remained mocked.
+
+| Area                    | Observed result                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spoken request          | Visible transcription and real `start_project`; authoritative intent retained 200 hoodies, CAD 7000 and December 31, 2026                                           |
+| Correction              | Spoken “Actually absolutely no polyester” persisted intent v3 with hard `material not_contains polyester` and triggered solver evaluation                           |
+| Interruption            | Playback paused/muted immediately; output buffer cleared and server truncation observed                                                                             |
+| Generation cancellation | Returned `response_cancel_not_active` because generation had completed while audio was still playing; successful cancellation of active generation is not certified |
+| Mute                    | UI and actual microphone track changed between disabled and enabled                                                                                                 |
+| Disable voice           | Saving disabled voice while connected closed WebRTC, ended the microphone track and paused playback; preference persisted                                           |
+| Hide                    | Hiding an active session closed WebRTC and ended its microphone track; reopening stayed idle                                                                        |
+| Cleanup                 | Voice disabled; all three observed peers closed and microphone tracks ended                                                                                         |
+
+**The full voice-to-valid-plan flow did not pass.** After clarification, project `56b9d740-9e4c-43dd-af57-5f191660f492` settled `NEEDS_HUMAN` with an `UNSAT` plan: “No quote-backed canonical candidate satisfies every required capability kind.” The live compiler emitted hard fields including quantity, color, size, delivery deadline, total cost and request scope. This branch's mock candidates expose only a material attribute, while the solver requires every hard field on every candidate. Global intent constraints and operation-specific requirements need alignment across compilation, canonical candidate facts and solver validation. No requirements were removed or supplier facts invented to obtain a passing result; no commerce was approved.
+
+This verifies live voice transport, authoritative mutations and lifecycle cleanup with synthetic input. It does not certify physical macOS microphone/barge-in, active-generation cancellation, multimodal understanding, a live-compiled valid company or live commerce execution.
+
 ### Manual acceptance
 
 On a Mac with account-supported OpenAI models and the missing real provider integrations connected:
@@ -267,4 +290,4 @@ On a Mac with account-supported OpenAI models and the missing real provider inte
 9. With voice actively engaged, repeat recovery if another supplier is available and confirm its short spoken summary. Voice intentionally stays stopped after hiding until explicitly resumed.
 10. Open Command Center and confirm the URL and project match. Test a one-frame screen share separately, including denied permission.
 
-The full physical microphone and live-provider acceptance flow remains open beyond the recorded native checks above. Live OpenAI and real Shopify/Backboard/Tiger behavior require credentials and implementations absent from the chosen base. A passing mock API/UI test is not a claim that those external systems were exercised.
+The full physical microphone and live-provider acceptance flow remains open beyond the recorded checks above. Live OpenAI was exercised with a temporary server-side credential, but the compiler/candidate/solver contract mismatch prevented a valid plan. Real Shopify/Backboard/Tiger behavior requires integration work absent from the chosen base. A passing mock API/UI test is not a claim that those external systems were exercised.
