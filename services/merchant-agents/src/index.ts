@@ -24,3 +24,16 @@ export {
   createMerchantAgentTools,
   type MerchantAgentToolsDeps,
 } from "./tools.js";
+export {
+  createQuoteService,
+  MerchantQuoteUnavailableError,
+  QuoteProtocolError,
+  type QuoteService,
+  type QuoteServiceDeps,
+} from "./quote.js";
+export {
+  createMerchantMemoryService,
+  type MerchantMemoryService,
+  type MerchantMemoryServiceDeps,
+} from "./memory.js";
+export { createMerchantAgentsServer } from "./server.js";

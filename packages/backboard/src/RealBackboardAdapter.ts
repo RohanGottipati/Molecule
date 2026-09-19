@@ -44,6 +44,7 @@ interface ModelWire {
   supports_tools: boolean;
   supports_thinking: boolean;
   supports_json_output: boolean;
+  supports_vision?: boolean;
   context_window: number;
 }
 
@@ -121,6 +122,10 @@ class RealConversationClient implements ConversationClient {
     private readonly threadId: string,
     private readonly tools: ToolDefinition[],
     private readonly pollIntervalMs: number,
+    // B6 item 76: a per-run model override from the model router. Never
+    // changes assistantId/threadId — those still come from the merchant
+    // twin lifecycle, so switching lanes never loses merchant/order identity.
+    private readonly model?: string,
   ) {}
 
   async start(input: { message: string }): Promise<ConverseTurn> {
@@ -134,6 +139,7 @@ class RealConversationClient implements ConversationClient {
         method: "POST",
         body: JSON.stringify({
           assistant_id: this.assistantId,
+          model: this.model,
           tools: this.tools.map(toToolSpec),
         }),
       },
@@ -246,6 +252,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
       supportsTools: model.supports_tools,
       supportsThinking: model.supports_thinking,
       supportsJsonOutput: model.supports_json_output,
+      supportsVision: model.supports_vision ?? false,
       contextWindow: model.context_window,
     }));
   }
@@ -350,6 +357,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
       input.threadId,
       input.tools,
       this.pollIntervalMs,
+      input.model,
     );
     return runBoundedToolLoop<T>({
       client,

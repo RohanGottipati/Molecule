@@ -5,6 +5,7 @@ import type {
   MerchantAssistant,
   MerchantDocument,
   MerchantIdentity,
+  MerchantMemoryEntry,
   OrderThread,
 } from "./types.js";
 
@@ -29,6 +30,16 @@ export interface MerchantTwinService {
     merchantId: string;
     documents: MerchantCorpusDocumentInput[];
   }): Promise<MerchantDocument[]>;
+  /**
+   * B5 item 71: seeds one or more merchant-level corrections into persistent
+   * memory, skipping any note already recorded verbatim so demo prep can call
+   * this repeatedly without duplicating entries.
+   */
+  ensureMerchantMemory(input: {
+    merchantId: string;
+    notes: string[];
+    sourceThreadId?: string;
+  }): Promise<MerchantMemoryEntry[]>;
 }
 
 export function createMerchantTwinService(
@@ -107,5 +118,43 @@ export function createMerchantTwinService(
     return results;
   }
 
-  return { ensureAssistant, ensureOrderThread, ensureMerchantCorpus };
+  async function ensureMerchantMemory(input: {
+    merchantId: string;
+    notes: string[];
+    sourceThreadId?: string;
+  }): Promise<MerchantMemoryEntry[]> {
+    const assistant = await repository.getAssistant(input.merchantId);
+    if (!assistant) {
+      throw new Error(
+        `No Backboard assistant exists yet for merchant ${input.merchantId}; call ensureAssistant first`,
+      );
+    }
+    const existing = await adapter.recallMerchantMemory({
+      merchantId: input.merchantId,
+      assistantId: assistant.assistantId,
+    });
+    const existingNotes = new Set(existing.map((entry) => entry.note));
+
+    const results = [...existing];
+    for (const note of input.notes) {
+      if (existingNotes.has(note)) {
+        continue;
+      }
+      const recorded = await adapter.recordMerchantMemory({
+        merchantId: input.merchantId,
+        assistantId: assistant.assistantId,
+        note,
+        sourceThreadId: input.sourceThreadId,
+      });
+      results.push(recorded);
+    }
+    return results;
+  }
+
+  return {
+    ensureAssistant,
+    ensureOrderThread,
+    ensureMerchantCorpus,
+    ensureMerchantMemory,
+  };
 }

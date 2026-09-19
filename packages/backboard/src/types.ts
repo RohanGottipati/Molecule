@@ -64,6 +64,8 @@ export interface BackboardModel {
   supportsTools: boolean;
   supportsThinking: boolean;
   supportsJsonOutput: boolean;
+  /** B6 item 75 discovery filter: required for a model to satisfy VISION_OPTIONAL. */
+  supportsVision: boolean;
   contextWindow: number;
 }
 
@@ -112,6 +114,13 @@ export interface SendWithToolsInput<T = unknown> {
   responseSchema?: z.ZodType<T>;
   maxRounds?: number;
   roundTimeoutMs?: number;
+  /**
+   * B6 item 76: overrides the assistant's default model for this run only,
+   * e.g. with a lane's pinned/discovered model from createModelRouter.
+   * Omitting it keeps the assistant's own default model — assistantId and
+   * threadId (merchant/order identity) are never affected either way.
+   */
+  model?: string;
 }
 
 export type SendWithToolsFallbackReason =

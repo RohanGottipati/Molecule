@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
+import {
+  buildDemoMerchantMemory,
+  DEMO_RUSH_LIMIT_MEMORY_NOTE,
+} from "./demoMemory.js";
 import { MockBackboardAdapter } from "./MockBackboardAdapter.js";
 import { InMemoryMerchantAgentRepository } from "./repository.js";
 import { createMerchantTwinService } from "./merchantTwin.js";
@@ -107,5 +111,52 @@ describe("persistent memory vs. live capacity", () => {
     if (result.outcome === "COMPLETED") {
       expect(result.data).toEqual({ status: "COUNTEROFFER" });
     }
+  });
+});
+
+/**
+ * B5 item 71: demo prep seeds the merchant correction once via
+ * ensureMerchantMemory, idempotently, exactly like ensureMerchantCorpus.
+ */
+describe("ensureMerchantMemory", () => {
+  it("records each note once and skips it on a repeated call", async () => {
+    const adapter = new MockBackboardAdapter();
+    const repository = new InMemoryMerchantAgentRepository();
+    const twin = createMerchantTwinService(adapter, repository);
+    await twin.ensureAssistant(merchant);
+
+    const first = await twin.ensureMerchantMemory({
+      merchantId: merchant.merchantId,
+      notes: buildDemoMerchantMemory(),
+    });
+    expect(first).toHaveLength(1);
+    expect(first[0]?.note).toBe(DEMO_RUSH_LIMIT_MEMORY_NOTE);
+
+    const second = await twin.ensureMerchantMemory({
+      merchantId: merchant.merchantId,
+      notes: buildDemoMerchantMemory(),
+    });
+    expect(second).toHaveLength(1);
+    expect(second[0]?.memoryId).toBe(first[0]?.memoryId);
+
+    const assistant = await repository.getAssistant(merchant.merchantId);
+    const recalled = await adapter.recallMerchantMemory({
+      merchantId: merchant.merchantId,
+      assistantId: assistant!.assistantId,
+    });
+    expect(recalled).toHaveLength(1);
+  });
+
+  it("refuses to seed memory before an assistant exists for the merchant", async () => {
+    const adapter = new MockBackboardAdapter();
+    const repository = new InMemoryMerchantAgentRepository();
+    const twin = createMerchantTwinService(adapter, repository);
+
+    await expect(
+      twin.ensureMerchantMemory({
+        merchantId: "unknown-merchant",
+        notes: buildDemoMerchantMemory(),
+      }),
+    ).rejects.toThrow(/no backboard assistant/i);
   });
 });

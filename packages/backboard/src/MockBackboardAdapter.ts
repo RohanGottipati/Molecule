@@ -40,6 +40,7 @@ const MOCK_MODELS: BackboardModel[] = [
     supportsTools: true,
     supportsThinking: false,
     supportsJsonOutput: true,
+    supportsVision: false,
     contextWindow: 32_000,
   },
   {
@@ -48,6 +49,7 @@ const MOCK_MODELS: BackboardModel[] = [
     supportsTools: true,
     supportsThinking: true,
     supportsJsonOutput: true,
+    supportsVision: false,
     contextWindow: 128_000,
   },
   {
@@ -56,6 +58,7 @@ const MOCK_MODELS: BackboardModel[] = [
     supportsTools: true,
     supportsThinking: false,
     supportsJsonOutput: true,
+    supportsVision: true,
     contextWindow: 64_000,
   },
 ];

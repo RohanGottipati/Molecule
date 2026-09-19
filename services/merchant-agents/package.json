@@ -21,6 +21,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@types/node": "22.15.2",
     "tsx": "4.23.13",
     "vitest": "5.0.1"
   }

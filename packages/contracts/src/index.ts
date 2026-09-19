@@ -170,6 +170,28 @@ export const ConstraintPatchSchema = z.object({
   value: z.unknown().optional(),
 });
 
+/**
+ * B4 typed quote protocol input. Carries only order context, the capability
+ * requirement, and which canonical fields are relevant — the merchant agent
+ * injects live values for those fields itself rather than trusting anything
+ * passed here as fact. `hold` is the sole signal that a CAN_ACCEPT quote
+ * should actually reserve capacity; a false/absent hold keeps the quote
+ * non-binding regardless of what the merchant assistant proposes.
+ */
+export const QuoteRequestSchema = z.object({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  merchantId: z.string().min(1),
+  capabilityId: z.string().min(1),
+  quantity: z.number().int().positive(),
+  currency: CurrencySchema,
+  deadline: z.iso.datetime().optional(),
+  hold: z.boolean().default(false),
+  relevantClaimFields: z.array(z.string()).default([]),
+  constraints: z.array(ConstraintSchema).default([]),
+});
+export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
+
 export const QuoteResponseSchema = z.object({
   merchantId: z.string(),
   capabilityId: z.string(),
@@ -185,6 +207,63 @@ export const QuoteResponseSchema = z.object({
   explanation: z.string().max(600),
 });
 export type QuoteResponse = z.infer<typeof QuoteResponseSchema>;
+
+/**
+ * B5 sanitized merchant-memory card contract: the fact and its timestamp/
+ * source thread, never hidden model reasoning. This is the shape the
+ * merchant-agents memory endpoint returns and a UI merchant-memory card
+ * renders directly.
+ */
+export const MerchantMemoryCardEntrySchema = z.object({
+  merchantId: z.string().min(1),
+  memoryId: z.string().min(1),
+  note: z.string().min(1),
+  sourceThreadId: z.string().optional(),
+  recordedAt: z.iso.datetime(),
+});
+export type MerchantMemoryCardEntry = z.infer<
+  typeof MerchantMemoryCardEntrySchema
+>;
+
+/**
+ * B7 optional merchant council: three fixed perspectives (never a variable
+ * roster) evaluating one high-risk deadline-guarantee scenario.
+ */
+export const CouncilPerspectiveIdSchema = z.enum([
+  "operations",
+  "risk",
+  "contract",
+]);
+export type CouncilPerspectiveId = z.infer<typeof CouncilPerspectiveIdSchema>;
+
+/**
+ * B7 item 80: a compact typed recommendation, not free-form prose. This is
+ * advisory only — "Orchestrator/solver validates any action" (item 80), so a
+ * council recommendation never itself reserves capacity or accepts a job.
+ */
+export const CouncilRecommendationSchema = z.object({
+  perspective: CouncilPerspectiveIdSchema,
+  position: z.enum(["APPROVE", "APPROVE_WITH_CONDITIONS", "REJECT"]),
+  rationale: z.string().max(600),
+  conditions: z.array(z.string()).default([]),
+  confidence: z.number().min(0).max(1),
+});
+export type CouncilRecommendation = z.infer<typeof CouncilRecommendationSchema>;
+
+/**
+ * B7 item 81: exactly one round — no back-and-forth between perspectives —
+ * so a RecommendationSet always carries exactly the three fixed
+ * perspectives' recommendations, each independently arrived at.
+ */
+export const RecommendationSetSchema = z.object({
+  orderId: z.string().min(1),
+  merchantId: z.string().min(1),
+  traceId: z.string().min(1),
+  scenario: z.literal("deadline_guarantee"),
+  recommendations: z.array(CouncilRecommendationSchema).length(3),
+  generatedAt: z.iso.datetime(),
+});
+export type RecommendationSet = z.infer<typeof RecommendationSetSchema>;
 
 export const PlanNodeSchema = z.object({
   nodeId: z.string(),
