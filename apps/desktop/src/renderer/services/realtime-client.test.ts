@@ -78,6 +78,81 @@ afterEach(() => {
 });
 
 describe("Realtime lifecycle without paid calls", () => {
+  it("does not replay another project's cached tool result when call IDs collide", async () => {
+    const { client, channel, execute } = fixture();
+    const call = {
+      type: "response.function_call_arguments.done",
+      call_id: "same",
+      name: "get_project_status",
+      arguments: "{}",
+    };
+    await client.start();
+    channel.open();
+    channel.emit(call);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    client.resetProject();
+    await client.start();
+    channel.open();
+    channel.emit(call);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+    expect(execute.mock.calls[0]).not.toEqual(execute.mock.calls[1]);
+    client.stop();
+  });
+  it("clears project content but preserves same-project stop history and ignores old channel callbacks", async () => {
+    const { client, channel, execute } = fixture();
+    await client.start();
+    channel.open();
+    const oldCallback = channel.onmessage!;
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Private project A",
+    });
+    channel.emit({ type: "response.created", response: { id: "A" } });
+    channel.emit({
+      type: "response.output_audio_transcript.delta",
+      response_id: "A",
+      delta: "Project A response",
+    });
+    client.stop();
+    expect(client.getSnapshot()).toMatchObject({
+      transcript: "Private project A",
+      response: "Project A response",
+      state: "idle",
+    });
+    client.resetProject();
+    expect(client.getSnapshot()).toMatchObject({
+      transcript: "",
+      response: "",
+      state: "idle",
+    });
+    await client.start();
+    channel.open();
+    for (const event of [
+      {
+        type: "conversation.item.input_audio_transcription.completed",
+        transcript: "Late project A",
+      },
+      {
+        type: "response.output_audio_transcript.delta",
+        response_id: "A",
+        delta: "Late A",
+      },
+      {
+        type: "response.function_call_arguments.done",
+        call_id: "old",
+        name: "cancel_project",
+        arguments: "{}",
+      },
+    ])
+      oldCallback({ data: JSON.stringify(event) });
+    expect(client.getSnapshot()).toMatchObject({
+      transcript: "",
+      response: "",
+      state: "listening",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    client.stop();
+  });
   it("releases captured audio when backend setup stalls and ignores its late result", async () => {
     vi.useFakeTimers();
     let finish!: (value: ReturnType<typeof projectResult>) => void;

@@ -8,6 +8,70 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("desktop commands", () => {
+  it("sanitizes schema-invalid successful responses without replaying accepted mutations", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        project: { state: "private provider detail" },
+      }),
+    );
+    await expect(
+      new MoleculeApi("http://localhost:3001", transport).createProject("one"),
+    ).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+      message:
+        "Molecule returned an invalid response. Refresh and review the action outcome.",
+    });
+    expect(transport).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ["PROVIDER_AUTH", 502, false, "configuration"],
+    ["PROVIDER_TIMEOUT", 504, true, "outcome"],
+    ["CONFLICT", 409, false, "receipt"],
+  ] as const)(
+    "preserves %s metadata with sanitized guidance",
+    async (code, status, retryable, text) => {
+      const transport = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            code,
+            traceId: "trace-canonical",
+            retryable,
+            message: "<script>private provider response</script>",
+            details: { private: "never render this" },
+          },
+          { status },
+        ),
+      );
+      await expect(
+        new MoleculeApi("http://localhost:3001", transport).config(),
+      ).rejects.toMatchObject({
+        code,
+        status,
+        traceId: "trace-canonical",
+        retryable,
+        message: expect.stringContaining(text),
+      });
+      expect(transport).toHaveBeenCalledOnce();
+    },
+  );
+  it("does not expose arbitrary error bodies or advise blindly retrying", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          message: "token=private",
+          error: "provider internals",
+        },
+        { status: 400 },
+      ),
+    );
+    await expect(
+      new MoleculeApi("http://localhost:3001", transport).config(),
+    ).rejects.toMatchObject({
+      code: "REQUEST_FAILED",
+      message:
+        "Molecule request failed (400). Refresh and review the action outcome before continuing.",
+    });
+  });
   it("does not retry an HTTP rejection with a non-JSON error body", async () => {
     const transport = vi
       .fn<typeof fetch>()

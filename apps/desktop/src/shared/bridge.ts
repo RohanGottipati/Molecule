@@ -8,6 +8,21 @@ export const OverlayModeSchema = z.enum([
   "alert",
 ]);
 export type OverlayMode = z.infer<typeof OverlayModeSchema>;
+export const DashboardViewSchema = z.enum([
+  "command",
+  "merchants",
+  "reality",
+  "operations",
+  "execution",
+]);
+export type DashboardView = z.infer<typeof DashboardViewSchema>;
+export const ActiveProjectSchema = z.uuid().nullable();
+export const DashboardRequestSchema = z
+  .object({
+    projectId: z.uuid().optional(),
+    view: DashboardViewSchema.optional(),
+  })
+  .strict();
 
 export const SettingsSchema = z.object({
   shortcut: z.string().min(1).max(80).default("Alt+Space"),
@@ -59,7 +74,8 @@ export interface DesktopBridge {
   hideOverlay(): Promise<void>;
   toggleOverlay(): Promise<void>;
   setMode(mode: OverlayMode): Promise<void>;
-  openDashboard(projectId?: string): Promise<void>;
+  openDashboard(projectId?: string, view?: DashboardView): Promise<void>;
+  setActiveProject?(projectId: string | null): Promise<void>;
   saveSettings(settings: SettingsPatch): Promise<DesktopBootstrap>;
   getPermissionStatus(): Promise<{
     microphone: PermissionStatus;
