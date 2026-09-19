@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -15,6 +16,7 @@ class ContractModel(BaseModel):
         alias_generator=to_camel,
         populate_by_name=True,
         extra="forbid",
+        allow_inf_nan=False,
     )
 
 
@@ -22,7 +24,7 @@ class Constraint(ContractModel):
     constraint_id: str
     field: str
     operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "contains", "not_contains"]
-    value: Any
+    value: JsonValue
     unit: str | None = None
     description: str | None = None
 
@@ -35,7 +37,7 @@ class DesiredOutput(ContractModel):
     output_id: str
     name: str
     quantity: int | None = Field(default=None, gt=0)
-    attributes: dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class TransformationNeed(ContractModel):
@@ -75,12 +77,17 @@ class ProductIntent(ContractModel):
     assets: list[AssetRef] = Field(default_factory=list)
     ambiguity_flags: list[AmbiguityFlag] = Field(default_factory=list)
 
+    @field_validator("deadline")
+    @classmethod
+    def valid_deadline(cls, value: str) -> str:
+        return timestamp(value)
+
 
 class CapabilityPort(ContractModel):
     kind: str
     name: str
     unit: str | None = None
-    attributes: dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class QuantityRange(ContractModel):
@@ -107,12 +114,30 @@ class DurationRange(ContractModel):
     max: float = Field(ge=0)
     unit: Literal["minutes", "hours", "business_hours", "days"]
 
+    @model_validator(mode="after")
+    def ordered(self) -> DurationRange:
+        if self.max < self.min:
+            raise ValueError("duration max must be greater than or equal to min")
+        return self
+
 
 class CapacityRule(ContractModel):
     available: float | None = Field(default=None, ge=0)
     maximum: float | None = Field(default=None, gt=0)
     period: Literal["hour", "day", "week"] | None = None
     as_of: str | None = None
+
+    @model_validator(mode="after")
+    def consistent(self) -> CapacityRule:
+        if self.as_of is not None:
+            timestamp(self.as_of)
+        if (
+            self.available is not None
+            and self.maximum is not None
+            and self.available > self.maximum
+        ):
+            raise ValueError("available capacity cannot exceed maximum")
+        return self
 
 
 class MerchantCapability(ContractModel):
@@ -139,6 +164,13 @@ class CandidateRisk(ContractModel):
     sample_count: int = Field(ge=0)
     confidence: Literal["low", "medium", "high"]
 
+    @model_validator(mode="after")
+    def ordered(self) -> CandidateRisk:
+        values = [v for v in [self.p50_hours, self.p95_hours, self.p99_hours] if v is not None]
+        if values != sorted(values):
+            raise ValueError("risk percentiles must be ordered")
+        return self
+
 
 class CandidateCapability(ContractModel):
     capability_id: str
@@ -153,7 +185,7 @@ class ConstraintPatch(ContractModel):
     constraint_id: str | None = None
     operation: Literal["add", "replace", "remove"]
     path: str
-    value: Any | None = None
+    value: JsonValue = None
 
 
 class QuoteResponse(ContractModel):
@@ -170,6 +202,11 @@ class QuoteResponse(ContractModel):
     confidence: float = Field(ge=0, le=1)
     explanation: str = Field(max_length=600)
 
+    @field_validator("completion_estimate")
+    @classmethod
+    def valid_completion(cls, value: str | None) -> str | None:
+        return timestamp(value) if value is not None else None
+
 
 class SolverInput(ContractModel):
     order_id: str
@@ -180,6 +217,11 @@ class SolverInput(ContractModel):
     candidates: list[CandidateCapability]
     quotes: list[QuoteResponse]
     change_penalty_node_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("now")
+    @classmethod
+    def valid_now(cls, value: str) -> str:
+        return timestamp(value)
 
 
 class PlanNode(ContractModel):
@@ -206,13 +248,13 @@ class PlanEdge(ContractModel):
 class ConstraintResult(ContractModel):
     constraint_id: str
     satisfied: bool
-    actual_value: Any | None = None
+    actual_value: JsonValue = None
     explanation: str
 
 
 class ConstraintRelaxation(ContractModel):
     constraint_id: str
-    proposed_value: Any
+    proposed_value: JsonValue
     explanation: str
 
 
@@ -235,3 +277,10 @@ class ProductionPlan(ContractModel):
         if self.status == "VALID" and any(not item.satisfied for item in self.constraint_results):
             raise ValueError("a VALID plan cannot contain an unsatisfied constraint")
         return self
+
+
+def timestamp(value: str) -> str:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include a timezone")
+    return value
