@@ -143,6 +143,21 @@ export function createMerchantAgentTools(
         };
       }
 
+      if (
+        capability.pricing.unitPrice === undefined ||
+        capability.capacity.available === undefined
+      ) {
+        return {
+          merchantId: context.merchantId,
+          capabilityId: args.capabilityId,
+          status: "DECLINE" as const,
+          currency: capability.pricing.currency,
+          setupFee: capability.pricing.setupFee,
+          confidence: 0,
+          explanation: "Canonical price or capacity is unknown.",
+        };
+      }
+
       const available = await deps.capacity.getAvailableCapacity(
         context.merchantId,
         args.capabilityId,
@@ -174,7 +189,7 @@ export function createMerchantAgentTools(
         };
       }
 
-      const unitPrice = capability.pricing.unitPrice ?? 0;
+      const unitPrice = capability.pricing.unitPrice;
       return {
         merchantId: context.merchantId,
         capabilityId: args.capabilityId,
@@ -201,9 +216,10 @@ export function createMerchantAgentTools(
       quantity: z.number().int().positive(),
     }),
     actionKeyFor: (args, context) =>
-      `reserve_capacity:${context.orderId}:${args.capabilityId}:${args.quantity}`,
+      `reserve_capacity:${context.merchantId}:${context.orderId}:${args.capabilityId}:${args.quantity}`,
     handler: (args, context) =>
       deps.capacity.reserve({
+        traceId: context.traceId,
         merchantId: context.merchantId,
         capabilityId: args.capabilityId,
         orderId: requireOrderId(context.orderId),
@@ -224,9 +240,10 @@ export function createMerchantAgentTools(
       reservationId: z.string().min(1),
     }),
     actionKeyFor: (args, context) =>
-      `release_capacity:${context.orderId}:${args.reservationId}`,
+      `release_capacity:${context.merchantId}:${context.orderId}:${args.reservationId}`,
     handler: (args, context) =>
       deps.capacity.release({
+        traceId: context.traceId,
         merchantId: context.merchantId,
         capabilityId: args.capabilityId,
         reservationId: args.reservationId,
@@ -243,9 +260,10 @@ export function createMerchantAgentTools(
       eta: z.iso.datetime().optional(),
     }),
     actionKeyFor: (args, context) =>
-      `accept_job:${context.orderId}:${args.nodeId}`,
+      `accept_job:${context.merchantId}:${context.orderId}:${args.nodeId}`,
     handler: (args, context) =>
       deps.jobs.acceptJob({
+        traceId: context.traceId,
         merchantId: context.merchantId,
         orderId: requireOrderId(context.orderId),
         nodeId: args.nodeId,
@@ -263,9 +281,10 @@ export function createMerchantAgentTools(
       reason: z.string().min(1),
     }),
     actionKeyFor: (args, context) =>
-      `decline_job:${context.orderId}:${args.nodeId}`,
+      `decline_job:${context.merchantId}:${context.orderId}:${args.nodeId}`,
     handler: (args, context) =>
       deps.jobs.declineJob({
+        traceId: context.traceId,
         merchantId: context.merchantId,
         orderId: requireOrderId(context.orderId),
         nodeId: args.nodeId,
@@ -283,9 +302,10 @@ export function createMerchantAgentTools(
       eta: z.iso.datetime(),
     }),
     actionKeyFor: (args, context) =>
-      `update_eta:${context.orderId}:${args.nodeId}:${args.eta}`,
+      `update_eta:${context.merchantId}:${context.orderId}:${args.nodeId}:${args.eta}`,
     handler: (args, context) =>
       deps.jobs.updateEta({
+        traceId: context.traceId,
         merchantId: context.merchantId,
         orderId: requireOrderId(context.orderId),
         nodeId: args.nodeId,
@@ -304,5 +324,14 @@ export function createMerchantAgentTools(
     asTool(acceptJob),
     asTool(declineJob),
     asTool(updateEta),
+    asTool({
+      name: "get_capability_policy",
+      description:
+        "Reads canonical capability, pricing, lead time and merchant hard rules.",
+      risk: "read",
+      parameters: z.object({ capabilityId: z.string().min(1) }),
+      handler: (args, context) =>
+        deps.canonicalData.getCapability(context.merchantId, args.capabilityId),
+    }),
   ];
 }

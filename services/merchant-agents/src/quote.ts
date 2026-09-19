@@ -90,7 +90,10 @@ export class MerchantQuoteUnavailableError extends Error {
 }
 
 export interface QuoteService {
-  handleQuoteRequest(input: unknown): Promise<QuoteResponse>;
+  handleQuoteRequest(
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<QuoteResponse>;
 }
 
 function formatClaim(claim: CanonicalClaim): string {
@@ -217,6 +220,7 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
     threadId: string,
     message: string,
     model: string,
+    signal?: AbortSignal,
   ) {
     return deps.adapter.sendWithTools<QuoteResponse>({
       merchantId: request.merchantId,
@@ -225,7 +229,8 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
       traceId: request.traceId,
       orderId: request.orderId,
       message,
-      tools,
+      tools: request.hold ? tools : readOnlyTools,
+      signal,
       responseSchema: QuoteResponseSchema,
       model,
     });
@@ -249,9 +254,12 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
       return { ...grounded, reservationId: undefined };
     }
 
-    const actionKey = `quote-hold:${request.orderId}:${request.capabilityId}`;
+    const actionKey =
+      request.actionKey ??
+      `quote-hold:${request.merchantId}:${request.orderId}:${request.intentVersion}:${request.capabilityId}:${request.quantity}`;
     try {
       const reservation = await deps.tools.capacity.reserve({
+        traceId: request.traceId,
         merchantId: request.merchantId,
         capabilityId: request.capabilityId,
         orderId: request.orderId,
@@ -273,8 +281,13 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
     }
   }
 
-  async function handleQuoteRequest(input: unknown): Promise<QuoteResponse> {
+  async function handleQuoteRequest(
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<QuoteResponse> {
     const request = QuoteRequestSchema.parse(input);
+    if (signal?.aborted)
+      throw new MerchantQuoteUnavailableError(request.merchantId, "TIMEOUT");
 
     const assistant = await deps.repository.getAssistant(request.merchantId);
     if (!assistant) {
@@ -319,6 +332,7 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
         thread.threadId,
         message,
         modelSelection.modelId,
+        signal,
       );
 
       if (result.outcome === "FALLBACK") {
@@ -346,6 +360,8 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
       );
     }
 
+    if (signal?.aborted)
+      throw new MerchantQuoteUnavailableError(request.merchantId, "TIMEOUT");
     const final = await reconcileHold(request, candidate);
     const validated = QuoteResponseSchema.parse(final);
 

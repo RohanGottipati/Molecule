@@ -104,6 +104,7 @@ export interface ToolCallRecord {
 }
 
 export interface SendWithToolsInput<T = unknown> {
+  signal?: AbortSignal;
   merchantId: string;
   assistantId: string;
   threadId: string;

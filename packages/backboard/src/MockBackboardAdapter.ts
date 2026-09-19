@@ -209,6 +209,7 @@ export class MockBackboardAdapter implements BackboardAdapter {
       responseSchema: input.responseSchema,
       maxRounds: input.maxRounds,
       roundTimeoutMs: input.roundTimeoutMs ?? 200,
+      signal: input.signal,
     });
   }
 

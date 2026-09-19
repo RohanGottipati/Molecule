@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   BackboardApiError,
   type BackboardAdapter,
@@ -27,6 +28,8 @@ export interface RealBackboardAdapterConfig {
   apiKey: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  requestTimeoutMs?: number;
+  signal?: AbortSignal;
   /**
    * Backboard has no per-assistant model: `POST /threads/messages` takes
    * `llm_provider`/`model_name` per call. This is only the value recorded on
@@ -46,56 +49,41 @@ const DEFAULT_BASE_URL = "https://app.backboard.io/api";
 const DEFAULT_MODEL_NAME = "gpt-4o";
 const DEFAULT_LLM_PROVIDER = "openai";
 
-interface ModelWire {
-  name: string;
-  provider: string;
-  model_type: string;
-  context_limit: number;
-  supports_tools: boolean;
-  supports_thinking: boolean;
-  supports_json_output: boolean;
-  supports_vision?: boolean;
-}
+const timestamp = z
+  .string()
+  .refine((value) => Number.isFinite(Date.parse(value)));
+const memoryWire = z
+  .object({
+    id: z.string().min(1).optional(),
+    memory_id: z.string().min(1).optional(),
+    content: z.string().optional(),
+    metadata: z.object({ source: z.string().optional() }).nullish(),
+    created_at: timestamp,
+  })
+  .refine((value) => value.id || value.memory_id);
+const messageWire = z.object({
+  thread_id: z.string().min(1),
+  content: z.string().nullish(),
+  status: z.enum(["COMPLETED", "REQUIRES_ACTION"]),
+  tool_calls: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        function: z.object({ name: z.string().min(1), arguments: z.string() }),
+      }),
+    )
+    .nullish(),
+});
 
-interface AssistantWire {
-  assistant_id: string;
-  name: string;
-  system_prompt: string | null;
-  created_at: string;
-}
-
-interface ThreadWire {
-  thread_id: string;
-  created_at: string;
-}
-
-interface ToolCallWire {
-  id: string;
-  type: string;
-  function: { name: string; arguments: string };
-}
-
-interface MessageResponseWire {
-  message: string;
-  thread_id: string;
-  content: string | null;
-  status: "COMPLETED" | "REQUIRES_ACTION" | string;
-  tool_calls: ToolCallWire[] | null;
-}
-
-interface DocumentWire {
-  document_id: string;
-  filename: string;
-  status: string;
-  created_at: string;
-}
-
-interface MemoryWire {
-  id?: string;
-  memory_id?: string;
-  content: string;
-  metadata?: { source?: string } | null;
-  created_at: string;
+function parseWire<T>(schema: z.ZodType<T>, value: unknown): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success)
+    throw new BackboardApiError(
+      "Invalid Backboard response",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return parsed.data;
 }
 
 // OpenAI-style function-tool wire shape Backboard expects in `tools`.
@@ -108,7 +96,7 @@ function toToolSpec(tool: ToolDefinition) {
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: { type: "object" },
+      parameters: z.toJSONSchema(tool.parameters),
     },
   };
 }
@@ -126,22 +114,42 @@ class RealConversationClient implements ConversationClient {
     private readonly provider: string,
   ) {}
 
-  private toConverseTurn(data: MessageResponseWire): ConverseTurn {
+  private toConverseTurn(value: unknown): ConverseTurn {
+    const data = parseWire(messageWire, value);
+    if (data.thread_id !== this.threadId) {
+      throw new BackboardApiError(
+        "Backboard returned a different thread",
+        502,
+        "INVALID_RESPONSE",
+      );
+    }
     if (data.status === "REQUIRES_ACTION") {
+      if (!data.tool_calls?.length)
+        throw new BackboardApiError(
+          "Missing Backboard tool calls",
+          502,
+          "INVALID_RESPONSE",
+        );
       return {
         status: "requires_action",
         toolCalls: (data.tool_calls ?? []).map((call) => ({
           id: call.id,
           name: call.function.name,
-          args: JSON.parse(call.function.arguments || "{}") as Record<
-            string,
-            unknown
-          >,
+          args: parseWire(
+            z.record(z.string(), z.unknown()),
+            JSON.parse(call.function.arguments),
+          ),
         })),
       };
     }
     if (data.status === "COMPLETED") {
-      return { status: "completed", text: data.content ?? data.message ?? "" };
+      if (!data.content)
+        throw new BackboardApiError(
+          "Missing Backboard content",
+          502,
+          "INVALID_RESPONSE",
+        );
+      return { status: "completed", text: data.content };
     }
     throw new BackboardApiError(
       `Backboard message ended with status ${data.status}`,
@@ -150,42 +158,36 @@ class RealConversationClient implements ConversationClient {
   }
 
   async start(input: { message: string }): Promise<ConverseTurn> {
-    const data = await this.request<MessageResponseWire>(
-      "/threads/messages",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          content: input.message,
-          thread_id: this.threadId,
-          assistant_id: this.assistantId,
-          llm_provider: this.provider,
-          model_name: this.model,
-          tools: this.tools.map(toToolSpec),
-          memory: "Auto",
-          stream: false,
-        }),
-      },
-    );
+    const data = await this.request<unknown>("/threads/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        content: input.message,
+        thread_id: this.threadId,
+        assistant_id: this.assistantId,
+        llm_provider: this.provider,
+        model_name: this.model,
+        tools: this.tools.map(toToolSpec),
+        memory: "Auto",
+        stream: false,
+      }),
+    });
     return this.toConverseTurn(data);
   }
 
   async submitToolOutputs(input: {
     toolOutputs: { toolCallId: string; output: string }[];
   }): Promise<ConverseTurn> {
-    const data = await this.request<MessageResponseWire>(
-      "/threads/tool-outputs",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          thread_id: this.threadId,
-          tool_outputs: input.toolOutputs.map((output) => ({
-            tool_call_id: output.toolCallId,
-            output: output.output,
-          })),
-          stream: false,
-        }),
-      },
-    );
+    const data = await this.request<unknown>("/threads/tool-outputs", {
+      method: "POST",
+      body: JSON.stringify({
+        thread_id: this.threadId,
+        tool_outputs: input.toolOutputs.map((output) => ({
+          tool_call_id: output.toolCallId,
+          output: output.output,
+        })),
+        stream: false,
+      }),
+    });
     return this.toConverseTurn(data);
   }
 }
@@ -195,6 +197,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
   private readonly fetchImpl: typeof fetch;
   private readonly defaultModel: string;
   private readonly defaultProvider: string;
+  private readonly modelProviders = new Map<string, string>();
 
   constructor(private readonly config: RealBackboardAdapterConfig) {
     if (!config.apiKey) {
@@ -204,30 +207,87 @@ export class RealBackboardAdapter implements BackboardAdapter {
     this.fetchImpl = config.fetchImpl ?? fetch;
     this.defaultModel = config.defaultModel ?? DEFAULT_MODEL_NAME;
     this.defaultProvider = config.defaultProvider ?? DEFAULT_LLM_PROVIDER;
+    if (config.requestTimeoutMs !== undefined && config.requestTimeoutMs <= 0) {
+      throw new Error("requestTimeoutMs must be positive");
+    }
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.config.apiKey,
-        ...init?.headers,
-      },
-    });
-    if (!response.ok) {
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(this.config.requestTimeoutMs ?? 15_000),
+      ...(this.config.signal ? [this.config.signal] : []),
+      ...(init?.signal ? [init.signal] : []),
+    ]);
+    try {
+      signal.throwIfAborted();
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        signal,
+        headers: {
+          ...(init?.body instanceof FormData
+            ? {}
+            : { "content-type": "application/json" }),
+          "x-api-key": this.config.apiKey,
+          ...init?.headers,
+        },
+      });
+      if (!response.ok) {
+        throw new BackboardApiError(
+          `Backboard API failed with ${response.status}`,
+          response.status,
+        );
+      }
+      try {
+        return (await response.json()) as T;
+      } catch {
+        signal.throwIfAborted();
+        throw new BackboardApiError(
+          "Invalid Backboard JSON response",
+          502,
+          "INVALID_RESPONSE",
+        );
+      }
+    } catch (error) {
+      if (signal.aborted) {
+        const timedOut =
+          signal.reason instanceof Error &&
+          signal.reason.name === "TimeoutError";
+        throw new BackboardApiError(
+          timedOut
+            ? "Backboard request timed out"
+            : "Backboard request cancelled",
+          timedOut ? 504 : 499,
+          timedOut ? "TIMEOUT" : "ABORTED",
+        );
+      }
+      if (error instanceof BackboardApiError) throw error;
       throw new BackboardApiError(
-        `Backboard API ${path} failed with ${response.status}`,
-        response.status,
+        "Backboard network request failed",
+        502,
+        "NETWORK",
       );
     }
-    return (await response.json()) as T;
   }
 
   async listModels(): Promise<BackboardModel[]> {
-    const data = await this.request<{ models: ModelWire[] }>(
-      "/models?model_type=llm&limit=200",
+    const data = parseWire(
+      z.object({
+        models: z.array(
+          z.object({
+            name: z.string().min(1),
+            provider: z.string().min(1),
+            context_limit: z.number().positive(),
+            supports_tools: z.boolean(),
+            supports_thinking: z.boolean(),
+            supports_json_output: z.boolean(),
+            supports_vision: z.boolean().optional(),
+          }),
+        ),
+      }),
+      await this.request<unknown>("/models?model_type=llm&limit=200"),
     );
+    for (const model of data.models)
+      this.modelProviders.set(model.name, model.provider);
     return data.models.map((model) => ({
       modelId: model.name,
       provider: model.provider,
@@ -243,13 +303,16 @@ export class RealBackboardAdapter implements BackboardAdapter {
     identity: MerchantIdentity,
   ): Promise<MerchantAssistant> {
     const systemPrompt = buildMerchantSystemPrompt(identity);
-    const data = await this.request<AssistantWire>("/assistants", {
-      method: "POST",
-      body: JSON.stringify({
-        name: identity.displayName,
-        system_prompt: systemPrompt,
+    const data = parseWire(
+      z.object({ assistant_id: z.string().min(1), created_at: timestamp }),
+      await this.request<unknown>("/assistants", {
+        method: "POST",
+        body: JSON.stringify({
+          name: identity.displayName,
+          system_prompt: systemPrompt,
+        }),
       }),
-    });
+    );
     return {
       merchantId: identity.merchantId,
       assistantId: data.assistant_id,
@@ -272,21 +335,16 @@ export class RealBackboardAdapter implements BackboardAdapter {
       new Blob([input.content], { type: input.mimeType }),
       input.fileName,
     );
-    const response = await this.fetchImpl(
-      `${this.baseUrl}/assistants/${input.assistantId}/documents`,
-      {
-        method: "POST",
-        headers: { "x-api-key": this.config.apiKey },
-        body: form,
-      },
+    const data = parseWire(
+      z.object({ document_id: z.string().min(1), created_at: timestamp }),
+      await this.request<unknown>(
+        `/assistants/${encodeURIComponent(input.assistantId)}/documents`,
+        {
+          method: "POST",
+          body: form,
+        },
+      ),
     );
-    if (!response.ok) {
-      throw new BackboardApiError(
-        `Backboard API /assistants/${input.assistantId}/documents failed with ${response.status}`,
-        response.status,
-      );
-    }
-    const data = (await response.json()) as DocumentWire;
     return {
       merchantId: input.merchantId,
       documentId: data.document_id,
@@ -322,9 +380,12 @@ export class RealBackboardAdapter implements BackboardAdapter {
   async createOrReuseOrderThread(
     input: CreateOrderThreadInput,
   ): Promise<OrderThread> {
-    const data = await this.request<ThreadWire>(
-      `/assistants/${input.assistantId}/threads`,
-      { method: "POST", body: JSON.stringify({}) },
+    const data = parseWire(
+      z.object({ thread_id: z.string().min(1), created_at: timestamp }),
+      await this.request<unknown>(
+        `/assistants/${encodeURIComponent(input.assistantId)}/threads`,
+        { method: "POST", body: JSON.stringify({}) },
+      ),
     );
     return {
       merchantId: input.merchantId,
@@ -337,44 +398,59 @@ export class RealBackboardAdapter implements BackboardAdapter {
   async sendWithTools<T = unknown>(
     input: SendWithToolsInput<T>,
   ): Promise<SendWithToolsResult<T>> {
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+      controller.signal,
+      ...(input.signal ? [input.signal] : []),
+    ]);
     const client = new RealConversationClient(
-      this.request.bind(this),
+      <R>(path: string, init?: RequestInit) =>
+        this.request<R>(path, { ...init, signal }),
       input.assistantId,
       input.threadId,
       input.tools,
       input.model ?? this.defaultModel,
-      this.defaultProvider,
+      this.modelProviders.get(input.model ?? this.defaultModel) ??
+        this.defaultProvider,
     );
-    return runBoundedToolLoop<T>({
-      client,
-      message: input.message,
-      tools: input.tools,
-      context: {
-        merchantId: input.merchantId,
-        threadId: input.threadId,
-        orderId: input.orderId,
-        traceId: input.traceId,
-      },
-      responseSchema: input.responseSchema,
-      maxRounds: input.maxRounds,
-      roundTimeoutMs: input.roundTimeoutMs,
-    });
+    try {
+      return await runBoundedToolLoop<T>({
+        client,
+        message: input.message,
+        tools: input.tools,
+        context: {
+          merchantId: input.merchantId,
+          threadId: input.threadId,
+          orderId: input.orderId,
+          traceId: input.traceId,
+        },
+        responseSchema: input.responseSchema,
+        maxRounds: input.maxRounds,
+        roundTimeoutMs: input.roundTimeoutMs,
+        signal,
+      });
+    } finally {
+      controller.abort();
+    }
   }
 
   async recordMerchantMemory(
     input: RecordMerchantMemoryInput,
   ): Promise<MerchantMemoryEntry> {
-    const data = await this.request<MemoryWire>(
-      `/assistants/${input.assistantId}/memories`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          content: input.note,
-          metadata: input.sourceThreadId
-            ? { source: input.sourceThreadId }
-            : undefined,
-        }),
-      },
+    const data = parseWire(
+      memoryWire,
+      await this.request<unknown>(
+        `/assistants/${encodeURIComponent(input.assistantId)}/memories`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: input.note,
+            metadata: input.sourceThreadId
+              ? { source: input.sourceThreadId }
+              : undefined,
+          }),
+        },
+      ),
     );
     return {
       assistantId: input.assistantId,
@@ -389,14 +465,17 @@ export class RealBackboardAdapter implements BackboardAdapter {
   async recallMerchantMemory(
     input: RecallMerchantMemoryInput,
   ): Promise<MerchantMemoryEntry[]> {
-    const data = await this.request<{ memories: MemoryWire[] }>(
-      `/assistants/${input.assistantId}/memories?page_size=100`,
+    const data = parseWire(
+      z.object({ memories: z.array(memoryWire) }),
+      await this.request<unknown>(
+        `/assistants/${encodeURIComponent(input.assistantId)}/memories?page_size=100`,
+      ),
     );
     return data.memories.map((memory) => ({
       assistantId: input.assistantId,
       merchantId: input.merchantId,
       memoryId: memory.id ?? memory.memory_id ?? "",
-      note: memory.content,
+      note: parseWire(z.string().min(1), memory.content),
       sourceThreadId: memory.metadata?.source,
       recordedAt: memory.created_at,
     }));
