@@ -12,12 +12,20 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "turbo run lint",
+    "solver:dev": "services/solver/.venv/bin/uvicorn app.main:app --app-dir services/solver --reload --port 8000",
+    "solver:lint": "services/solver/.venv/bin/ruff check services/solver && services/solver/.venv/bin/mypy services/solver/app",
+    "solver:test": "services/solver/.venv/bin/pytest services/solver/tests -q",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "test:adversary": "pnpm --filter @molecule/orchestrator test && pnpm solver:test",
+    "typecheck": "turbo run typecheck",
+    "verify:openai": "node --import tsx scripts/verify-openai.ts",
+    "verify:secrets": "node scripts/verify-no-client-secrets.mjs"
   },
   "devDependencies": {
+    "@types/node": "26.6.2",
     "prettier": "3.9.8",
     "turbo": "2.11.2",
+    "tsx": "4.23.13",
     "typescript": "7.0.2"
   }
 }

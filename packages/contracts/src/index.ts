@@ -53,6 +53,7 @@ export const AssetRefSchema = z
   .refine((asset) => asset.url !== undefined || asset.checksum !== undefined, {
     message: "An asset must have a URL or checksum",
   });
+export type AssetRef = z.infer<typeof AssetRefSchema>;
 
 export const AmbiguityFlagSchema = z.object({
   field: z.string(),
@@ -75,6 +76,103 @@ export const ProductIntentSchema = z.object({
   ambiguityFlags: z.array(AmbiguityFlagSchema).default([]),
 });
 export type ProductIntent = z.infer<typeof ProductIntentSchema>;
+
+export const ProductIntentDraftSchema = ProductIntentSchema.extend({
+  quantity: z.number().int().positive().nullable(),
+  deadline: z.iso.datetime().nullable(),
+  currency: CurrencySchema.nullable(),
+  budgetMax: z.number().positive().nullable().optional(),
+  desiredOutputs: z.array(DesiredOutputSchema),
+});
+export type ProductIntentDraft = z.infer<typeof ProductIntentDraftSchema>;
+
+export const CompileIntentRequestSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  text: z.string().min(1),
+  locale: z.string().min(2).default("en-CA"),
+  timeZone: z.string().min(1).default("UTC"),
+  requestedAt: z.iso.datetime(),
+  assets: z.array(AssetRefSchema).default([]),
+  previousIntent: ProductIntentDraftSchema.optional(),
+  correction: z
+    .object({
+      kind: z.enum([
+        "constraint",
+        "preference",
+        "quantity",
+        "deadline",
+        "budget",
+        "other",
+      ]),
+      text: z.string().min(1),
+    })
+    .optional(),
+});
+export type CompileIntentRequest = z.infer<typeof CompileIntentRequestSchema>;
+
+export const CompileIntentResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("READY"),
+    intent: ProductIntentSchema,
+  }),
+  z.strictObject({
+    status: z.literal("NEEDS_CLARIFICATION"),
+    draft: ProductIntentDraftSchema,
+    questions: z.array(z.string().min(1)).min(1),
+  }),
+  z.strictObject({
+    status: z.literal("UNSUPPORTED"),
+    reason: z.string().min(1),
+  }),
+]);
+export type CompileIntentResult = z.infer<typeof CompileIntentResultSchema>;
+
+export const ClaimSourceSchema = z.object({
+  kind: z.enum(["shopify", "csv", "document", "note", "api", "manual"]),
+  reference: z.string(),
+  checksum: z.string().optional(),
+});
+
+export const ClaimExtractionRequestSchema = z
+  .strictObject({
+    traceId: z.string().min(1),
+    merchantId: z.string().min(1),
+    source: ClaimSourceSchema.optional(),
+    text: z.string().min(1).optional(),
+    assets: z.array(AssetRefSchema).default([]),
+    locale: z.string().min(2).default("en-CA"),
+  })
+  .refine((input) => input.text !== undefined || input.assets.length > 0, {
+    message: "Claim extraction requires text or an asset",
+  });
+export type ClaimExtractionRequest = z.infer<
+  typeof ClaimExtractionRequestSchema
+>;
+
+export const ExtractedClaimCandidateSchema = z.strictObject({
+  field: z.string().min(1),
+  value: z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.array(z.string()),
+    z.array(z.number()),
+  ]),
+  normalizedUnit: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
+  evidenceText: z.string().nullable(),
+  ambiguity: z.string().nullable(),
+});
+export type ExtractedClaimCandidate = z.infer<
+  typeof ExtractedClaimCandidateSchema
+>;
+
+export const ClaimExtractionResultSchema = z.strictObject({
+  merchantId: z.string().min(1),
+  candidates: z.array(ExtractedClaimCandidateSchema),
+});
+export type ClaimExtractionResult = z.infer<typeof ClaimExtractionResultSchema>;
 
 export const CapabilityPortSchema = z.object({
   kind: z.string().min(1),
@@ -135,11 +233,21 @@ export const MerchantCapabilitySchema = z.object({
 });
 export type MerchantCapability = z.infer<typeof MerchantCapabilitySchema>;
 
-export const ClaimSourceSchema = z.object({
-  kind: z.enum(["shopify", "csv", "document", "note", "api", "manual"]),
-  reference: z.string(),
-  checksum: z.string().optional(),
+export const QuoteRequestSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  merchantId: z.string().min(1),
+  capabilityId: z.string().min(1),
+  intentVersion: z.number().int().positive(),
+  quantity: z.number().int().positive(),
+  deadline: z.iso.datetime(),
+  currency: CurrencySchema,
+  hardConstraints: z.array(ConstraintSchema).default([]),
+  softPreferences: z.array(WeightedPreferenceSchema).default([]),
+  hold: z.boolean().default(false),
+  actionKey: z.string().min(1).optional(),
 });
+export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
 
 export const CanonicalClaimSchema = z.object({
   claimId: z.string(),
@@ -185,6 +293,36 @@ export const QuoteResponseSchema = z.object({
   explanation: z.string().max(600),
 });
 export type QuoteResponse = z.infer<typeof QuoteResponseSchema>;
+
+export const CandidateRiskSchema = z.strictObject({
+  p50Hours: z.number().nonnegative().optional(),
+  p95Hours: z.number().nonnegative().optional(),
+  p99Hours: z.number().nonnegative().optional(),
+  sampleCount: z.number().int().nonnegative(),
+  confidence: z.enum(["low", "medium", "high"]),
+});
+
+export const CandidateCapabilitySchema = z.strictObject({
+  capabilityId: z.string().min(1),
+  merchantId: z.string().min(1),
+  score: z.number(),
+  capability: MerchantCapabilitySchema,
+  risk: CandidateRiskSchema.optional(),
+  blockedReasons: z.array(z.string()).default([]),
+});
+export type CandidateCapability = z.infer<typeof CandidateCapabilitySchema>;
+
+export const SolverInputSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
+  now: z.iso.datetime(),
+  intent: ProductIntentSchema,
+  candidates: z.array(CandidateCapabilitySchema),
+  quotes: z.array(QuoteResponseSchema),
+  changePenaltyNodeIds: z.array(z.string()).default([]),
+});
+export type SolverInput = z.infer<typeof SolverInputSchema>;
 
 export const PlanNodeSchema = z.object({
   nodeId: z.string(),
@@ -249,6 +387,143 @@ export const ProductionPlanSchema = z
   });
 export type ProductionPlan = z.infer<typeof ProductionPlanSchema>;
 
+export const ExecutionActionReceiptSchema = z.strictObject({
+  actionKey: z.string().min(1),
+  kind: z.enum([
+    "CAPACITY_RESERVATION",
+    "COMPOSITE_PRODUCT",
+    "SUPPLIER_JOB",
+    "CUSTOMER_ORDER",
+    "SUPERSEDE_SUPPLIER_JOB",
+  ]),
+  status: z.enum(["PENDING", "SUCCEEDED", "FAILED", "COMPENSATED"]),
+  providerRef: z.string().optional(),
+  errorCode: z.string().optional(),
+});
+export type ExecutionActionReceipt = z.infer<
+  typeof ExecutionActionReceiptSchema
+>;
+
+export const ExecutionReceiptSchema = z.strictObject({
+  orderId: z.string().min(1),
+  planId: z.string().min(1),
+  intentVersion: z.number().int().positive(),
+  actions: z.array(ExecutionActionReceiptSchema),
+  compositeProduct: z
+    .strictObject({
+      storeDomain: z.string(),
+      productGid: z.string(),
+      variantGid: z.string().optional(),
+      adminUrl: z.url().optional(),
+      storefrontUrl: z.url().optional(),
+    })
+    .optional(),
+  customerOrder: z
+    .strictObject({
+      draftOrderGid: z.string().optional(),
+      orderGid: z.string().optional(),
+      checkoutUrl: z.url().optional(),
+    })
+    .optional(),
+  supplierJobs: z.array(
+    z.strictObject({
+      merchantId: z.string(),
+      nodeId: z.string(),
+      draftOrderGid: z.string(),
+      storeDomain: z.string(),
+    }),
+  ),
+});
+export type ExecutionReceipt = z.infer<typeof ExecutionReceiptSchema>;
+
+export const ChaosRequestSchema = z.strictObject({
+  scenario: z.enum([
+    "supplier_offline",
+    "inventory_zero",
+    "price_spike",
+    "lead_time_delay",
+    "conflicting_document",
+  ]),
+  orderId: z.string().optional(),
+  merchantId: z.string().optional(),
+});
+export type ChaosRequest = z.infer<typeof ChaosRequestSchema>;
+
+export const ChaosReceiptSchema = z.strictObject({
+  scenario: ChaosRequestSchema.shape.scenario,
+  applied: z.boolean(),
+  reversible: z.boolean(),
+  eventId: z.uuid(),
+});
+export type ChaosReceipt = z.infer<typeof ChaosReceiptSchema>;
+
+export const OrderSessionStateSchema = z.enum([
+  "REQUESTED",
+  "COMPILING_INTENT",
+  "NEEDS_CLARIFICATION",
+  "INTENT_COMPILED",
+  "DISCOVERING",
+  "CANDIDATES_READY",
+  "QUOTING",
+  "QUOTED",
+  "SOLVING",
+  "PLAN_VALIDATED",
+  "PLAN_UNSAT",
+  "AWAITING_APPROVAL",
+  "EXECUTING",
+  "SKU_CREATED",
+  "SUPPLIER_JOBS_CREATED",
+  "CUSTOMER_ORDER_CREATED",
+  "COMPLETED",
+  "AT_RISK",
+  "RECOVERING",
+  "NEEDS_HUMAN",
+  "FAILED",
+]);
+export type OrderSessionState = z.infer<typeof OrderSessionStateSchema>;
+
+export const OrderSessionSnapshotSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  state: OrderSessionStateSchema,
+  revision: z.number().int().nonnegative(),
+  intentVersion: z.number().int().nonnegative(),
+  planGeneration: z.number().int().nonnegative(),
+  intent: ProductIntentDraftSchema.nullable(),
+  candidates: z.array(CandidateCapabilitySchema),
+  quotes: z.array(QuoteResponseSchema),
+  activePlan: ProductionPlanSchema.nullable(),
+  executionReceipt: ExecutionReceiptSchema.nullable(),
+  lastErrorCode: z.string().nullable(),
+  eventCursor: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type OrderSessionSnapshot = z.infer<typeof OrderSessionSnapshotSchema>;
+
+export const ApiErrorSchema = z.strictObject({
+  code: z.enum([
+    "VALIDATION_ERROR",
+    "CONFLICT",
+    "STALE_VERSION",
+    "NOT_FOUND",
+    "PROVIDER_TIMEOUT",
+    "PROVIDER_AUTH",
+    "RATE_LIMITED",
+    "MODEL_REFUSAL",
+    "INCOMPLETE_MODEL_OUTPUT",
+    "SOLVER_UNSAT",
+    "INVALID_TRANSITION",
+    "CHAOS_DISABLED",
+    "INTERNAL",
+  ]),
+  message: z.string(),
+  traceId: z.string().min(1),
+  retryable: z.boolean(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+export type ApiError = z.infer<typeof ApiErrorSchema>;
+
 export const MoleculeEventSchema = z.object({
   eventId: z.uuid(),
   traceId: z.string().min(1),
@@ -259,6 +534,7 @@ export const MoleculeEventSchema = z.object({
   ts: z.iso.datetime(),
   severity: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]),
   source: z.enum([
+    "orchestrator",
     "openai",
     "rox",
     "backboard",

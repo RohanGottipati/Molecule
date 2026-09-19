@@ -12,6 +12,7 @@ coverage/
 
 .DS_Store
 *.log
+*.tsbuildinfo
 
 __pycache__/
 *.py[cod]
