@@ -26,5 +26,13 @@ export {
   type ReserveCapacityInput,
   type Reservation,
 } from "./reservations.js";
-export { importCatalog, activateCatalog, readCatalog, CatalogImportError } from "./catalog.js";
-export { reserveCatalogPlan, releaseCatalogPlan } from "./catalogReservations.js";
+export {
+  importCatalog,
+  activateCatalog,
+  readCatalog,
+  CatalogImportError,
+} from "./catalog.js";
+export {
+  reserveCatalogPlan,
+  releaseCatalogPlan,
+} from "./catalogReservations.js";

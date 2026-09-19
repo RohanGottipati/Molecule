@@ -6,7 +6,11 @@ import {
   createMerchantRuntime,
   DatabaseCanonicalDataClient,
 } from "@molecule/merchant-agents";
-import { createRealityService, quoteCatalog, observeCatalogInventory } from "@molecule/service-reality";
+import {
+  createRealityService,
+  quoteCatalog,
+  observeCatalogInventory,
+} from "@molecule/service-reality";
 import {
   MockShopifyClient,
   RealShopifyClient,
@@ -55,16 +59,27 @@ function configuredShopifyDomains(stores: readonly string[]): string[] {
 
 export async function createDurableRuntime(config: Config) {
   const store = new PostgresStore();
-  let resourceRecovery: ((orderId: string, resourceId: string) => Promise<unknown>) | undefined;
+  let resourceRecovery:
+    ((orderId: string, resourceId: string) => Promise<unknown>) | undefined;
   const recoverySerial = new Serial();
-  const drainResourceRecovery = () => recoverySerial.run(async () => {
-    if (!resourceRecovery) return;
-    const pending = await getPool().query<{ order_id: string; resource_id: string; observation_key: string }>("select * from catalog_recovery_requests where status='pending' order by updated_at");
-    for (const request of pending.rows) {
-      await resourceRecovery(request.order_id, request.resource_id);
-      await getPool().query("update catalog_recovery_requests set status='processed' where order_id=$1 and resource_id=$2 and observation_key=$3", [request.order_id, request.resource_id, request.observation_key]);
-    }
-  });
+  const drainResourceRecovery = () =>
+    recoverySerial.run(async () => {
+      if (!resourceRecovery) return;
+      const pending = await getPool().query<{
+        order_id: string;
+        resource_id: string;
+        observation_key: string;
+      }>(
+        "select * from catalog_recovery_requests where status='pending' order by updated_at",
+      );
+      for (const request of pending.rows) {
+        await resourceRecovery(request.order_id, request.resource_id);
+        await getPool().query(
+          "update catalog_recovery_requests set status='processed' where order_id=$1 and resource_id=$2 and observation_key=$3",
+          [request.order_id, request.resource_id, request.observation_key],
+        );
+      }
+    });
   await getPool().query("select order_id from order_sessions limit 0");
   const reality = createRealityService();
   const canonical = new DatabaseCanonicalDataClient();
@@ -232,14 +247,22 @@ export async function createDurableRuntime(config: Config) {
       : new MockShopifyClient({ repository: journal });
   return {
     store,
-    async attachResourceRecovery(handler: (orderId: string, resourceId: string) => Promise<unknown>) {
+    async attachResourceRecovery(
+      handler: (orderId: string, resourceId: string) => Promise<unknown>,
+    ) {
       resourceRecovery = handler;
       await drainResourceRecovery();
     },
     reality,
     merchantAgents: {
       ...merchants,
-      quote: (request: Parameters<typeof merchants.quote>[0], signal?: AbortSignal) => request.catalogVersion ? quoteCatalog(request) : merchants.quote(request, signal),
+      quote: (
+        request: Parameters<typeof merchants.quote>[0],
+        signal?: AbortSignal,
+      ) =>
+        request.catalogVersion
+          ? quoteCatalog(request)
+          : merchants.quote(request, signal),
     },
     shopify: new DurableExecutionClient(commerce, merchants),
     shopifyWebhook: config.SHOPIFY_API_SECRET

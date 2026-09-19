@@ -142,7 +142,9 @@ export function OrderWorkspace({
               {item.label}
             </WorkspaceLink>
           ))}
-          <a className="nav-item" href="/recipes">Recipe gallery</a>
+          <a className="nav-item" href="/recipes">
+            Recipe gallery
+          </a>
         </nav>
         <div className="sidebar-footer">
           <p>Brief → validated plan → approval → commerce records</p>

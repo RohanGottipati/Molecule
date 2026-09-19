@@ -69,7 +69,7 @@ data["intent"] = incoming["intent"]
 data["generation"] = incoming["generation"]
 if incoming["offline"]:
     data["candidates"][4]["blockedReasons"] = ["offline"]
-print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True))
+print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True, exclude_none=True))
 `,
     ],
     {

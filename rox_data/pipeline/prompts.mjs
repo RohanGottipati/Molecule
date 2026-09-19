@@ -35,7 +35,13 @@ Rules that matter more than completeness:
 export const EXTRACT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["merchantHint", "documentDate", "injectionDetected", "injectionNote", "candidates"],
+  required: [
+    "merchantHint",
+    "documentDate",
+    "injectionDetected",
+    "injectionNote",
+    "candidates",
+  ],
   properties: {
     merchantHint: { type: "string" },
     documentDate: { type: "string" },
@@ -46,9 +52,21 @@ export const EXTRACT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["field", "subjectHint", "value", "unit", "period", "evidence", "confidence", "ambiguity"],
+        required: [
+          "field",
+          "subjectHint",
+          "value",
+          "unit",
+          "period",
+          "evidence",
+          "confidence",
+          "ambiguity",
+        ],
         properties: {
-          field: { type: "string", enum: ["capacity", "lead_time_hours", "price", "moq"] },
+          field: {
+            type: "string",
+            enum: ["capacity", "lead_time_hours", "price", "moq"],
+          },
           subjectHint: { type: "string" },
           value: { type: "string" },
           unit: { type: "string" },

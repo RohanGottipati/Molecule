@@ -52,7 +52,9 @@ export async function createApp() {
     shopify: durable?.shopify ?? new MockShopifyClient(),
     quoteTimeoutMs: 30_000,
   });
-  await durable?.attachResourceRecovery((orderId, resourceId) => orchestrator.recoverResource(orderId, resourceId));
+  await durable?.attachResourceRecovery((orderId, resourceId) =>
+    orchestrator.recoverResource(orderId, resourceId),
+  );
   const providers = async (): Promise<ProviderStatus[]> => {
     const solverReady = await fetch(`${config.SOLVER_URL}/health`, {
       signal: AbortSignal.timeout(2000),

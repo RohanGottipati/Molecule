@@ -3,12 +3,12 @@
 
 /** How much we trust a kind of source before recency or confidence is applied. */
 export const SOURCE_AUTHORITY = {
-  shopify: 0.95,  // the live store: authoritative for stock and capacity signals
-  api: 0.8,       // supplier portal pulls: structured, but often stale
-  csv: 0.7,       // spreadsheets and WMS exports: structured, hand-maintained
+  shopify: 0.95, // the live store: authoritative for stock and capacity signals
+  api: 0.8, // supplier portal pulls: structured, but often stale
+  csv: 0.7, // spreadsheets and WMS exports: structured, hand-maintained
   document: 0.65, // emails, invoices: authoritative author, unstructured
   manual: 0.9,
-  note: 0.5,      // chat threads: fastest, least formal
+  note: 0.5, // chat threads: fastest, least formal
 };
 
 /** Artifact type -> the source_kind vocabulary canonical_claims already uses. */
@@ -37,7 +37,11 @@ export const MEDIA_TYPES = {
  * units we have not defined.
  */
 export const FIELD_REGISTRY = {
-  capacity: { unit: "units/day", kind: "quantity", periods: ["day", "week", "month"] },
+  capacity: {
+    unit: "units/day",
+    kind: "quantity",
+    periods: ["day", "week", "month"],
+  },
   lead_time_hours: { unit: "hours", kind: "duration" },
   price: { unit: "CAD", kind: "money" },
   moq: { unit: "units", kind: "quantity" },
@@ -48,7 +52,12 @@ export const BUSINESS_DAY_HOURS = 8;
 export const CALENDAR_DAY_HOURS = 24;
 
 /** Frozen FX for the demo. Real rates would come from an adapter. */
-export const FX_TO_CAD = { CAD: 1, USD: 1 / 0.74, GBP: 1 / 0.58, EUR: 1 / 0.68 };
+export const FX_TO_CAD = {
+  CAD: 1,
+  USD: 1 / 0.74,
+  GBP: 1 / 0.58,
+  EUR: 1 / 0.68,
+};
 
 export const MODELS = {
   extract: process.env.ROX_EXTRACT_MODEL ?? "gpt-5.4-mini",
@@ -74,7 +83,12 @@ export const FALLBACK_PRICES = {
 export const REQUIRE_EVIDENCE = true;
 
 /** Resolution weights, mirrored from services/reality/src/resolution.ts. */
-export const RESOLUTION_WEIGHTS = { authority: 0.35, recency: 0.3, confidence: 0.25, corroboration: 0.1 };
+export const RESOLUTION_WEIGHTS = {
+  authority: 0.35,
+  recency: 0.3,
+  confidence: 0.25,
+  corroboration: 0.1,
+};
 export const CONFLICT_MARGIN = 0.08;
 export const RECENCY_HALF_LIFE_DAYS = 7;
 

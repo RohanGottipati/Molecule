@@ -34,8 +34,5 @@
     "tsx": "4.23.13",
     "turbo": "2.11.2",
     "typescript": "7.0.2"
-  },
-  "dependencies": {
-    "shopify": "^4.8.0"
   }
 }

@@ -41,16 +41,17 @@ export async function migrate(): Promise<void> {
       // 010 predates the optional-Timescale policy used by 002/003. Guard its
       // extension-only statements without changing an already-applied checksum.
       // Plain PostgreSQL retains all tables and indexes, without compression.
-      const executableSql = file === "010_bulk_commerce.sql"
-        ? sql.replace(
-            /select create_hypertable\([^;]+;|alter table bulk_order_lines set \([\s\S]*?\);|select add_compression_policy\([^;]+;/g,
-            (statement) => `do $compat$ begin
+      const executableSql =
+        file === "010_bulk_commerce.sql"
+          ? sql.replace(
+              /select create_hypertable\([^;]+;|alter table bulk_order_lines set \([\s\S]*?\);|select add_compression_policy\([^;]+;/g,
+              (statement) => `do $compat$ begin
               if exists(select 1 from pg_extension where extname='timescaledb') then
                 execute $statement$${statement}$statement$;
               end if;
             end $compat$;`,
-          )
-        : sql;
+            )
+          : sql;
       await client.query(executableSql);
       await client.query(
         "insert into molecule_migrations(filename,checksum) values ($1,$2)",

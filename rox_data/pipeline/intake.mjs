@@ -26,11 +26,20 @@ const MOJIBAKE = [
 export function decode(buffer) {
   let text = buffer.toString("utf8");
   const notes = {};
-  if (text.charCodeAt(0) === 0xfeff) { text = text.slice(1); notes.bom = true; }
-  if (text.includes("\r\n")) { text = text.replaceAll("\r\n", "\n"); notes.crlf = true; }
+  if (text.charCodeAt(0) === 0xfeff) {
+    text = text.slice(1);
+    notes.bom = true;
+  }
+  if (text.includes("\r\n")) {
+    text = text.replaceAll("\r\n", "\n");
+    notes.crlf = true;
+  }
   let repaired = false;
   for (const [bad, good] of MOJIBAKE) {
-    if (text.includes(bad)) { text = text.replaceAll(bad, good); repaired = true; }
+    if (text.includes(bad)) {
+      text = text.replaceAll(bad, good);
+      repaired = true;
+    }
   }
   if (repaired) notes.mojibake_repaired = true;
   if (text.includes("\ufffd")) notes.replacement_chars = true;
@@ -60,10 +69,17 @@ export async function readArtifact(root, path, batchId) {
   let parseStatus = "parsed";
   let parseError = null;
   if (ext === ".json") {
-    try { JSON.parse(text); }
-    catch (error) { parseStatus = "failed"; parseError = `Malformed JSON: ${error.message.slice(0, 200)}`; }
+    try {
+      JSON.parse(text);
+    } catch (error) {
+      parseStatus = "failed";
+      parseError = `Malformed JSON: ${error.message.slice(0, 200)}`;
+    }
   }
-  if (!text.trim()) { parseStatus = "failed"; parseError = "Empty after decode"; }
+  if (!text.trim()) {
+    parseStatus = "failed";
+    parseError = "Empty after decode";
+  }
 
   const sourceReference = `corpus:${batchId}:${rel}`;
   return {
@@ -82,7 +98,10 @@ export async function readArtifact(root, path, batchId) {
   };
 }
 
-export async function intake(db, { runId, root, batchId, traceId, limit = null }) {
+export async function intake(
+  db,
+  { runId, root, batchId, traceId, limit = null },
+) {
   const counts = { seen: 0, inserted: 0, duplicate: 0, failed: 0, repaired: 0 };
   const paths = [];
   for await (const p of walk(root)) paths.push(p);
@@ -100,14 +119,31 @@ export async function intake(db, { runId, root, batchId, traceId, limit = null }
           media_type, content_text, parse_status, parse_error, batch_id, source_path, byte_size, chaos_profile)
        values ($1, 'm-unresolved', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        on conflict (checksum, source_reference) do nothing`,
-      [a.artifactId, a.sourceKind, a.sourceReference, a.checksum,
-       { bytes: a.byteSize, encoding: "utf-8", notes: a.chaos },
-       a.mediaType, a.contentText, a.parseStatus, a.parseError, a.batchId, a.sourcePath, a.byteSize, a.chaos],
+      [
+        a.artifactId,
+        a.sourceKind,
+        a.sourceReference,
+        a.checksum,
+        { bytes: a.byteSize, encoding: "utf-8", notes: a.chaos },
+        a.mediaType,
+        a.contentText,
+        a.parseStatus,
+        a.parseError,
+        a.batchId,
+        a.sourcePath,
+        a.byteSize,
+        a.chaos,
+      ],
     );
-    if (rowCount === 1) counts.inserted += 1; else counts.duplicate += 1;
+    if (rowCount === 1) counts.inserted += 1;
+    else counts.duplicate += 1;
   }
 
   await bumpStage(db, runId, "intake", counts);
-  await emitEvent(db, { traceId, type: "rox.intake.completed", payload: counts });
+  await emitEvent(db, {
+    traceId,
+    type: "rox.intake.completed",
+    payload: counts,
+  });
   return counts;
 }
