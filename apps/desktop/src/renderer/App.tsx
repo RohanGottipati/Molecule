@@ -40,7 +40,8 @@ export function App() {
   const project = state.project;
   return (
     <main
-      className={`overlay ${state.mode} ${dragging ? "dragging" : ""}`}
+      className={`overlay ${dragging ? "dragging" : ""}`}
+      data-mode={state.mode}
       onDragOver={(event) => {
         event.preventDefault();
       }}
