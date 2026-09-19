@@ -9,7 +9,9 @@ async function main() {
   await client.query(`set synchronous_commit = off;`);
   await client.query(`set statement_timeout = '180s';`);
   const t0 = Date.now();
-  process.stdout.write(`Generating ${rows.toLocaleString()} network_events rows...\n`);
+  process.stdout.write(
+    `Generating ${rows.toLocaleString()} network_events rows...\n`,
+  );
   await client.query(`
     insert into network_events (ts, trace_id, merchant_id, event_type, source, severity, numeric_value, unit)
     select
@@ -25,7 +27,9 @@ async function main() {
   `);
   process.stdout.write(`Done in ${((Date.now() - t0) / 1000).toFixed(1)}s\n`);
   const r = await client.query(`select count(*) from network_events;`);
-  process.stdout.write(`network_events total: ${Number(r.rows[0].count).toLocaleString()}\n`);
+  process.stdout.write(
+    `network_events total: ${Number(r.rows[0].count).toLocaleString()}\n`,
+  );
   await client.end();
 }
 
