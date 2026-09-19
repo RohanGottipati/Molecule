@@ -39,7 +39,9 @@ export async function connectDb() {
     pg = (await import("pg")).default;
   } catch {
     pg = createRequire(
-      join(process.env.MOLECULE_TOOLS_DIR || process.cwd(), "x.js"),
+      process.env.MOLECULE_TOOLS_DIR
+        ? join(process.env.MOLECULE_TOOLS_DIR, "package.json")
+        : new URL("../../packages/db/package.json", import.meta.url),
     )("pg");
   }
   const client = new pg.Client({ connectionString: url });
