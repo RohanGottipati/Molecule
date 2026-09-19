@@ -199,25 +199,27 @@ export function useWorkspace(initialOrderId?: string) {
     setLoading(true);
     setConnection("connecting");
     void getOrder(id, controller.signal)
-      .then(apply)
+      .then(async (snapshot) => {
+        if (controller.signal.aborted || activeId.current !== id) return;
+        apply(snapshot);
+        try {
+          const result = await getContexts(id, controller.signal);
+          if (!controller.signal.aborted && activeId.current === id) {
+            apply(result.project);
+            setContexts((current) => mergeContexts(current, result.contexts));
+          }
+        } catch {
+          if (!controller.signal.aborted)
+            setError(
+              "Project attachments could not be loaded. Refresh before submitting a request that depends on them.",
+            );
+        }
+      })
       .catch((cause) => {
         if (!controller.signal.aborted) setError(message(cause));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
-      });
-    void getContexts(id, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted && activeId.current === id) {
-          apply(result.project);
-          setContexts((current) => mergeContexts(current, result.contexts));
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setError(
-            "Project attachments could not be loaded. Refresh before submitting a request that depends on them.",
-          );
       });
     const source = new EventSource(
       `/api/orders/${encodeURIComponent(id)}/events`,

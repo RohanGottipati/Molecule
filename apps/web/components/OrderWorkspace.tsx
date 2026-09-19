@@ -229,7 +229,13 @@ export function OrderWorkspace({
           <span className="project-indicator" />
           <strong>
             {order?.intent?.desiredOutputs[0]?.name ??
-              (workspace.orderId ? "Loading project" : "No active project")}
+              (workspace.orderId
+                ? loading
+                  ? "Loading project"
+                  : order
+                    ? "Untitled project"
+                    : "Project unavailable"
+                : "No active project")}
           </strong>
           <small>
             {workspace.orderId
@@ -371,7 +377,9 @@ export function OrderWorkspace({
                       ? "Loading project…"
                       : order
                         ? stateLabels[order.state]
-                        : "Ready for a new outcome"}
+                        : workspace.orderId
+                          ? "Project unavailable"
+                          : "Ready for a new outcome"}
                   </strong>
                   {workspace.orderId && (
                     <span className="project-id">
@@ -382,7 +390,9 @@ export function OrderWorkspace({
                 <span>
                   {order
                     ? `Intent ${order.intentVersion} · plan generation ${order.planGeneration}`
-                    : "No project created until you send a brief"}
+                    : workspace.orderId
+                      ? "Refresh or start a new project"
+                      : "No project created until you send a brief"}
                 </span>
               </div>
               <div className="command-layout">
