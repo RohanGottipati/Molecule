@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  allowsMediaRequest,
   clampPosition,
   dashboardUrl,
   projectFromLink,
@@ -8,6 +9,24 @@ import {
 } from "./policy.js";
 
 describe("desktop platform policy", () => {
+  it.each([
+    ["media", [], true, true],
+    ["media", [], false, false],
+    ["media", undefined, true, false],
+    ["media", ["audio"], false, true],
+    ["media", ["video"], true, false],
+    ["media", ["audio", "video"], true, false],
+    ["display-capture", undefined, true, true],
+    ["display-capture", undefined, false, false],
+    ["geolocation", [], true, false],
+  ] as const)(
+    "gates %s (%j) with screen selection=%s",
+    (permission, mediaTypes, selected, expected) => {
+      expect(allowsMediaRequest(permission, mediaTypes, selected)).toBe(
+        expected,
+      );
+    },
+  );
   it("registers a toggle and falls back if Option+Space is owned", () => {
     const window = {
       isVisible: () => visible,

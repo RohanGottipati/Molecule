@@ -1,3 +1,14 @@
+export function allowsMediaRequest(
+  permission: string,
+  mediaTypes: readonly string[] | undefined,
+  hasScreenSelection: boolean,
+): boolean {
+  if (permission === "display-capture") return hasScreenSelection;
+  if (permission !== "media" || !mediaTypes) return false;
+  if (mediaTypes.length === 0) return hasScreenSelection;
+  return mediaTypes.length === 1 && mediaTypes[0] === "audio";
+}
+
 export function dashboardUrl(base: string, projectId?: string): string {
   const url = new URL(base);
   if (!["http:", "https:"].includes(url.protocol))

@@ -24,7 +24,7 @@ export function OrderWorkspace({
 }) {
   const [order, setOrder] = useState<OrderSessionSnapshot | null>(null);
   const [events, setEvents] = useState<MoleculeEvent[]>([]);
-  const [text, setText] = useState(sample);
+  const [text, setText] = useState(initialOrderId ? "" : sample);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

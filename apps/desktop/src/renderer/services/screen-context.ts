@@ -5,10 +5,16 @@ export async function captureFrame(
   sourceId: string,
 ): Promise<File> {
   await bridge.selectScreenSource(sourceId);
-  const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: true,
-    audio: false,
-  });
+  const stream = await navigator.mediaDevices
+    .getDisplayMedia({
+      video: true,
+      audio: false,
+    })
+    .catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "NotAllowedError")
+        throw new Error("Screen context requires Screen Recording permission.");
+      throw error;
+    });
   const video = document.createElement("video");
   try {
     video.muted = true;

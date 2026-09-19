@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { OverlayModeSchema, SettingsSchema } from "../shared/bridge.js";
 import {
+  allowsMediaRequest,
   dashboardUrl,
   projectFromLink,
   registerShortcut,
@@ -98,19 +99,20 @@ else
         (contents, permission, callback, details) => {
           callback(
             contents === overlay?.window.webContents &&
+              details.isMainFrame &&
               isTrusted(details.requestingUrl) &&
-              ((permission === "media" &&
-                "mediaTypes" in details &&
-                details.mediaTypes?.length === 1 &&
-                details.mediaTypes[0] === "audio") ||
-                (permission === "display-capture" &&
-                  screenContext?.hasSelection() === true)),
+              allowsMediaRequest(
+                permission,
+                "mediaTypes" in details ? details.mediaTypes : undefined,
+                screenContext?.hasSelection() === true,
+              ),
           );
         },
       );
       session.defaultSession.setPermissionCheckHandler(
         (contents, permission, origin, details) =>
           contents === overlay?.window.webContents &&
+          details.isMainFrame &&
           ((permission === "media" &&
             (details.mediaType === "audio" ||
               details.mediaType === "unknown")) ||

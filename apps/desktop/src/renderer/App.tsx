@@ -184,9 +184,22 @@ export function App() {
               {state.error && (
                 <div role="alert" className="error">
                   {state.error}{" "}
-                  <button onClick={() => run(store.checkConnection())}>
-                    Reconnect
-                  </button>
+                  {state.error.includes("Screen Recording permission") && (
+                    <button
+                      onClick={() =>
+                        run(store.bridge.openPermissionSettings("screen"))
+                      }
+                    >
+                      Open Screen Recording settings
+                    </button>
+                  )}
+                  {state.connection === "offline" ? (
+                    <button onClick={() => run(store.checkConnection())}>
+                      Reconnect
+                    </button>
+                  ) : (
+                    <button onClick={() => store.clearError()}>Dismiss</button>
+                  )}
                 </div>
               )}
               {!state.error && state.connection === "offline" && (
