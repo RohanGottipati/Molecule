@@ -12,6 +12,7 @@ export type ActionReceipt = z.infer<typeof ActionReceiptSchema>;
 export interface ReceiptStore {
   getReceipt(key: string): Promise<ActionReceipt | undefined>;
   saveReceipt(receipt: ActionReceipt): Promise<void>;
+  claimReceipt?(receipt: ActionReceipt): Promise<boolean>;
 }
 
 export class ActionLedger {
@@ -68,7 +69,11 @@ export class ActionLedger {
           "Action outcome unknown after restart. Refresh the project before taking another action.",
       );
     }
-    await this.save({ key, fingerprint, state: "pending" });
+    const receipt: ActionReceipt = { key, fingerprint, state: "pending" };
+    if (this.store?.claimReceipt) {
+      if (!(await this.store.claimReceipt(receipt)))
+        throw new Error("Action is already in progress. Refresh the project.");
+    } else await this.save(receipt);
     try {
       const result = await operation();
       await this.save({ key, fingerprint, state: "complete", result });

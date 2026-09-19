@@ -10,21 +10,21 @@ This file is the Person 2 execution bible. Work packets are strictly ordered. Do
 
 ## 0. Machine-readable packet index
 
-| ID | Title | Depends on | Hard gate |
-| -- | ----- | ---------- | --------- |
-| O0 | Prerequisites, keys, smoke test | — | Credentials or explicit mock escalation by T+2h |
-| O1 | Orchestrator state machine | O0 | Illegal transitions rejected by unit tests |
-| O2 | OpenAI adapter + intent compiler | O0, O1 | Invalid model JSON cannot escape adapter |
-| O3 | Mock text end-to-end | O1, O2 | Text path green before any voice work |
-| O4 | Customer web shell | O3 | SSE + intent panel + graph render from mock stream |
-| O5 | Realtime voice | O3, O4 | Two barge-ins without state loss |
-| O6 | Candidate/quote orchestration | O3 | One timed-out merchant does not fail order |
-| O7 | Deterministic solver | O1 | Only solver may emit `VALID` |
-| O8 | Execute and recover | O6, O7 | Chaos recovery without conversation restart |
-| O9 | Reality extraction callback | O2 | Extraction only; Person 4 owns claims |
-| O10 | Codex adversarial suite + evidence | O1–O8 | One documented before/after story |
-| O11 | Demo surfaces Person 2 drives | O8 | Acceptance rows Person 2 owns checked |
-| O12 | Hardening, fallbacks, freeze | O11 | Three consecutive clean demos from reset |
+| ID  | Title                              | Depends on | Hard gate                                          |
+| --- | ---------------------------------- | ---------- | -------------------------------------------------- |
+| O0  | Prerequisites, keys, smoke test    | —          | Credentials or explicit mock escalation by T+2h    |
+| O1  | Orchestrator state machine         | O0         | Illegal transitions rejected by unit tests         |
+| O2  | OpenAI adapter + intent compiler   | O0, O1     | Invalid model JSON cannot escape adapter           |
+| O3  | Mock text end-to-end               | O1, O2     | Text path green before any voice work              |
+| O4  | Customer web shell                 | O3         | SSE + intent panel + graph render from mock stream |
+| O5  | Realtime voice                     | O3, O4     | Two barge-ins without state loss                   |
+| O6  | Candidate/quote orchestration      | O3         | One timed-out merchant does not fail order         |
+| O7  | Deterministic solver               | O1         | Only solver may emit `VALID`                       |
+| O8  | Execute and recover                | O6, O7     | Chaos recovery without conversation restart        |
+| O9  | Reality extraction callback        | O2         | Extraction only; Person 4 owns claims              |
+| O10 | Codex adversarial suite + evidence | O1–O8      | One documented before/after story                  |
+| O11 | Demo surfaces Person 2 drives      | O8         | Acceptance rows Person 2 owns checked              |
+| O12 | Hardening, fallbacks, freeze       | O11        | Three consecutive clean demos from reset           |
 
 ---
 
@@ -142,14 +142,14 @@ stateDiagram-v2
 
 ### 3.2 Person 2 HTTP routes
 
-| Method / route | Request → response | Hard rule |
-| -------------- | ------------------ | --------- |
-| `POST /api/intents/compile` | `CompileIntentRequest` → `ProductIntent` | Strict schema; never free-form intent |
-| `POST /api/plans/solve` | `SolverInput` → `ProductionPlan` | **Only** route allowed to declare `VALID` |
-| `POST /api/execution/commit` | Valid plan → `ExecutionReceipt` | Reject plans without solver `VALID` |
-| `GET /api/orders/:id/events` | SSE `MoleculeEvent` stream | Backed by persisted rows |
-| `POST /api/chaos` | Scenario → event + mutation receipt | Demo-only; `DEMO_MODE` + secret/localhost |
-| Server route minting Realtime client secret | → ephemeral `ek_…` | Never returns `OPENAI_API_KEY` |
+| Method / route                              | Request → response                       | Hard rule                                 |
+| ------------------------------------------- | ---------------------------------------- | ----------------------------------------- |
+| `POST /api/intents/compile`                 | `CompileIntentRequest` → `ProductIntent` | Strict schema; never free-form intent     |
+| `POST /api/plans/solve`                     | `SolverInput` → `ProductionPlan`         | **Only** route allowed to declare `VALID` |
+| `POST /api/execution/commit`                | Valid plan → `ExecutionReceipt`          | Reject plans without solver `VALID`       |
+| `GET /api/orders/:id/events`                | SSE `MoleculeEvent` stream               | Backed by persisted rows                  |
+| `POST /api/chaos`                           | Scenario → event + mutation receipt      | Demo-only; `DEMO_MODE` + secret/localhost |
+| Server route minting Realtime client secret | → ephemeral `ek_…`                       | Never returns `OPENAI_API_KEY`            |
 
 Upstream routes Person 2 **calls** via clients (do not implement their internals):
 
@@ -192,7 +192,14 @@ export const CompileIntentRequestSchema = z.object({
   previousIntent: ProductIntentSchema.optional(),
   correction: z
     .object({
-      kind: z.enum(["constraint", "preference", "quantity", "deadline", "budget", "other"]),
+      kind: z.enum([
+        "constraint",
+        "preference",
+        "quantity",
+        "deadline",
+        "budget",
+        "other",
+      ]),
       text: z.string().min(1),
     })
     .optional(),
@@ -820,14 +827,14 @@ Do **not** use obsolete beta paths (`/v1/realtime/sessions` mint tutorials, `Ope
 
 Each tool calls orchestrator HTTP; never Shopify/Backboard/Tiger SDKs:
 
-| Tool | Purpose |
-| ---- | ------- |
-| `compile_intent` | Compile or recompile from latest utterance + assets |
-| `update_constraint` | Apply hard/soft constraint correction |
-| `get_order_status` | Summarize session state for speech |
-| `explain_current_plan` | Narrate plan nodes without raw logs |
-| `approve_and_execute` | User approval → commit path |
-| `trigger_demo_failure` | Chaos `supplier_offline` when `DEMO_MODE` |
+| Tool                   | Purpose                                             |
+| ---------------------- | --------------------------------------------------- |
+| `compile_intent`       | Compile or recompile from latest utterance + assets |
+| `update_constraint`    | Apply hard/soft constraint correction               |
+| `get_order_status`     | Summarize session state for speech                  |
+| `explain_current_plan` | Narrate plan nodes without raw logs                 |
+| `approve_and_execute`  | User approval → commit path                         |
+| `trigger_demo_failure` | Chaos `supplier_offline` when `DEMO_MODE`           |
 
 Tool handlers on the server validate args, attach `traceId` / `orderId` from session context, and return short structured results the model can speak.
 
@@ -1071,27 +1078,27 @@ Never include secrets or private chain-of-thought.
 
 Aligned with [`DEMO_RUNBOOK.md`](DEMO_RUNBOOK.md) and playbook §24:
 
-| Time | Action |
-| ---- | ------ |
-| 0:00–0:20 | Thesis line; start request |
+| Time      | Action                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------ |
+| 0:00–0:20 | Thesis line; start request                                                                 |
 | 0:20–1:00 | Speak/type request + logo; interrupt once with hard constraint; show intent version change |
-| 1:00–1:40 | Hand off briefly to messy-data/provenance (Person 4) |
-| 1:40–2:30 | Quotes appear; p95/tail-risk selection visible in graph/events |
-| 2:30–3:15 | Solver VALID; Shopify commit path |
-| 3:15–4:20 | Judge triggers supplier offline; recovery loop |
-| 4:20–4:45 | Voice/text explains recovery delta |
-| 4:45–5:00 | Codex evidence sentence for OpenAI judge if present |
+| 1:00–1:40 | Hand off briefly to messy-data/provenance (Person 4)                                       |
+| 1:40–2:30 | Quotes appear; p95/tail-risk selection visible in graph/events                             |
+| 2:30–3:15 | Solver VALID; Shopify commit path                                                          |
+| 3:15–4:20 | Judge triggers supplier offline; recovery loop                                             |
+| 4:20–4:45 | Voice/text explains recovery delta                                                         |
+| 4:45–5:00 | Codex evidence sentence for OpenAI judge if present                                        |
 
 ### O11.2 Acceptance matrix rows Person 2 owns
 
-| Scenario | Expected | Pass |
-| -------- | -------- | ---- |
-| Text request happy path | Intent → quotes → VALID → execution events | □ |
-| Voice interrupt | Mid-response hard constraint; old plan invalidated; new plan | □ |
-| Tail-risk selection | Higher-price merchant chosen because p95 meets deadline | □ |
-| UNSAT | Explicit relaxations; no fake VALID | □ |
-| Supplier failure | Chaos → AT_RISK → re-quote/solve → replacement job | □ |
-| Idempotency | Retry commit does not duplicate | □ |
+| Scenario                | Expected                                                     | Pass |
+| ----------------------- | ------------------------------------------------------------ | ---- |
+| Text request happy path | Intent → quotes → VALID → execution events                   | □    |
+| Voice interrupt         | Mid-response hard constraint; old plan invalidated; new plan | □    |
+| Tail-risk selection     | Higher-price merchant chosen because p95 meets deadline      | □    |
+| UNSAT                   | Explicit relaxations; no fake VALID                          | □    |
+| Supplier failure        | Chaos → AT_RISK → re-quote/solve → replacement job           | □    |
+| Idempotency             | Retry commit does not duplicate                              | □    |
 
 ### O11.3 Definition of done (O11)
 
@@ -1104,12 +1111,12 @@ Aligned with [`DEMO_RUNBOOK.md`](DEMO_RUNBOOK.md) and playbook §24:
 
 ### O12.1 Fallback table (Person 2)
 
-| Failure | Fallback that preserves demo | Do not do |
-| ------- | ---------------------------- | --------- |
-| Realtime unstable | Text input; same tools; keep Responses compiler | Swap voice stacks late |
-| Compiler model flaky | Pin last known good `OPENAI_COMPILER_MODEL`; mock only if auth dead | Accept invalid JSON |
-| Solver too ambitious | Constrain ontology to supply→transform→assemble; CP-SAT for selection | LLM certifies VALID |
-| Time shortage | Cut image gen / polish | Cut deterministic validation or self-healing loop |
+| Failure              | Fallback that preserves demo                                          | Do not do                                         |
+| -------------------- | --------------------------------------------------------------------- | ------------------------------------------------- |
+| Realtime unstable    | Text input; same tools; keep Responses compiler                       | Swap voice stacks late                            |
+| Compiler model flaky | Pin last known good `OPENAI_COMPILER_MODEL`; mock only if auth dead   | Accept invalid JSON                               |
+| Solver too ambitious | Constrain ontology to supply→transform→assemble; CP-SAT for selection | LLM certifies VALID                               |
+| Time shortage        | Cut image gen / polish                                                | Cut deterministic validation or self-healing loop |
 
 ### O12.2 Freeze checklist (Person 2 items)
 
@@ -1130,17 +1137,17 @@ Aligned with [`DEMO_RUNBOOK.md`](DEMO_RUNBOOK.md) and playbook §24:
 
 ## 6. 36-hour critical path mapping (Person 2)
 
-| Time | Person 2 focus | Exit condition |
-| ---- | -------------- | -------------- |
-| T+0–1h | O0 keys + smoke; start O1; start `CODEX_EVIDENCE.md` stub | verify or mock escalation |
-| T+1–4h | O1 + O2 mock + O3 mock E2E | Typed text → fake execution → UI/events |
-| T+4–9h | Real `compileIntent`; solver v1; client interfaces | OpenAI compile + solve work separately |
-| T+9–14h | O6 fan-out + O8 commit against real/mock Shopify client | Text happy path creates plan (+ real Shopify if Person 1 ready) |
-| T+14–19h | O5 Realtime | Voice works; interruptions OK |
-| T+19–24h | O8 chaos recovery polish | Supplier failure self-heals |
-| T+24–29h | O10 adversarial + evidence; solver risk weights | Codex story ready |
-| T+29–33h | O12 hardening | Fallbacks, no duplicate side effects |
-| T+33–36h | Freeze + demos | Three clean runs |
+| Time     | Person 2 focus                                            | Exit condition                                                  |
+| -------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| T+0–1h   | O0 keys + smoke; start O1; start `CODEX_EVIDENCE.md` stub | verify or mock escalation                                       |
+| T+1–4h   | O1 + O2 mock + O3 mock E2E                                | Typed text → fake execution → UI/events                         |
+| T+4–9h   | Real `compileIntent`; solver v1; client interfaces        | OpenAI compile + solve work separately                          |
+| T+9–14h  | O6 fan-out + O8 commit against real/mock Shopify client   | Text happy path creates plan (+ real Shopify if Person 1 ready) |
+| T+14–19h | O5 Realtime                                               | Voice works; interruptions OK                                   |
+| T+19–24h | O8 chaos recovery polish                                  | Supplier failure self-heals                                     |
+| T+24–29h | O10 adversarial + evidence; solver risk weights           | Codex story ready                                               |
+| T+29–33h | O12 hardening                                             | Fallbacks, no duplicate side effects                            |
+| T+33–36h | Freeze + demos                                            | Three clean runs                                                |
 
 ---
 
@@ -1255,4 +1262,4 @@ If GA endpoints differ from this document on the day you implement, update the a
 
 ---
 
-*End of OpenAI implementation. Execute packets O0 → O12 in order.*
+_End of OpenAI implementation. Execute packets O0 → O12 in order._

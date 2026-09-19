@@ -42,4 +42,9 @@ export interface SolverClient {
 
 export interface ShopifyClient {
   commit(plan: ProductionPlan, traceId: string): Promise<ExecutionReceipt>;
+  supersede?(
+    orderId: string,
+    planId: string,
+    traceId: string,
+  ): Promise<ExecutionReceipt>;
 }

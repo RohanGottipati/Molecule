@@ -49,7 +49,7 @@ const allowed = new Map<OrderSessionState, Set<OrderSessionState>>([
     "AWAITING_APPROVAL",
     new Set(["EXECUTING", "COMPILING_INTENT", "AT_RISK", "FAILED"]),
   ],
-  ["EXECUTING", new Set(["SKU_CREATED", "AT_RISK", "FAILED"])],
+  ["EXECUTING", new Set(["SKU_CREATED", "AT_RISK", "NEEDS_HUMAN", "FAILED"])],
   ["SKU_CREATED", new Set(["SUPPLIER_JOBS_CREATED", "AT_RISK", "FAILED"])],
   [
     "SUPPLIER_JOBS_CREATED",
@@ -101,7 +101,8 @@ export function transition(
 
 export function canAcceptCorrection(state: OrderSessionState): boolean {
   return (
-    ["REQUESTED", "NEEDS_CLARIFICATION", "NEEDS_HUMAN"].includes(state) ||
-    planningStates.includes(state)
+    ["REQUESTED", "NEEDS_CLARIFICATION", "NEEDS_HUMAN", "FAILED"].includes(
+      state,
+    ) || planningStates.includes(state)
   );
 }

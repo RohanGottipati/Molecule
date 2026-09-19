@@ -9,6 +9,7 @@ import {
   type MoleculeEvent,
   type OrderSessionState,
   type DesktopCommand,
+  type ExecutionReceipt,
 } from "@molecule/contracts";
 
 import type {
@@ -83,16 +84,17 @@ export class Orchestrator {
       if (latest.revision !== session.revision)
         throw new SessionConflictError("Workflow superseded");
       const next = transition(session, state, { solverPlan });
-      const persisted = await this.deps.events.append(
-        makeEvent({
-          traceId: next.traceId,
-          orderId: next.orderId,
-          planId: next.activePlan?.planId,
-          eventType,
-          source,
-          payload: { state, ...payload },
-        }),
-      );
+      const event = makeEvent({
+        traceId: next.traceId,
+        orderId: next.orderId,
+        planId: next.activePlan?.planId,
+        eventType,
+        source,
+        payload: { state, ...payload },
+      });
+      if (this.deps.sessions.saveWithEvent)
+        return this.deps.sessions.saveWithEvent(next, session.revision, event);
+      const persisted = await this.deps.events.append(event);
       next.eventCursor = persisted.cursor;
       await this.deps.sessions.save(next, session.revision);
       return next;
@@ -106,6 +108,16 @@ export class Orchestrator {
     this.compiling.set(request.orderId, operation);
     try {
       return await operation;
+    } catch (error) {
+      const session = await this.load(request.orderId);
+      if (this.compiling.get(request.orderId) !== operation) return session;
+      if (!canAcceptCorrection(session.state)) throw error;
+      session.lastErrorCode =
+        error instanceof Error ? error.name : "PROVIDER_ERROR";
+      await this.move(session, "FAILED", "workflow.failed", "orchestrator", {
+        code: session.lastErrorCode,
+      });
+      throw error;
     } finally {
       if (this.compiling.get(request.orderId) === operation)
         this.compiling.delete(request.orderId);
@@ -144,17 +156,21 @@ export class Orchestrator {
       session.state = "COMPILING_INTENT";
       session.revision += 1;
       session.updatedAt = new Date().toISOString();
-      await this.deps.sessions.save(session, revision);
-      await this.emit(
-        session,
-        previousPlanId ? "plan.invalidated" : "intent.received",
-        "ui",
-        {
+      const event = makeEvent({
+        traceId: session.traceId,
+        orderId: session.orderId,
+        eventType: previousPlanId ? "plan.invalidated" : "intent.received",
+        source: "ui",
+        payload: {
           reason: "customer_correction",
           previousPlanId,
           state: session.state,
         },
-      );
+      });
+      if (this.deps.sessions.saveWithEvent)
+        return this.deps.sessions.saveWithEvent(session, revision, event);
+      await this.deps.sessions.save(session, revision);
+      await this.deps.events.append(event);
       return session;
     });
   }
@@ -349,12 +365,26 @@ export class Orchestrator {
           merchantId: candidate.merchantId,
           capabilityId: candidate.capabilityId,
           intentVersion: intent.version,
-          quantity: intent.quantity,
+          quantity: ["SUPPLY", "TRANSFORM"].includes(candidate.capability.kind)
+            ? Math.max(
+                intent.quantity,
+                ...intent.desiredOutputs
+                  .filter((output) =>
+                    candidate.capability.produces.some(
+                      (port) =>
+                        (port.attributes.product ?? port.name) ===
+                        (output.attributes.product ?? output.outputId),
+                    ),
+                  )
+                  .map((output) => output.quantity ?? intent.quantity),
+              )
+            : intent.quantity,
           deadline: intent.deadline,
           currency: intent.currency,
           hardConstraints: intent.hardConstraints,
           softPreferences: intent.softPreferences,
           hold: false,
+          actionKey: `${session.orderId}:quote:${intent.version}:${session.planGeneration}:${candidate.capabilityId}`,
         });
         const quote = QuoteResponseSchema.parse(
           await this.deps.merchantAgents.quote(request, controller.signal),
@@ -412,6 +442,13 @@ export class Orchestrator {
         }),
       ),
     );
+    if (
+      plan.orderId !== session.orderId ||
+      plan.intentVersion !== intent.version
+    )
+      throw new Error(
+        "Solver returned a plan for a different order or intent version",
+      );
     const latest = await this.load(session.orderId);
     if (
       isStale(latest, {
@@ -483,12 +520,36 @@ export class Orchestrator {
       );
     }
     const approvedPlan = session.activePlan;
+    if (session.state === "COMPLETED") return session;
     session = await this.move(session, "EXECUTING", "execution.started");
-    const receipt = await this.deps.shopify.commit(
-      approvedPlan,
-      session.traceId,
-    );
+    let receipt: ExecutionReceipt;
+    try {
+      receipt = await this.deps.shopify.commit(approvedPlan, session.traceId);
+    } catch (error) {
+      session.lastErrorCode =
+        error instanceof Error ? error.name : "EXECUTION_FAILED";
+      return this.move(session, "NEEDS_HUMAN", "execution.failed", "shopify", {
+        code: session.lastErrorCode,
+      });
+    }
     session.executionReceipt = receipt;
+    if (
+      !receipt.compositeProduct ||
+      !receipt.customerOrder ||
+      receipt.supplierJobs.length !== approvedPlan.nodes.length ||
+      receipt.actions.some(
+        ({ status }) => !["SUCCEEDED", "COMPENSATED"].includes(status),
+      )
+    )
+      return this.move(
+        session,
+        "NEEDS_HUMAN",
+        "execution.incomplete",
+        "shopify",
+        {
+          actions: receipt.actions,
+        },
+      );
     session = await this.move(
       session,
       "SKU_CREATED",
@@ -557,6 +618,20 @@ export class Orchestrator {
     );
     session.planGeneration += 1;
     session = await this.move(session, "RECOVERING", "recovery.started");
+    if (session.executionReceipt?.planId === previousPlan.planId) {
+      try {
+        await this.deps.shopify.supersede?.(
+          orderId,
+          previousPlan.planId,
+          session.traceId,
+        );
+      } catch {
+        return this.move(session, "NEEDS_HUMAN", "recovery.failed", "shopify", {
+          previousPlanId: previousPlan.planId,
+          reason: "Supplier jobs require reconciliation before replacement",
+        });
+      }
+    }
     session = await this.move(
       session,
       "INTENT_COMPILED",
@@ -589,6 +664,11 @@ export class Orchestrator {
           (recovered.activePlan.totalCost - previousPlan.totalCost) * 100,
         ) / 100,
       currency: recovered.activePlan.currency,
+      completionDeltaHours: previousPlan.estimatedCompletion
+        ? Math.round(
+            (completion - Date.parse(previousPlan.estimatedCompletion)) / 36000,
+          ) / 100
+        : null,
     };
     if (
       !previouslyApproved ||
@@ -605,10 +685,17 @@ export class Orchestrator {
       recovered.activePlan.planId,
       recovered.intentVersion,
     );
-    await this.emit(completed, "recovery.completed", "orchestrator", {
-      ...recovery,
-      approvalRequired: false,
-    });
+    await this.emit(
+      completed,
+      completed.state === "COMPLETED"
+        ? "recovery.completed"
+        : "recovery.failed",
+      "orchestrator",
+      {
+        ...recovery,
+        approvalRequired: false,
+      },
+    );
     return completed;
   }
 }

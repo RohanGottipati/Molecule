@@ -1,4 +1,7 @@
-import type { MerchantDocumentCategory, RetrievedDocumentChunk } from "./types.js";
+import type {
+  MerchantDocumentCategory,
+  RetrievedDocumentChunk,
+} from "./types.js";
 
 /** Provider-agnostic corpus entry backing keyword retrieval in the mock adapter. */
 export interface IndexedDocument {
@@ -26,7 +29,11 @@ function scoreDocument(queryTerms: string[], content: string): number {
   return hits / queryTerms.length;
 }
 
-function bestSnippet(content: string, queryTerms: string[], maxLen = 240): string {
+function bestSnippet(
+  content: string,
+  queryTerms: string[],
+  maxLen = 240,
+): string {
   const terms = new Set(queryTerms);
   const lines = content
     .split(/\n+/)

@@ -14,7 +14,12 @@
   "dependencies": {
     "@fastify/cors": "11.3.0",
     "@molecule/contracts": "workspace:*",
+    "@molecule/db": "workspace:*",
+    "@molecule/events": "workspace:*",
+    "@molecule/merchant-agents": "workspace:*",
     "@molecule/openai": "workspace:*",
+    "@molecule/service-reality": "workspace:*",
+    "@molecule/shopify": "workspace:*",
     "fastify": "5.12.5",
     "zod": "4.6.5"
   },

@@ -29,8 +29,7 @@ export function registerDesktopRoutes(
     if (!session) throw new Error("Project not found");
     return {
       project: toSnapshot(session),
-      contexts: store
-        .contexts(orderId)
+      contexts: (await store.contexts(orderId))
         .filter((item) => item.attached)
         .map((item) => item.asset),
     };
@@ -39,9 +38,9 @@ export function registerDesktopRoutes(
     demoMode: deps.config.DEMO_MODE,
     mockProviders: {
       openai: deps.config.USE_MOCK_OPENAI,
-      reality: true,
-      merchants: true,
-      shopify: true,
+      reality: deps.config.STORAGE_MODE === "local" || deps.config.DEMO_MODE,
+      merchants: deps.config.BACKBOARD_MODE === "demo",
+      shopify: deps.config.SHOPIFY_MODE === "demo",
     },
     maxContextBytes: MAX_CONTEXT_BYTES,
   }));
@@ -95,8 +94,7 @@ export function registerDesktopRoutes(
                 requestedAt: new Date().toISOString(),
                 locale: body.locale,
                 timeZone: body.timeZone,
-                assets: store
-                  .contexts(id)
+                assets: (await store.contexts(id))
                   .filter((item) => item.attached)
                   .map((item) => item.asset),
               });
@@ -118,9 +116,9 @@ export function registerDesktopRoutes(
               await deps.orchestrator.cancel(id);
               break;
             case "attach_context": {
-              const context = store
-                .contexts(id)
-                .find((item) => item.asset.assetId === command.args.contextId);
+              const context = (await store.contexts(id)).find(
+                (item) => item.asset.assetId === command.args.contextId,
+              );
               if (!context)
                 throw new Error("Context not found on this project");
               if (!context.attached) {
@@ -238,7 +236,10 @@ export function registerDesktopRoutes(
               bytes,
               { mode: 0o600, flag: "wx" },
             );
-          await store.saveContext({ orderId: id, asset, attached: false });
+          await store.saveContext(
+            { orderId: id, asset, attached: false },
+            bytes,
+          );
           await deps.events.append(
             makeEvent({
               traceId: project.traceId,

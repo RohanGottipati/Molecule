@@ -30,6 +30,11 @@ export const StoredContextSchema = z.object({
   attached: z.boolean(),
 });
 export type StoredContext = z.infer<typeof StoredContextSchema>;
+export interface ContextStore extends ReceiptStore {
+  readonly directory?: string;
+  contexts(orderId: string): StoredContext[] | Promise<StoredContext[]>;
+  saveContext(context: StoredContext, bytes?: Buffer): Promise<void>;
+}
 const StateSchema = z.object({
   sessions: z.array(OrderSessionSnapshotSchema).default([]),
   events: z
@@ -100,6 +105,32 @@ export class LocalStore implements SessionRepository, EventStore, ReceiptStore {
       state.sessions[index] = structuredClone(session);
     });
   }
+  async saveWithEvent(
+    session: OrderSession,
+    revision: number,
+    event: MoleculeEvent,
+  ) {
+    const persisted = await this.change((state) => {
+      const index = state.sessions.findIndex(
+        (item) => item.orderId === session.orderId,
+      );
+      if (state.sessions[index]?.revision !== revision)
+        throw new SessionConflictError();
+      const entry = {
+        cursor: (state.events.at(-1)?.cursor ?? 0) + 1,
+        event: MoleculeEventSchema.parse(event),
+      };
+      state.events.push(entry);
+      state.sessions[index] = OrderSessionSnapshotSchema.parse({
+        ...session,
+        eventCursor: entry.cursor,
+      });
+      return entry;
+    });
+    for (const listener of this.listeners.get(session.orderId) ?? [])
+      listener(persisted);
+    return { ...session, eventCursor: persisted.cursor };
+  }
   async append(event: MoleculeEvent): Promise<PersistedEvent> {
     const persisted = await this.change((state) => {
       const item = {
@@ -136,6 +167,42 @@ export class LocalStore implements SessionRepository, EventStore, ReceiptStore {
         receipt,
       ];
     });
+  }
+  recentEvents() {
+    return this.state.events
+      .slice(-50)
+      .reverse()
+      .map(({ event }) => event);
+  }
+  metrics() {
+    const counts = new Map<string, number>();
+    for (const { event } of this.state.events)
+      counts.set(event.eventType, (counts.get(event.eventType) ?? 0) + 1);
+    return {
+      orderCount: this.state.sessions.length,
+      validatedPlanCount: counts.get("solver.valid") ?? 0,
+      committedOrderCount: this.state.sessions.filter(
+        (session) => session.executionReceipt?.customerOrder,
+      ).length,
+      eventCount: this.state.events.length,
+      reservationCount: 0,
+      conflictCount: 0,
+      recoveriesCompleted: counts.get("recovery.completed") ?? 0,
+      eventCounts: [...counts].map(([eventType, count]) => ({
+        eventType,
+        count,
+      })),
+    };
+  }
+  offlineMerchants() {
+    return new Set(
+      this.state.events
+        .filter(({ event }) => event.eventType === "supplier.offline")
+        .map(({ event }) => String(event.payload.merchantId)),
+    );
+  }
+  sessions() {
+    return structuredClone(this.state.sessions);
   }
   contexts(orderId: string) {
     return this.state.contexts.filter((item) => item.orderId === orderId);

@@ -1,15 +1,7 @@
 import type { QuoteRequest, QuoteResponse } from "@molecule/contracts";
 
 import type { MerchantAgentClient } from "../clients.js";
-
-const prices: Record<string, number> = {
-  "supply-base": 12,
-  "supply-backup": 12,
-  "transform-stitch": 4.5,
-  "transform-thread": 5.1,
-  "assemble-pack": 2,
-  "fulfill-pack": 3,
-};
+import { demoCandidates } from "./demoCatalog.js";
 
 export class MockMerchantAgentClient implements MerchantAgentClient {
   constructor(private readonly delayMs = 0) {}
@@ -27,15 +19,23 @@ export class MockMerchantAgentClient implements MerchantAgentClient {
         });
       });
     }
+    const candidate = demoCandidates().find(
+      ({ capabilityId, merchantId }) =>
+        capabilityId === request.capabilityId &&
+        merchantId === request.merchantId,
+    );
+    if (!candidate) throw new Error("Unknown demo capability");
     return {
       merchantId: request.merchantId,
       capabilityId: request.capabilityId,
       status: "CAN_ACCEPT",
-      unitPrice: prices[request.capabilityId] ?? 10,
-      setupFee: 0,
+      unitPrice: candidate.capability.pricing.unitPrice,
+      setupFee: candidate.capability.pricing.setupFee,
       currency: request.currency,
-      maxQuantity: 1_000,
-      completionEstimate: request.deadline,
+      maxQuantity: candidate.capability.capacity.available,
+      completionEstimate: new Date(
+        Date.now() + candidate.capability.leadTime.max * 3600000,
+      ).toISOString(),
       requiredChanges: [],
       confidence: 0.95,
       explanation: "Mock merchant has verified capacity.",

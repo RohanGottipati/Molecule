@@ -6,6 +6,9 @@ import {
   CompileIntentRequestSchema,
   SolverInputSchema,
   OrderSessionSnapshotSchema,
+  MarketplaceSnapshotSchema,
+  type MarketplaceSnapshot,
+  type ChaosRequest,
 } from "@molecule/contracts";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -17,7 +20,7 @@ import type { SessionRepository } from "./repositories.js";
 import { createOrderSession, toSnapshot } from "./session/OrderSession.js";
 import { Orchestrator } from "./workflow/Orchestrator.js";
 import { registerDesktopRoutes } from "./desktopRoutes.js";
-import type { LocalStore } from "./LocalStore.js";
+import type { ContextStore } from "./LocalStore.js";
 import { ActionLedger } from "./ActionLedger.js";
 
 const MessageBody = z.object({
@@ -47,7 +50,10 @@ export interface ServerDependencies {
   orchestrator: Orchestrator;
   solver: SolverClient;
   openai: OpenAIClient;
-  desktopStore?: LocalStore;
+  desktopStore?: ContextStore;
+  marketplace?: () => Promise<MarketplaceSnapshot>;
+  applyChaos?: (request: ChaosRequest, traceId: string) => Promise<void>;
+  resetDemo?: () => Promise<void>;
 }
 
 export async function buildServer(deps: ServerDependencies) {
@@ -70,27 +76,40 @@ export async function buildServer(deps: ServerDependencies) {
   app.get("/ready", async () => ({ status: "ready" }));
   registerDesktopRoutes(app, deps);
   const chaosActions = new ActionLedger(deps.desktopStore);
+  app.get("/api/marketplace", async (_request, reply) => {
+    if (!deps.marketplace)
+      return reply.code(503).send({ message: "Marketplace is unavailable" });
+    return MarketplaceSnapshotSchema.parse(await deps.marketplace());
+  });
 
   app.post("/api/intents/compile", async (request) =>
     deps.openai.compileIntent(CompileIntentRequestSchema.parse(request.body)),
   );
 
-  app.post("/api/orders", async (_request, reply) => {
-    let session = createOrderSession();
-    await deps.sessions.create(session);
-    const event = await deps.events.append({
-      eventId: randomUUID(),
-      traceId: session.traceId,
-      orderId: session.orderId,
-      eventType: "order.created",
-      ts: new Date().toISOString(),
-      severity: "INFO",
-      source: "orchestrator",
-      payload: {},
-    });
-    session.eventCursor = event.cursor;
-    await deps.sessions.save(session, 0);
-    return reply.code(201).send(toSnapshot(session));
+  app.post("/api/orders", async (request, reply) => {
+    const result = await chaosActions.run(
+      `order:create:${request.headers["x-action-id"] ?? randomUUID()}`,
+      {},
+      OrderSessionSnapshotSchema.parse,
+      async () => {
+        let session = createOrderSession();
+        await deps.sessions.create(session);
+        const event = await deps.events.append({
+          eventId: randomUUID(),
+          traceId: session.traceId,
+          orderId: session.orderId,
+          eventType: "order.created",
+          ts: new Date().toISOString(),
+          severity: "INFO",
+          source: "orchestrator",
+          payload: {},
+        });
+        session.eventCursor = event.cursor;
+        await deps.sessions.save(session, 0);
+        return toSnapshot(session);
+      },
+    );
+    return reply.code(201).send(result);
   });
 
   app.get<{ Params: { id: string } }>(
@@ -118,14 +137,18 @@ export async function buildServer(deps: ServerDependencies) {
         requestedAt: new Date().toISOString(),
         assets: body.assets.length
           ? body.assets
-          : (deps.desktopStore
-              ?.contexts(request.params.id)
-              .filter((item) => item.attached)
+          : ((await deps.desktopStore?.contexts(request.params.id))
+              ?.filter((item) => item.attached)
               .map((item) => item.asset) ?? []),
         previousIntent: session.intent ?? undefined,
         correction: body.correction,
       });
-      return toSnapshot(await deps.orchestrator.submitMessage(input));
+      return chaosActions.run(
+        `${session.orderId}:message:${request.headers["x-action-id"] ?? randomUUID()}`,
+        body,
+        OrderSessionSnapshotSchema.parse,
+        async () => toSnapshot(await deps.orchestrator.submitMessage(input)),
+      );
     },
   );
 
@@ -139,12 +162,18 @@ export async function buildServer(deps: ServerDependencies) {
         })
         .parse(request.body);
       try {
-        return toSnapshot(
-          await deps.orchestrator.approve(
-            request.params.id,
-            body.planId,
-            body.intentVersion,
-          ),
+        return await chaosActions.run(
+          `${request.params.id}:approve:${body.planId}:${body.intentVersion}`,
+          body,
+          OrderSessionSnapshotSchema.parse,
+          async () =>
+            toSnapshot(
+              await deps.orchestrator.approve(
+                request.params.id,
+                body.planId,
+                body.intentVersion,
+              ),
+            ),
         );
       } catch (error) {
         return reply
@@ -215,6 +244,20 @@ export async function buildServer(deps: ServerDependencies) {
       body,
       OrderSessionSnapshotSchema.parse,
       async () => {
+        if (
+          !session.activePlan?.nodes.some(
+            (node) => node.merchantId === body.merchantId,
+          )
+        )
+          throw new Error("Supplier is not selected in the active plan");
+        await deps.applyChaos?.(
+          {
+            scenario: body.scenario,
+            orderId: body.orderId,
+            merchantId: body.merchantId,
+          },
+          session.traceId,
+        );
         await deps.events.append(
           makeEvent({
             traceId: session.traceId,
@@ -234,6 +277,21 @@ export async function buildServer(deps: ServerDependencies) {
         );
       },
     );
+  });
+  app.post("/api/demo/reset", async (request, reply) => {
+    if (!deps.config.DEMO_MODE || !deps.resetDemo)
+      return reply.code(404).send({ error: "not_found" });
+    if (
+      !["127.0.0.1", "::1"].includes(request.ip) &&
+      (!deps.config.CHAOS_SECRET ||
+        request.headers["x-chaos-secret"] !== deps.config.CHAOS_SECRET)
+    )
+      return reply.code(403).send({ error: "forbidden" });
+    await deps.resetDemo();
+    return {
+      status: "reset",
+      scope: "synthetic marketplace; order audit history retained",
+    };
   });
 
   app.get<{ Params: { id: string } }>(

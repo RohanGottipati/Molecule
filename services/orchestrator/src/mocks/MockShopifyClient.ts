@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ExecutionReceiptSchema,
   type ExecutionActionReceipt,
@@ -13,7 +14,7 @@ export class MockShopifyClient implements ShopifyClient {
   private ref(actionKey: string, prefix: string): string {
     const current = this.refs.get(actionKey);
     if (current) return current;
-    const created = `gid://mock/${prefix}/${this.refs.size + 1}`;
+    const created = `gid://mock/${prefix}/${createHash("sha256").update(actionKey).digest("hex")}`;
     this.refs.set(actionKey, created);
     return created;
   }

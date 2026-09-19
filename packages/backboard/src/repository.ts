@@ -1,4 +1,8 @@
-import type { MerchantAssistant, MerchantDocument, OrderThread } from "./types.js";
+import type {
+  MerchantAssistant,
+  MerchantDocument,
+  OrderThread,
+} from "./types.js";
 
 /**
  * Bookkeeping seam for the (merchantId -> assistantId), (merchantId, orderId)

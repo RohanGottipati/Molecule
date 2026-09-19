@@ -1,9 +1,15 @@
 import type { OrderSession } from "./session/OrderSession.js";
+import type { MoleculeEvent } from "@molecule/contracts";
 
 export interface SessionRepository {
   create(session: OrderSession): Promise<void>;
   get(orderId: string): Promise<OrderSession | null>;
   save(session: OrderSession, expectedRevision: number): Promise<void>;
+  saveWithEvent?(
+    session: OrderSession,
+    expectedRevision: number,
+    event: MoleculeEvent,
+  ): Promise<OrderSession>;
 }
 
 export class SessionConflictError extends Error {}
