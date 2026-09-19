@@ -1,8 +1,12 @@
-// Generates high-volume synthetic time-series data directly in Postgres
-// (via generate_series + array-indexed random pick of merchant/capability,
-// no per-row sort), so Tiger Data's hypertables have real scale to demo
-// against. NOT part of the normal migrate/seed pipeline -- run manually:
+// Generates high-volume synthetic time-series data directly in Postgres,
+// spread across EVERY real merchant/capability currently in the catalog
+// (pulled live from the `merchants`/`capabilities` tables -- run
+// generate-catalog first) instead of 4 hardcoded demo capabilities. This is
+// what makes "10 million data points" mean something: the volume is spread
+// across hundreds of real competing stores and dozens of products, not
+// stacked onto one embroidered hoodie over and over.
 //
+// Run (after generate-catalog):
 //   pnpm --filter @molecule/db bulk-seed
 //
 // Default is 10,000,000 rows split across the three hypertables. Pass a
@@ -15,19 +19,10 @@ import pg from "pg";
 
 const { Client } = pg;
 
-// Array-indexed instead of a LATERAL "order by random() limit 1" -- the
-// latter forces Postgres to sort per row, which is brutally slow at
-// millions of rows. Indexing an array by floor(random()*4+1) is just
-// arithmetic, no sort, and is dramatically faster.
-const MERCHANT_IDS = `(array['m-basegoods', 'm-customizeco', 'm-packship', 'm-customizeco2'])`;
-const CAPABILITY_IDS = `(array['cap-basegoods-hoodie', 'cap-customizeco-embroidery', 'cap-packship-assembly', 'cap-customizeco2-embroidery'])`;
-const PROMISED_HOURS = `(array[12.0, 24.0, 12.0, 48.0])`;
-
 async function main() {
   const numericArg = process.argv.slice(2).map(Number).find((n) => Number.isFinite(n) && n > 0);
   const total = numericArg ?? 10_000_000;
 
-  // Split roughly 40% fulfillment_samples / 40% market_metrics / 20% network_events.
   const fulfillmentRows = Math.floor(total * 0.4);
   const marketRows = Math.floor(total * 0.4);
   const networkRows = total - fulfillmentRows - marketRows;
@@ -39,59 +34,83 @@ async function main() {
 
   const client = new Client({ connectionString });
   await client.connect();
-  // Bulk generation is throwaway demo data -- skip WAL fsync overhead per commit.
   await client.query(`set synchronous_commit = off;`);
+
+  const pairsResult = await client.query(`select merchant_id, capability_id from capabilities;`);
+  if (pairsResult.rows.length === 0) {
+    throw new Error("No capabilities found. Run generate-catalog (and the base migrate/seed) first.");
+  }
+  const merchantIds: string[] = pairsResult.rows.map((r) => r.merchant_id);
+  const capabilityIds: string[] = pairsResult.rows.map((r) => r.capability_id);
+  const pairCount = merchantIds.length;
+
+  const distinctMerchants: string[] = Array.from(new Set(merchantIds));
+
+  process.stdout.write(`Spreading volume across ${pairCount} merchant/capability pairs (${distinctMerchants.length} distinct merchants).\n`);
 
   const start = Date.now();
 
   try {
     process.stdout.write(`Generating ${fulfillmentRows.toLocaleString()} fulfillment_samples rows...\n`);
     let t0 = Date.now();
-    await client.query(`
+    await client.query(
+      `
       insert into fulfillment_samples (ts, merchant_id, capability_id, promised_hours, actual_hours, success)
       select
         now() - (random() * interval '90 days') - (gs * interval '1 microsecond'),
-        ${MERCHANT_IDS}[idx],
-        ${CAPABILITY_IDS}[idx],
-        ${PROMISED_HOURS}[idx],
-        ${PROMISED_HOURS}[idx] * (0.6 + random() * 0.8),
+        ($1::text[])[idx],
+        ($2::text[])[idx],
+        promised,
+        promised * (0.6 + random() * 0.8),
         random() > 0.06
-      from generate_series(1, ${fulfillmentRows}) gs,
-           lateral (select floor(random() * 4 + 1)::int as idx) i;
-    `);
+      from generate_series(1, $3) gs,
+           lateral (
+             select
+               floor(random() * $4 + 1)::int as idx,
+               (4 + random() * 68) as promised
+           ) i;
+    `,
+      [merchantIds, capabilityIds, fulfillmentRows, pairCount],
+    );
     process.stdout.write(`  done in ${((Date.now() - t0) / 1000).toFixed(1)}s\n`);
 
     process.stdout.write(`Generating ${marketRows.toLocaleString()} market_metrics rows...\n`);
     t0 = Date.now();
-    await client.query(`
+    await client.query(
+      `
       insert into market_metrics (ts, merchant_id, capability_id, metric, value)
       select
         now() - (random() * interval '90 days') - (gs * interval '1 microsecond'),
-        ${MERCHANT_IDS}[idx],
-        ${CAPABILITY_IDS}[idx],
+        ($1::text[])[idx],
+        ($2::text[])[idx],
         (array['capacity', 'inventory', 'price'])[floor(random() * 3 + 1)],
         round((random() * 500)::numeric, 2)
-      from generate_series(1, ${marketRows}) gs,
-           lateral (select floor(random() * 4 + 1)::int as idx) i;
-    `);
+      from generate_series(1, $3) gs,
+           lateral (select floor(random() * $4 + 1)::int as idx) i;
+    `,
+      [merchantIds, capabilityIds, marketRows, pairCount],
+    );
     process.stdout.write(`  done in ${((Date.now() - t0) / 1000).toFixed(1)}s\n`);
 
     process.stdout.write(`Generating ${networkRows.toLocaleString()} network_events rows...\n`);
     t0 = Date.now();
-    await client.query(`
+    await client.query(
+      `
       insert into network_events (ts, trace_id, merchant_id, event_type, source, severity, numeric_value, unit)
       select
         now() - (random() * interval '90 days') - (gs * interval '1 microsecond'),
         gen_random_uuid()::text,
-        ${MERCHANT_IDS}[idx],
+        ($1::text[])[idx],
         (array['claim.ingested', 'claim.resolved', 'claim.conflict', 'reservation.created', 'reservation.released', 'plan.validated'])[floor(random() * 6 + 1)],
         (array['shopify', 'document', 'note', 'manual', 'api'])[floor(random() * 5 + 1)],
         (array['INFO', 'WARN', 'ERROR'])[floor(random() * 3 + 1)],
         round((random() * 200)::numeric, 2),
         'units'
-      from generate_series(1, ${networkRows}) gs,
-           lateral (select floor(random() * 4 + 1)::int as idx) i;
-    `);
+      from generate_series(1, $2) gs,
+           lateral (select floor(random() * $3 + 1)::int as idx) i;
+    `,
+      [distinctMerchants, networkRows, distinctMerchants.length],
+    );
     process.stdout.write(`  done in ${((Date.now() - t0) / 1000).toFixed(1)}s\n`);
 
     const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
@@ -105,6 +124,14 @@ async function main() {
     for (const row of counts.rows) {
       process.stdout.write(`  ${row.table}: ${Number(row.count).toLocaleString()} total rows\n`);
     }
+
+    const spread = await client.query(`
+      select count(distinct capability_id) as distinct_caps, count(distinct merchant_id) as distinct_merchants
+      from fulfillment_samples;
+    `);
+    process.stdout.write(
+      `  fulfillment_samples spans ${spread.rows[0].distinct_caps} distinct capabilities across ${spread.rows[0].distinct_merchants} distinct merchants\n`,
+    );
   } finally {
     await client.end();
   }

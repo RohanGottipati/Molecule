@@ -17,6 +17,7 @@
     "migrate": "tsx src/scripts/migrate.ts",
     "seed": "tsx src/scripts/migrate.ts --seed-only",
     "bulk-seed": "tsx src/scripts/bulk-seed.ts",
+    "generate-catalog": "tsx src/scripts/generate-catalog.ts",
     "reset": "tsx src/scripts/reset.ts"
   },
   "dependencies": {
