@@ -189,6 +189,85 @@ describe("canonical durable read clients", () => {
       `attach:${contextId}`,
     );
   });
+  it.each([400, 413])(
+    "reports a definitive upload validation rejection (%s) before attaching",
+    async (status) => {
+      const fetcher = vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            code: "VALIDATION_ERROR",
+            message: "File contents do not match its type.",
+            traceId: snapshot.traceId,
+            retryable: false,
+          },
+          { status },
+        ),
+      );
+      vi.stubGlobal("fetch", fetcher);
+      const uploaded = vi.fn();
+      const rejected = vi.fn();
+      await expect(
+        uploadContext(
+          snapshot,
+          new File(["not a PNG"], "invalid.png", { type: "image/png" }),
+          "rejected-upload",
+          uploaded,
+          rejected,
+        ),
+      ).rejects.toMatchObject({ status, code: "VALIDATION_ERROR" });
+      expect(rejected).toHaveBeenCalledOnce();
+      expect(uploaded).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
+  );
+  it("keeps uncertain upload and post-upload attachment failures unresolved", async () => {
+    const contextId = "aabbccdd-1234-4234-9234-123456789abc";
+    const validationError = Response.json(
+      {
+        code: "VALIDATION_ERROR",
+        message: "Attachment rejected.",
+        traceId: snapshot.traceId,
+        retryable: false,
+      },
+      { status: 400 },
+    );
+    const fetcher = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("lost upload response"))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            code: "INTERNAL",
+            message: "Unavailable",
+            traceId: snapshot.traceId,
+            retryable: false,
+          },
+          { status: 503 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          contextId,
+          asset: { assetId: contextId, checksum: "bytes" },
+        }),
+      )
+      .mockResolvedValueOnce(validationError);
+    vi.stubGlobal("fetch", fetcher);
+    const uploaded = vi.fn();
+    const rejected = vi.fn();
+    for (let i = 0; i < 3; i++)
+      await expect(
+        uploadContext(
+          snapshot,
+          new File(["logo"], "logo.txt", { type: "text/plain" }),
+          `upload-${i}`,
+          uploaded,
+          rejected,
+        ),
+      ).rejects.toBeInstanceOf(Error);
+    expect(rejected).not.toHaveBeenCalled();
+    expect(uploaded).toHaveBeenCalledExactlyOnceWith(contextId);
+  });
 });
 
 describe("atomic project read bundles", () => {

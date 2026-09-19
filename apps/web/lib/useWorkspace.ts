@@ -550,6 +550,7 @@ export function useWorkspace(initialOrderId?: string) {
           attached = { ...action, key: `attach:${contextId}`, kind: "desktop" };
           remember(attached, scope);
         },
+        () => settle({ ...action, status: "failed" }, scope),
       );
       settle({ ...attached, status: "succeeded" }, scope);
       if (generation.current === started) apply(result.project);

@@ -401,6 +401,7 @@ export async function uploadContext(
   file: File,
   actionKey: string,
   onUploaded?: (contextId: string) => void,
+  onRejected?: () => void,
 ) {
   const metadata = fileMetadata(file, actionKey);
   const receipt = ContextReceiptSchema.parse(
@@ -416,7 +417,15 @@ export async function uploadContext(
         },
         body: file,
       },
-    ),
+    ).catch((error: unknown) => {
+      if (
+        error instanceof RequestError &&
+        error.code === "VALIDATION_ERROR" &&
+        [400, 413].includes(error.status)
+      )
+        onRejected?.();
+      throw error;
+    }),
   );
   const action = DesktopActionSchema.parse({
     actionId: `attach:${receipt.contextId}`,
