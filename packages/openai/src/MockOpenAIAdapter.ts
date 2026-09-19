@@ -37,6 +37,11 @@ const materials = [
   "glass",
 ] as const;
 const wearables = ["hoodie", "shirt", "jacket", "hat"];
+const operations = [
+  [/\bembroider\w*\b/, "embroidery", "embroidered"],
+  [/\bengrav\w*\b/, "engraving", "engraved"],
+  [/\bprint\w*\b/, "printing", "printed"],
+] as const;
 
 function clausesOf(text: string, separators: RegExp): string[] {
   return text
@@ -62,6 +67,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const text = `${input.text}\n${input.correction?.text ?? ""}`.toLowerCase();
   const clauses = clausesOf(text, /\s+(?:and|with|including)\s+|,\s+/);
   const segments = clausesOf(text, /,|\band\b/);
+  const consumedClauses = new Set<number>();
   const ambiguityFlags: IntentExtraction["ambiguityFlags"] = [];
   const softPreferences: IntentExtraction["softPreferences"] = [];
   const explicitQuantity = numericMatch(
@@ -299,20 +305,24 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       attributes: [{ name: "product", value: "kit" }],
     });
   }
-  const kitColor = hasKit
-    ? colors.find(
+  const kitColors = hasKit
+    ? colors.filter(
         (value) =>
           new RegExp(`\\b${value}\\b(?:\\s+[\\w-]+){0,3}\\s+kits?\\b`).test(
             text,
           ) || clauses.includes(value),
       )
-    : undefined;
-  const wearable = desiredOutputs.find((output) =>
+    : [];
+  const wearableOutputs = desiredOutputs.filter((output) =>
     wearables.includes(output.key),
   );
+  const kitColor = kitColors[0];
+  const wearable = wearableOutputs[0];
   if (
     kitColor &&
     wearable &&
+    kitColors.length === 1 &&
+    wearableOutputs.length === 1 &&
     !new RegExp(`\\b(?:no|without)\\s+${kitColor}\\b`).test(text)
   ) {
     addRule(`${wearable.key}.color`, kitColor);
@@ -320,6 +330,14 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       ...wearable.attributes.filter((a) => a.name !== "color"),
       { name: "color", value: kitColor },
     ];
+    for (const [index, clause] of clauses.entries())
+      if (clause === kitColor) consumedClauses.add(index);
+  } else if (kitColors.length) {
+    ambiguityFlags.push({
+      field: "color",
+      reason: "unresolved kit color",
+      question: `Which component should use each requested color (${kitColors.join(", ")})?`,
+    });
   }
   for (const material of ["leather", "polyester"]) {
     if (new RegExp(`\\b(?:no|without|exclude)\\s+${material}\\b`).test(text))
@@ -334,15 +352,18 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     inputKeys: t.inputRefs,
     outputKeys: t.outputRefs,
   }));
-  for (const [trigger, kind, result] of [
-    [/\b(?:embroider\w*|logo)\b/, "embroidery", "embroidered"],
-    [/\bengrav\w*\b/, "engraving", "engraved"],
-    [/\bprint\w*\b/, "printing", "printed"],
-  ] as const) {
-    if (!trigger.test(text)) continue;
-    const matched = segments.flatMap((segment) => {
+  for (const [trigger, kind, result] of operations) {
+    const operationSegments = segments.filter(
+      (segment) =>
+        trigger.test(segment) ||
+        (kind === "embroidery" &&
+          /\blogo\b/.test(segment) &&
+          !operations.some(([explicit]) => explicit.test(segment))),
+    );
+    if (!operationSegments.length) continue;
+    const matched = operationSegments.flatMap((segment) => {
       const components = mentioned(segment);
-      return trigger.test(segment) && components.length === 1 ? components : [];
+      return components.length === 1 ? components : [];
     });
     const targets = matched.length
       ? desiredOutputs.filter((output) => matched.includes(output.key))
@@ -433,15 +454,38 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   ] as const) {
     if (missing) ambiguityFlags.push({ field, reason: "missing", question });
   }
+  if (/\bpremium\b/.test(text)) {
+    softPreferences.push({
+      key: "quality-premium",
+      field: "quality",
+      operator: "eq",
+      value: "premium",
+      weight: 0.5,
+      unit: null,
+      description: "Premium quality preference",
+    });
+    for (const [index, clause] of clauses.entries())
+      if (clause === "premium") consumedClauses.add(index);
+  }
   for (const [index, clause] of clauses.entries()) {
+    if (consumedClauses.has(index)) continue;
+    if (
+      [...colors, ...materials, "vegan", "premium"].some(
+        (value) => value === clause,
+      )
+    ) {
+      ambiguityFlags.push({
+        field: "desiredOutputs",
+        reason: "unbound mock attribute",
+        question: `Which component should have the "${clause}" requirement?`,
+      });
+      continue;
+    }
     if (index === 0) continue;
     if (
       products.some(([, , pattern]) =>
         new RegExp(`\\b${pattern}\\b`).test(clause),
       ) ||
-      new RegExp(
-        `^(?:${[...colors, ...materials, "vegan", "premium"].join("|")})$`,
-      ).test(clause) ||
       /^(?:embroider(?:y|ed|ing)?|engrav(?:e|ed|ing)|print(?:ed|ing)?)\s+(?:the\s+)?(?:supplied\s+)?(?:logo|artwork|names?)$/.test(
         clause,
       ) ||
@@ -460,16 +504,6 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       question: `Please specify the component or requirement in "${clause.slice(0, 80)}".`,
     });
   }
-  if (/\bpremium\b/.test(text))
-    softPreferences.push({
-      key: "quality-premium",
-      field: "quality",
-      operator: "eq",
-      value: "premium",
-      weight: 0.5,
-      unit: null,
-      description: "Premium quality preference",
-    });
   return {
     outcome: ambiguityFlags.length ? "NEEDS_CLARIFICATION" : "EXTRACTED",
     unsupportedReason: null,

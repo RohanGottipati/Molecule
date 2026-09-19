@@ -265,6 +265,148 @@ describe("compiler and solver release acceptance", () => {
     expect(result.status).toBe("NEEDS_CLARIFICATION");
   });
 
+  it.each([
+    ["printed logo on shirts", "printing", "shirt"],
+    ["shirts with printed logo", "printing", "shirt"],
+    ["engraved logo on bottles", "engraving", "bottle"],
+    ["bottles with engraved logo", "engraving", "bottle"],
+  ])(
+    "honors the explicit operation in %s without adding embroidery",
+    async (request, kind, component) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text: `Make 20 by Friday CAD, ${request}.`,
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY")
+        throw new Error("Operation parsing failed");
+      expect(result.intent.transformations).toEqual([
+        expect.objectContaining({ kind, inputRefs: [component] }),
+      ]);
+    },
+  );
+
+  it("keeps generic logo inference local to the component clause", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Make 20 by Friday CAD, printed logo on shirts, logo on hoodies, engraved logo on bottles.",
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Mixed operations failed");
+    expect(result.intent.transformations).toHaveLength(3);
+    expect(result.intent.transformations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "printing", inputRefs: ["shirt"] }),
+        expect.objectContaining({ kind: "embroidery", inputRefs: ["hoodie"] }),
+        expect.objectContaining({ kind: "engraving", inputRefs: ["bottle"] }),
+      ]),
+    );
+  });
+
+  it.each([
+    "black",
+    "white",
+    "red",
+    "blue",
+    "green",
+    "cotton",
+    "polyester",
+    "leather",
+    "stainless steel",
+    "glass",
+    "vegan",
+  ])("asks about the unbound standalone attribute %s", async (attribute) => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: `Make 20 hoodies by Friday CAD, ${attribute}.`,
+    });
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+    if (result.status !== "NEEDS_CLARIFICATION")
+      throw new Error("Unbound attribute was silently accepted");
+    expect(result.questions.join(" ")).toContain(attribute);
+    expect(result.draft.desiredOutputs[0]?.attributes).toEqual({
+      product: "hoodie",
+    });
+  });
+
+  it("asks about an unbound attribute at the start of an additive correction", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const first = await adapter.compileIntent({
+      ...base,
+      text: "Make 20 hoodies by Friday CAD",
+    });
+    if (first.status !== "READY") throw new Error("Initial compilation failed");
+    const result = await adapter.compileIntent({
+      ...base,
+      text: "cotton",
+      previousIntent: first.intent,
+    });
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+    if (result.status !== "NEEDS_CLARIFICATION")
+      throw new Error("Correction attribute was silently accepted");
+    expect(result.questions.join(" ")).toContain("cotton");
+  });
+
+  it.each([
+    "Make 20 onboarding kits by Friday CAD, hoodies and shirts, blue.",
+    "Make 20 onboarding kits by Friday CAD, shirts and hoodies, blue.",
+    "Make 20 onboarding kits by Friday CAD, bottles, blue.",
+    "Make 20 onboarding kits by Friday CAD, hoodies, black, blue.",
+    "Make 20 blue onboarding kits by Friday CAD, hoodies and shirts.",
+  ])(
+    "clarifies ambiguous kit color without choosing a component: %s",
+    async (text) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text,
+      });
+      expect(result.status).toBe("NEEDS_CLARIFICATION");
+      if (result.status !== "NEEDS_CLARIFICATION")
+        throw new Error("Ambiguous color was silently assigned");
+      expect(result.questions.join(" ")).toContain("blue");
+      expect(
+        result.draft.hardConstraints.some((rule) =>
+          rule.field.endsWith(".color"),
+        ),
+      ).toBe(false);
+      for (const output of result.draft.desiredOutputs)
+        expect(output.attributes).not.toHaveProperty("color");
+    },
+  );
+
+  it("binds a detached color to the only wearable in a kit", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Make 20 onboarding kits by Friday CAD, shirts and bottles, blue.",
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Kit color binding failed");
+    expect(result.intent.hardConstraints).toContainEqual(
+      expect.objectContaining({ field: "shirt.color", value: "blue" }),
+    );
+    expect(
+      result.intent.desiredOutputs.find((output) => output.outputId === "shirt")
+        ?.attributes.color,
+    ).toBe("blue");
+    expect(
+      result.intent.desiredOutputs.find(
+        (output) => output.outputId === "bottle",
+      )?.attributes,
+    ).not.toHaveProperty("color");
+  });
+
+  it("accepts standalone premium only with its recorded quality preference", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Make 20 hoodies by Friday CAD, premium.",
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Premium preference failed");
+    expect(result.intent.softPreferences).toContainEqual(
+      expect.objectContaining({ field: "quality", value: "premium" }),
+    );
+  });
+
   it("keeps color component scoped and separates a preference from requirements", async () => {
     const adapter = new MockOpenAIAdapter();
     const result = await adapter.compileIntent({
