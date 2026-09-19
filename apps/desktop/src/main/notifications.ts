@@ -21,8 +21,11 @@ export class DesktopNotifications {
   private readonly shown = new Set<string>();
   private readonly active = new Set<Notification>();
   constructor(
-    private readonly settings: SettingsStore,
-    private readonly overlay: OverlayWindow,
+    private readonly settings: Pick<SettingsStore, "get">,
+    private readonly overlay: Pick<
+      OverlayWindow,
+      "isVisible" | "show" | "signal"
+    >,
   ) {}
   show(value: unknown) {
     const event = NoticeSchema.parse(value);
@@ -47,24 +50,34 @@ export class DesktopNotifications {
       this.overlay.show();
       this.overlay.signal({ type: "project", projectId: event.projectId });
     });
+    notification.on("show", () => {
+      console.info(
+        JSON.stringify({
+          scope: "main",
+          event: "notification.shown",
+          kind: event.kind,
+        }),
+      );
+    });
     notification.on("close", () => this.active.delete(notification));
-    notification.on("failed", () => {
+    notification.on("failed", (_nativeEvent, error) => {
       this.active.delete(notification);
       console.warn(
         JSON.stringify({
           scope: "main",
           event: "notification.failed",
           kind: event.kind,
+          error,
         }),
       );
     });
-    notification.show();
     console.info(
       JSON.stringify({
         scope: "main",
-        event: "notification.shown",
+        event: "notification.requested",
         kind: event.kind,
       }),
     );
+    notification.show();
   }
 }

@@ -207,6 +207,35 @@ try {
     recovered.activePlan.planId,
   );
   assert.equal(restarted.contexts.length, 1);
+  const replacement = recovered.activePlan.nodes.find(
+    (node) => node.kind === "TRANSFORM",
+  );
+  assert.ok(replacement);
+  const exhausted = await post("/api/chaos", {
+    scenario: "supplier_offline",
+    orderId: id,
+    merchantId: replacement.merchantId,
+    actionId: "verify-exhausted-suppliers",
+  });
+  assert.equal(exhausted.state, "NEEDS_HUMAN");
+  assert.equal(exhausted.activePlan.status, "UNSAT");
+  assert.equal(exhausted.activePlan.estimatedCompletion, undefined);
+  assert.equal(exhausted.activePlan.nodes.length, 0);
+  const failureState = JSON.parse(
+    await readFile(join(directory, "state.json"), "utf8"),
+  );
+  assert.ok(
+    failureState.events.some(
+      ({ event }) => event.eventType === "recovery.failed",
+    ),
+  );
+  await app.close();
+  ({ app } = await createApp());
+  const restoredFailure = DesktopResultSchema.parse(
+    (await app.inject(`/api/projects/${id}`)).json(),
+  );
+  assert.equal(restoredFailure.project.state, "NEEDS_HUMAN");
+  assert.equal(restoredFailure.project.activePlan?.status, "UNSAT");
   console.log(
     JSON.stringify({
       result: "passed",
@@ -215,6 +244,7 @@ try {
       recoveryCostDelta:
         recovered.activePlan.totalCost - approved.project.activePlan.totalCost,
       restart: "restored",
+      exhaustedSuppliers: restoredFailure.project.state,
     }),
   );
 } finally {

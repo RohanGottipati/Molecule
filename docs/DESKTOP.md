@@ -127,6 +127,8 @@ The UI prints the actual cost delta; it never hardcodes `+$18.40`. “No action 
 
 Notifications are off until enabled in Settings. Hidden-overlay notifications are restricted to supplier failure, recovery, approval, unsatisfiable plans, and product readiness. Historical replay is silent. Clicking a notification shows its project. Auto-expand changes alert density without stealing focus from another app.
 
+Main logs `notification.requested` when submitting a notice and `notification.shown` only after Electron emits `show`. A `notification.failed` record includes the native error. Submission alone does not establish delivery.
+
 ## Permissions and packaging
 
 - **Microphone:** requested on the first voice action; denial links to the microphone privacy settings.
@@ -138,10 +140,27 @@ Notifications are off until enabled in Settings. Hidden-overlay notifications ar
 ```bash
 pnpm --filter @molecule/desktop build
 pnpm --filter @molecule/desktop start
+pnpm --filter @molecule/desktop package:mac:local
+```
+
+For native notification acceptance, run `package:mac:local` **on a Mac**. It packages the host architecture under `apps/desktop/release/local/` and applies a complete ad-hoc signature with the `ai.molecule.desktop` bundle identity. It fails if signing fails. Launch the resulting app through Finder or Launch Services:
+
+```bash
+# Apple Silicon; use Molecule-darwin-x64 on Intel.
+open apps/desktop/release/local/Molecule-darwin-arm64/Molecule.app
+```
+
+Enable notifications both in Molecule Settings and in **System Settings → Notifications → Molecule**. Electron's macOS notification API requires code signing; development Electron and the initial unsigned bundle failed native authorization on the test host. The ad-hoc build preserves the non-hardened development runtime and uses empty entitlements; it does not add private Apple entitlements or exemptions. A hardened-runtime ad-hoc experiment failed to launch because ad-hoc identities have no developer Team ID.
+
+This is a local-development package, not a distribution profile. Production requires the team's Apple signing identity, appropriate hardened-runtime entitlements, notarization and distribution setup; those are not configured or certified. The local profile has not been certified for physical audio or all device permissions.
+
+For unsigned bundles for both architectures:
+
+```bash
 pnpm --filter @molecule/desktop package:mac
 ```
 
-`package:mac` produces Apple Silicon and Intel app bundles. Signing, notarization, installer distribution, and automatic updates are not configured. Use a local development build for acceptance; production distribution needs the team's Apple signing setup.
+`package:mac` alone does not provide usable native notification signing. Installer distribution and automatic updates are not configured.
 
 ## Overlay states
 
@@ -180,7 +199,7 @@ pnpm verify:desktop
 pnpm verify:secrets
 ```
 
-`verify:desktop` starts a real CP-SAT HTTP solver on an ephemeral local port, exercises the desktop API with mock providers, checks duplicate retries, context attachment, hard material correction, approved recovery, actual cost/deadline facts, and persistence after restart. Set `SOLVER_PYTHON` to an alternate Python environment if needed. It makes no paid calls and cleans up its temporary state.
+`verify:desktop` starts a real CP-SAT HTTP solver on an ephemeral local port, exercises the desktop API with mock providers, checks duplicate retries, context attachment, hard material correction, approved recovery, actual cost/deadline facts, and persistence after restart. It then exhausts the replacement supplier and verifies a persisted `UNSAT` plan, `NEEDS_HUMAN` state and `recovery.failed` event rather than a stale valid plan stuck in `SOLVING`. Absent solver response values are omitted to match the shared contract. Set `SOLVER_PYTHON` to an alternate Python environment if needed. It makes no paid calls and cleans up its temporary state.
 
 Automated suites cover shortcut fallback/toggle, URL validation, event parsing/filtering/reconnect, stable tool IDs, mock WebRTC interruption/cleanup/retries, uploads and attachment commands, backend corrections/cancellation, durable receipts, supplier/recovery UI state, and material exclusion including unknown facts.
 
@@ -188,21 +207,50 @@ Automated suites cover shortcut fallback/toggle, URL validation, event parsing/f
 
 Electron UI verification used the real durable backend and CP-SAT solver with disclosed provider mocks. The golden path was recorded at `d77b136`, with fixes and focused follow-up at `bbe1d85`.
 
-| Area | Observed result |
-| --- | --- |
-| Overlay | Hidden startup, fallback shortcut, compact/conversation/company/legible alert views |
-| Text and events | Valid plan, live backend activity, logo follow-up, hard `material not_contains polyester` correction |
-| Context | Native chooser, drag/drop PNG, clipboard image/text, explicit screen-frame upload; persisted bytes verified |
-| Execution | Explicit approval before mock Shopify completion |
-| Recovery | `stitch-works` → `thread-forge`; CAD 3300 → 3420, deadline preserved, approved recovery needed no further action |
-| Restart | Settings persisted; startup offered Resume without voice; recovered plan and four attachments restored |
-| Command Center | Correct existing project and recovered plan; no unrelated sample request in the composer |
-| Notifications | Hidden backend recovery ran; native delivery/click untested because the Linux notification service was unavailable |
-| Voice | Missing-device handling preserved text; physical microphone, live voice and barge-in remain untested |
+| Area            | Observed result                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Overlay         | Hidden startup, fallback shortcut, compact/conversation/company/legible alert views                                |
+| Text and events | Valid plan, live backend activity, logo follow-up, hard `material not_contains polyester` correction               |
+| Context         | Native chooser, drag/drop PNG, clipboard image/text, explicit screen-frame upload; persisted bytes verified        |
+| Execution       | Explicit approval before mock Shopify completion                                                                   |
+| Recovery        | `stitch-works` → `thread-forge`; CAD 3300 → 3420, deadline preserved, approved recovery needed no further action   |
+| Restart         | Settings persisted; startup offered Resume without voice; recovered plan and four attachments restored             |
+| Command Center  | Correct existing project and recovered plan; no unrelated sample request in the composer                           |
+| Notifications   | Hidden backend recovery ran; native delivery/click untested because the Linux notification service was unavailable |
+| Voice           | Missing-device handling preserved text; physical microphone, live voice and barge-in remain untested               |
 
 The earlier recording ends with a screen-permission error resolved and verified in the follow-up. Screen-permission denial guidance was not exercised after that fix. The fixture's selected merchants were cotton-compatible already, so their remaining selected after the polyester exclusion is expected; incompatible-candidate exclusion is covered by solver tests.
 
-The workspace lint/typecheck/tests, solver Ruff/mypy/tests, desktop/web builds, client-secret scan and real-solver integration verification passed. GitHub reported no CI checks for the PR. Native macOS and live-provider acceptance below remains open.
+The workspace lint/typecheck/tests, solver Ruff/mypy/tests, desktop/web builds, client-secret scan and real-solver integration verification passed. GitHub reported no CI checks for the PR.
+
+### Recorded macOS acceptance
+
+The native run at `a2dda05` used macOS 26.5.2 (25F84), Apple Silicon, Node 24.20.0, pnpm 10.14.0, Python 3.12.11 and Electron 44.3.0. The orchestrator and CP-SAT solver were real; provider behavior was explicitly mocked.
+
+| Area                | Observed result                                                                                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overlay             | Hidden launch; Option+Space; Escape; tray/settings; invalid shortcut fell back to Command+Shift+M; window moved on one display                                                                                    |
+| Project             | VALID plan; logo upload/follow-up; hard no-polyester correction; explicit approval before mock commerce                                                                                                           |
+| Recovery            | Hidden server work continued; `stitch-works` → `thread-forge`; CAD 3700 → 3820; deadline preserved; no further approval required                                                                                  |
+| Context and restart | Explicit one-frame PNG capture; Quit/restart/Resume restored the project, attachments and preferences                                                                                                             |
+| Links               | Correct Command Center project; packaged `molecule://project/{id}` opened the recovered project                                                                                                                   |
+| Voice               | Unavailable microphone message preserved text; no audio input device or live OpenAI credentials                                                                                                                   |
+| Notifications       | Development and initial unsigned package failed; a fully ad-hoc signed development copy delivered to Notification Center and actual click reopened the matching project after enabling app-specific notifications |
+| Untested            | Physical/live voice and barge-in, active-audio stop-on-hide, OS permission-denial flows, multi-monitor, persisted window position, signing/notarization for distribution, live providers                          |
+
+Mock parsing is deliberately limited. The tested deterministic request was:
+
+> Need 200 premium onboarding kits with embroidered hoodie, under 7000 CAD by 2026-12-31.
+
+The mock needs a supported quantity prefix, digits after `under`, explicit currency and an ISO deadline. For example, `200 premium onboarding kits under CAD 7000 ... December 31, 2026` produced clarification rather than a plan. Tote/mug interpretation and visual logo understanding were not certified by this mock run; natural-language voice acceptance requires the real compiler and Realtime.
+
+For macOS mock testing, use `DEMO_MODE=true USE_MOCK_OPENAI=true` and an isolated writable `DATA_DIR` for the orchestrator, and `NEXT_PUBLIC_DEMO_MODE=true` for the web app. If `uv` was installed with the system Python's user pip, add its reported user-bin directory to `PATH`; on the test host it was `$HOME/Library/Python/3.9/bin`. The solver uses the separate Python 3.12 virtual environment.
+
+The notification follow-up used the same `a2dda05` source in a separately signed copy. Strict deep signature verification passed; native logs confirmed matching bundle identifiers and successful delivery. The automatic authorization callback initially failed; delivery/click passed after the normal app-specific Settings toggle. A transient desktop banner was not separately certified. That follow-up also exposed the solver's null-versus-omitted completion mismatch when both suppliers were exhausted; the HTTP serialization and real-solver regression now cover that case.
+
+The final focused run at `8045d6e` executed the committed `package:mac:local` command without manual re-signing. The resulting arm64 app passed strict deep signature verification, launched through Launch Services, and delivered native notifications with the existing app-specific permission. Actual Notification Center clicks opened the correct project after both successful recovery and exhausted-supplier failure. The latter returned HTTP 200, persisted `recovery.failed`, and displayed `UNSAT` / `NEEDS_HUMAN` with a public explanation and both failed suppliers; no stale valid plan remained. Native telemetry recorded six requests, six shown callbacks and no failures. This run used the real local solver/orchestrator and mocked providers.
+
+Fresh notification authorization, transient desktop banners, physical/live voice and distribution signing remain unverified. An incidental microphone prompt was declined normally and text remained usable; this is not comprehensive permission-denial coverage.
 
 ### Manual acceptance
 
@@ -219,4 +267,4 @@ On a Mac with account-supported OpenAI models and the missing real provider inte
 9. With voice actively engaged, repeat recovery if another supplier is available and confirm its short spoken summary. Voice intentionally stays stopped after hiding until explicitly resumed.
 10. Open Command Center and confirm the URL and project match. Test a one-frame screen share separately, including denied permission.
 
-The full physical macOS/microphone/notification acceptance flow cannot be certified from a Linux machine. Live OpenAI and real Shopify/Backboard/Tiger behavior require credentials and implementations absent from the chosen base. A passing mock API/UI test is not a claim that those external systems were exercised.
+The full physical microphone and live-provider acceptance flow remains open beyond the recorded native checks above. Live OpenAI and real Shopify/Backboard/Tiger behavior require credentials and implementations absent from the chosen base. A passing mock API/UI test is not a claim that those external systems were exercised.
