@@ -16,6 +16,7 @@ export interface JobDecision {
 }
 
 export interface AcceptJobInput {
+  traceId?: string;
   merchantId: string;
   orderId: string;
   nodeId: string;
@@ -24,6 +25,7 @@ export interface AcceptJobInput {
 }
 
 export interface DeclineJobInput {
+  traceId?: string;
   merchantId: string;
   orderId: string;
   nodeId: string;
@@ -32,6 +34,7 @@ export interface DeclineJobInput {
 }
 
 export interface UpdateEtaInput {
+  traceId?: string;
   merchantId: string;
   orderId: string;
   nodeId: string;

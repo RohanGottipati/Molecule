@@ -17,11 +17,32 @@ import {
 const QUOTE_ROUTE = /^\/api\/merchant-agents\/([^/]+)\/quote$/;
 const MEMORY_ROUTE = /^\/api\/merchant-agents\/([^/]+)\/memory$/;
 
-function readJsonBody(req: IncomingMessage): Promise<unknown> {
+class BodyLimitError extends Error {}
+class RequestTimeoutError extends Error {}
+
+function readJsonBody(
+  req: IncomingMessage,
+  maxBodyBytes: number,
+  timeoutMs: number,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let size = 0;
+    const timer = setTimeout(
+      () => reject(new RequestTimeoutError()),
+      timeoutMs,
+    );
+    const cleanup = () => clearTimeout(timer);
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBodyBytes) {
+        cleanup();
+        chunks.length = 0;
+        reject(new BodyLimitError());
+      } else chunks.push(chunk);
+    });
     req.on("end", () => {
+      cleanup();
       const raw = Buffer.concat(chunks).toString("utf8");
       if (raw.length === 0) {
         resolve({});
@@ -33,17 +54,28 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
         reject(new SyntaxError("Request body is not valid JSON"));
       }
     });
-    req.on("error", reject);
+    req.on("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    req.on("aborted", () => {
+      cleanup();
+      reject(new RequestTimeoutError());
+    });
   });
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  if (res.destroyed || res.writableEnded) return;
   const payload = JSON.stringify(body);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(payload);
 }
 
 export interface MerchantAgentsServerDeps {
+  maxBodyBytes?: number;
+  requestTimeoutMs?: number;
+  health?: () => Promise<unknown>;
   quoteService: QuoteService;
   /**
    * B5 item 72: optional so a caller that only needs the quote endpoint (as
@@ -66,9 +98,29 @@ export interface MerchantAgentsServerDeps {
 export function createMerchantAgentsServer(
   deps: MerchantAgentsServerDeps,
 ): Server {
-  return createServer((req, res) => {
-    void handleRequest(req, res, deps);
+  const server = createServer((req, res) => {
+    const timer = setTimeout(
+      () => sendJson(res, 408, { error: "request_timeout" }),
+      deps.requestTimeoutMs ?? 30_000,
+    );
+    res.once("finish", () => clearTimeout(timer));
+    res.once("close", () => clearTimeout(timer));
+    void handleRequest(req, res, deps).catch((error: unknown) => {
+      sendJson(
+        res,
+        error instanceof URIError || error instanceof TypeError ? 400 : 500,
+        {
+          error:
+            error instanceof URIError || error instanceof TypeError
+              ? "invalid_request"
+              : "internal_error",
+        },
+      );
+    });
   });
+  server.requestTimeout = deps.requestTimeoutMs ?? 30_000;
+  server.headersTimeout = Math.min(10_000, server.requestTimeout);
+  return server;
 }
 
 async function handleRequest(
@@ -77,6 +129,18 @@ async function handleRequest(
   deps: MerchantAgentsServerDeps,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname === "/health" && req.method === "GET") {
+    try {
+      sendJson(
+        res,
+        200,
+        deps.health ? await deps.health() : { status: "ready" },
+      );
+    } catch {
+      sendJson(res, 503, { status: "unavailable" });
+    }
+    return;
+  }
 
   const memoryMatch = MEMORY_ROUTE.exec(url.pathname);
   if (memoryMatch && req.method === "GET") {
@@ -104,14 +168,43 @@ async function handleRequest(
   const merchantId = decodeURIComponent(match[1]!);
 
   try {
-    const body = await readJsonBody(req);
+    const body = await readJsonBody(
+      req,
+      deps.maxBodyBytes ?? 256 * 1024,
+      deps.requestTimeoutMs ?? 30_000,
+    );
     const request =
       typeof body === "object" && body !== null
         ? { ...(body as Record<string, unknown>), merchantId }
         : { merchantId };
-    const response = await quoteService.handleQuoteRequest(request);
-    sendJson(res, 200, response);
+    const controller = new AbortController();
+    const disconnect = () => controller.abort();
+    res.on("close", disconnect);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([
+        quoteService.handleQuoteRequest(request, controller.signal),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new RequestTimeoutError());
+          }, deps.requestTimeoutMs ?? 30_000);
+        }),
+      ]);
+      sendJson(res, 200, response);
+    } finally {
+      clearTimeout(timer);
+      res.off("close", disconnect);
+    }
   } catch (error) {
+    if (error instanceof BodyLimitError) {
+      sendJson(res, 413, { error: "body_too_large" });
+      return;
+    }
+    if (error instanceof RequestTimeoutError) {
+      sendJson(res, 408, { error: "request_timeout" });
+      return;
+    }
     if (error instanceof SyntaxError) {
       sendJson(res, 400, { error: "invalid_json", message: error.message });
       return;

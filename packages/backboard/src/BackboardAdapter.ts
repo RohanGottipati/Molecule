@@ -55,6 +55,8 @@ export class BackboardApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly code:
+      "HTTP" | "TIMEOUT" | "ABORTED" | "INVALID_RESPONSE" | "NETWORK" = "HTTP",
   ) {
     super(message);
     this.name = "BackboardApiError";

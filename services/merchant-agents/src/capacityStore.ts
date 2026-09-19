@@ -21,6 +21,7 @@ export interface CapacityReservation {
 }
 
 export interface ReserveCapacityInput {
+  traceId?: string;
   merchantId: string;
   capabilityId: string;
   orderId: string;
@@ -29,6 +30,7 @@ export interface ReserveCapacityInput {
 }
 
 export interface ReleaseCapacityInput {
+  traceId?: string;
   merchantId: string;
   capabilityId: string;
   reservationId: string;

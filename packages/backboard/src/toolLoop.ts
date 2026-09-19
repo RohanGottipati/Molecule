@@ -35,6 +35,7 @@ export interface ConversationClient {
 }
 
 export interface RunBoundedToolLoopParams<T> {
+  signal?: AbortSignal;
   client: ConversationClient;
   message: string;
   tools: ToolDefinition[];
@@ -49,19 +50,33 @@ const DEFAULT_ROUND_TIMEOUT_MS = 15_000;
 
 class TimeoutError extends Error {}
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new TimeoutError("round timed out")),
-      timeoutMs,
-    );
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    };
+    const abort = () => {
+      cleanup();
+      reject(new TimeoutError("round cancelled"));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new TimeoutError("round timed out"));
+    }, timeoutMs);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
     promise.then(
       (value) => {
-        clearTimeout(timer);
+        cleanup();
         resolve(value);
       },
       (error) => {
-        clearTimeout(timer);
+        cleanup();
         reject(error);
       },
     );
@@ -115,9 +130,10 @@ async function callClient<T>(
   promise: Promise<ConverseTurn>,
   timeoutMs: number,
   toolCalls: ToolCallRecord[],
+  signal?: AbortSignal,
 ): Promise<ConverseTurn | SendWithToolsResult<T>> {
   try {
-    return await withTimeout(promise, timeoutMs);
+    return await withTimeout(promise, timeoutMs, signal);
   } catch (error) {
     return fallback<T>(
       error instanceof TimeoutError ? "TIMEOUT" : "PROVIDER_ERROR",
@@ -137,17 +153,20 @@ export async function runBoundedToolLoop<T>(
   const roundTimeoutMs = params.roundTimeoutMs ?? DEFAULT_ROUND_TIMEOUT_MS;
   const toolCalls: ToolCallRecord[] = [];
   const toolsByName = new Map(params.tools.map((tool) => [tool.name, tool]));
+  if (params.signal?.aborted) return fallback("TIMEOUT", toolCalls);
 
   let turn = await callClient<T>(
     params.client.start({ message: params.message }),
     roundTimeoutMs,
     toolCalls,
+    params.signal,
   );
   if (isFallback<T>(turn)) {
     return turn;
   }
 
   for (let round = 0; round < maxRounds; round++) {
+    if (params.signal?.aborted) return fallback("TIMEOUT", toolCalls);
     if (turn.status === "completed") {
       return finalize(
         (turn as ConverseTurnCompleted).text,
@@ -161,6 +180,7 @@ export async function runBoundedToolLoop<T>(
 
     const outputs: { toolCallId: string; output: string }[] = [];
     for (const call of (turn as ConverseTurnRequiresAction).toolCalls) {
+      if (params.signal?.aborted) return fallback("TIMEOUT", toolCalls);
       const startedAt = new Date().toISOString();
       const tool = toolsByName.get(call.name);
       if (!tool) {
@@ -216,6 +236,7 @@ export async function runBoundedToolLoop<T>(
         const result = await withTimeout(
           tool.handler(parsedArgs.data, { ...params.context, actionKey }),
           roundTimeoutMs,
+          params.signal,
         );
         toolCalls.push({
           toolName: call.name,
@@ -232,7 +253,7 @@ export async function runBoundedToolLoop<T>(
           error:
             error instanceof TimeoutError
               ? "tool call timed out"
-              : String(error),
+              : "tool execution failed",
           startedAt,
           finishedAt: new Date().toISOString(),
         });
@@ -247,6 +268,7 @@ export async function runBoundedToolLoop<T>(
       params.client.submitToolOutputs({ toolOutputs: outputs }),
       roundTimeoutMs,
       toolCalls,
+      params.signal,
     );
     if (isFallback<T>(turn)) {
       return turn;
