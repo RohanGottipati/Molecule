@@ -336,7 +336,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
           : kind,
         kind,
         description:
-          kind === "engraving" && /\bnamed?\b/.test(text)
+          kind === "engraving" && /\b(?:named|names?)\b/.test(text)
             ? "Engrave individual names"
             : `${kind} using supplied artwork`,
         inputKeys: [output.key],
@@ -370,7 +370,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   }
   if (
     (transformations.some((t) => t.kind === "assembly") ||
-      /\bdeliver|\bship/.test(text)) &&
+      /\bdeliver|\bship|\bfulfill?(?:ment)?\b/.test(text)) &&
     !transformations.some((t) => t.kind === "fulfillment")
   ) {
     const assembly = transformations.find((t) => t.kind === "assembly");
@@ -399,12 +399,20 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   ] as const) {
     if (missing) ambiguityFlags.push({ field, reason: "missing", question });
   }
-  const clauses = text.split(/\s+(?:and|with|including)\s+|,\s+/).slice(1);
-  for (const clause of clauses) {
+  const clauses = text.split(/\s+(?:and|with|including)\s+|,\s+/);
+  for (const [index, rawClause] of clauses.entries()) {
+    if (index === 0) continue;
+    const clause = rawClause.trim().replace(/[.!?;]+$/, "");
     if (
       products.some(([, , pattern]) =>
         new RegExp(`\\b${pattern}\\b`).test(clause),
       ) ||
+      /^(?:embroider(?:y|ed|ing)?|engrav(?:e|ed|ing)|print(?:ed|ing)?)\s+(?:the\s+)?(?:supplied\s+)?(?:logo|artwork|names?)$/.test(
+        clause,
+      ) ||
+      (/\bengrav(?:e|ed|ing)\b/.test(clauses[index - 1] ?? "") &&
+        /^(?:the\s+)?(?:recipient(?:['’]s|s['’]?)?\s+)?names?$/.test(clause)) ||
+      /^fulfill?(?:ment)?$/.test(clause) ||
       /^(?:no|without|budget|by|under|deliver|ship|individual|individually|named|embroider|embroidery|engrave|engraving|print|printing|logo|artwork|keep|make|qty|quantity|in|usd|cad)\b/.test(
         clause,
       )

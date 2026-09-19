@@ -84,6 +84,105 @@ print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True))
 }
 
 describe("compiler and solver release acceptance", () => {
+  it("compiles the desktop kit request with operation and recipient-name clauses", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Make 200 premium black onboarding kits by next Friday (2026-09-25) under CAD 7000. No leather. Each kit needs a black hoodie with embroidered logo, a bottle engraved with the recipient's name, vegan snacks, individual packaging and fulfillment.",
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY")
+      throw new Error("Desktop kit compilation failed");
+    expect(result.intent.quantity).toBe(200);
+    expect(result.intent.budgetMax).toBe(7000);
+    expect(result.intent.currency).toBe("CAD");
+    expect(
+      result.intent.desiredOutputs.map((output) => output.outputId),
+    ).toEqual(["hoodie", "bottle", "snacks"]);
+    expect(result.intent.transformations).toEqual([
+      expect.objectContaining({
+        kind: "embroidery",
+        inputRefs: ["hoodie"],
+        outputRefs: ["embroidered-hoodie"],
+      }),
+      expect.objectContaining({
+        kind: "engraving",
+        description: "Engrave individual names",
+        inputRefs: ["bottle"],
+        outputRefs: ["engraved-bottle"],
+      }),
+      expect.objectContaining({
+        kind: "assembly",
+        inputRefs: ["embroidered-hoodie", "engraved-bottle", "snacks"],
+        outputRefs: ["packaged-kit"],
+      }),
+      expect.objectContaining({
+        kind: "fulfillment",
+        inputRefs: ["packaged-kit"],
+        outputRefs: ["delivered-kit"],
+      }),
+    ]);
+    expect(result.intent.hardConstraints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "hoodie.color", value: "black" }),
+        expect.objectContaining({ field: "snacks.diet", value: "vegan" }),
+        expect.objectContaining({
+          field: "assembly.packaging",
+          value: "individual",
+        }),
+        expect.objectContaining({
+          field: "material",
+          operator: "not_contains",
+          value: "leather",
+        }),
+      ]),
+    );
+  });
+
+  it.each([
+    ["hoodies with embroidered logo", "embroidery"],
+    ["shirts with printed artwork", "printing"],
+    ["bottles engraved with the recipient's name", "engraving"],
+    ["bottles engraved with recipients' names", "engraving"],
+    ["bottles engraved with the recipient’s name", "engraving"],
+    ["hoodies with fulfillment", "fulfillment"],
+    ["hoodies with fulfilment", "fulfillment"],
+  ])(
+    "recognizes %s without accepting arbitrary clause prefixes",
+    async (request, operation) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text: `Make 30 by Friday under CAD 2000, ${request}.`,
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY")
+        throw new Error("Operation clause compilation failed");
+      expect(result.intent.transformations).toEqual([
+        expect.objectContaining({ kind: operation }),
+      ]);
+      if (operation === "engraving") {
+        expect(result.intent.transformations[0]?.description).toBe(
+          "Engrave individual names",
+        );
+      }
+    },
+  );
+
+  it.each([
+    "hoodies with embroidered fireproof coating",
+    "hoodies with embroidered logo and umbrellas",
+    "hoodies with printed unknown treatment",
+    "bottles engraved with the recipient's fingerprint",
+    "hoodies with the recipient's name",
+    "hoodies with fulfillment insurance",
+    "hoodies with fulfilment and refrigerated storage",
+  ])("asks about unknown requirements in %s", async (request) => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: `Make 30 by Friday under CAD 2000, ${request}.`,
+    });
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+  });
+
   it("keeps color component scoped and separates a preference from requirements", async () => {
     const adapter = new MockOpenAIAdapter();
     const result = await adapter.compileIntent({
