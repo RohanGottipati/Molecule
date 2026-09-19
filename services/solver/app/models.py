@@ -17,6 +17,7 @@ class ContractModel(BaseModel):
         populate_by_name=True,
         extra="forbid",
         allow_inf_nan=False,
+        strict=True,
     )
 
 

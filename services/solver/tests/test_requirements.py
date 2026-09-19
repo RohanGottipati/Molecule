@@ -173,6 +173,105 @@ def kit_payload() -> dict:
     return value
 
 
+@pytest.mark.parametrize("material", ["polyester", "60% cotton / 40% polyester"])
+def test_material_exclusions_apply_inside_list_values(material: str) -> None:
+    value = payload()
+    value["intent"]["hardConstraints"] = [
+        {
+            "constraintId": "no-polyester",
+            "field": "material",
+            "operator": "not_contains",
+            "value": "polyester",
+        }
+    ]
+    for item in value["candidates"]:
+        item["capability"]["produces"][0]["attributes"]["material"] = [material]
+    assert solve(SolverInput.model_validate(value)).status == "UNSAT"
+    for item in value["candidates"]:
+        item["capability"]["produces"][0]["attributes"]["material"] = ["100% cotton"]
+    assert solve(SolverInput.model_validate(value)).status == "VALID"
+
+
+@pytest.mark.parametrize("omit", ["accepts", "produces", "both"])
+def test_missing_port_units_inherit_capability_quantity_units(omit: str) -> None:
+    value = kit_payload()
+    snacks = next(
+        item["capability"] for item in value["candidates"] if item["capabilityId"] == "snacks"
+    )
+    pack = next(
+        item["capability"] for item in value["candidates"] if item["capabilityId"] == "pack"
+    )
+    if omit in {"accepts", "both"}:
+        pack["accepts"][2].pop("unit")
+    if omit in {"produces", "both"}:
+        snacks["produces"][0].pop("unit")
+    assert solve(SolverInput.model_validate(value)).status == "VALID"
+    snacks["quantity"]["unit"] = "kg"
+    if "unit" in snacks["produces"][0]:
+        snacks["produces"][0]["unit"] = "kg"
+    assert solve(SolverInput.model_validate(value)).status == "UNSAT"
+
+
+def test_terminal_transformation_must_cover_all_declared_outputs() -> None:
+    value = kit_payload()
+    value["intent"]["transformations"][-1]["outputRefs"] = ["delivered-kit", "delivery-receipt"]
+    ship = next(
+        item["capability"] for item in value["candidates"] if item["capabilityId"] == "ship"
+    )
+    ship["produces"][0]["name"] = "delivered-kit"
+    assert solve(SolverInput.model_validate(value)).status == "UNSAT"
+    ship["produces"].append(port("delivery-receipt"))
+    assert solve(SolverInput.model_validate(value)).status == "VALID"
+
+
+@pytest.mark.parametrize("bottle_inventory", [75, 100])
+@pytest.mark.parametrize("hoodie_inventory", [50, 1000])
+def test_inventory_is_aggregated_per_produced_port(
+    bottle_inventory: int, hoodie_inventory: int
+) -> None:
+    value = payload(deadline="2026-09-23T12:00:00.000Z")
+    value["candidates"] = value["candidates"][1:]
+    value["quotes"] = value["quotes"][1:]
+    value["candidates"][0]["capability"]["produces"] = [
+        port("hoodie", inventory=hoodie_inventory),
+        port("bottle", inventory=bottle_inventory),
+    ]
+    value["intent"]["desiredOutputs"].extend(
+        [
+            {"outputId": "bottle-a", "name": "Bottle"},
+            {"outputId": "bottle-b", "name": "Bottle"},
+        ]
+    )
+    assert solve(SolverInput.model_validate(value)).status == (
+        "VALID" if bottle_inventory == 100 else "UNSAT"
+    )
+
+
+@pytest.mark.parametrize("inventory", [0, False, 1e308])
+def test_unused_supplier_ports_do_not_constrain_requested_inventory(
+    inventory: int | bool | float,
+) -> None:
+    value = payload()
+    value["candidates"] = value["candidates"][1:]
+    value["quotes"] = value["quotes"][1:]
+    value["candidates"][0]["capability"]["produces"].append(port("bottle", inventory=inventory))
+    assert solve(SolverInput.model_validate(value)).status == "VALID"
+
+
+def test_plan_identity_changes_when_certified_quote_cost_or_schedule_changes() -> None:
+    value = payload()
+    original = solve(SolverInput.model_validate(value))
+    value["quotes"][1]["unitPrice"] += 1
+    repriced = solve(SolverInput.model_validate(value))
+    value["quotes"][1]["completionEstimate"] = "2026-09-21T00:00:00.000Z"
+    rescheduled = solve(SolverInput.model_validate(value))
+    assert {result.status for result in [original, repriced, rescheduled]} == {"VALID"}
+    assert original.total_cost != repriced.total_cost
+    assert repriced.estimated_completion != rescheduled.estimated_completion
+    assert len({result.plan_id for result in [original, repriced, rescheduled]}) == 3
+    assert solve(SolverInput.model_validate(value)) == rescheduled
+
+
 def test_full_kit_covers_every_requirement_with_real_edges_and_parallel_work() -> None:
     data = SolverInput.model_validate(kit_payload())
     result = solve(data)

@@ -2,6 +2,12 @@
 
 Append-only, newest first. One entry per change that touches `apps/shopify-app/**`, `packages/shopify/**`, or Shopify-facing scripts/docs. Keep entries short: what changed, why, and what it unblocks. Update `STATUS.md` in the same commit when an entry moves a checklist item.
 
+## 2026-09-19 (3)
+
+- Fixed partial replacement/cancellation recovery: uncertain cancellations reconcile with their original action keys; outgoing plans cannot recommit; inherited jobs survive a failed replacement product operation; already superseded jobs cannot be reused. Finish reconciliation of an incomplete replacement before cancelling it (`PREVIOUS_EXECUTION_PENDING`); finish partial cancellation before executing a new plan (`PLAN_CANCELLATION_INCOMPLETE`). Retry cancellation through `supersede`, not `commit`.
+- Rejected client-credentials tokens are evicted on HTTP 401. The next explicit request obtains a new token; the transport never automatically replays a commerce mutation.
+- Catalog mocks reject malformed money, fractional draft quantities, and composite writes without a configured central store, matching the execution boundary's fail-closed behavior. Added deterministic regression coverage; no live commerce writes.
+
 ## 2026-09-19 (2)
 
 - Reconciled `STATUS.md` and `COMPETITIVE_STRATEGY.md` against `docs/TASKS/SHOPIFY_LOOP.md`, a detailed execution brief (8 dev stores, ~797 seeded products, T1–T16 task checklist, HUMAN-1..8 blockers) that already existed on disk but hadn't been read yet when this folder was first written. `SHOPIFY_LOOP.md` is now treated as the canonical task tracker; `STATUS.md` summarizes it instead of duplicating a separate checklist, and `COMPETITIVE_STRATEGY.md`'s recommendations were re-scored against what T1–T16 already covers (most of the original recommendations turned out to already be planned — see §3 "Assessment against the active plan"). Confirmed with the user that HUMAN-1 (select Shopify prize on Devpost, due 2026-09-19 2:00pm EDT) was already handled.

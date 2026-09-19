@@ -677,6 +677,97 @@ describe.skipIf(!databaseUrl)(
       expect(released.status).toBe("released");
     });
 
+    it.each(["released", "expired"])(
+      "does not replay an inactive %s reservation as held",
+      async (status) => {
+        const store = new DatabaseCapacityStore();
+        const input = {
+          merchantId,
+          capabilityId: capability.capabilityId,
+          orderId: "approved",
+          quantity: 10,
+          traceId: "approved",
+          actionKey: `inactive:${merchantId}`,
+        };
+        const held = await store.reserve(input);
+        if (status === "released") {
+          await store.release({
+            ...input,
+            reservationId: held.reservationId,
+            actionKey: `release:${merchantId}`,
+          });
+        } else {
+          await getPool().query(
+            "update reservations set expires_at=now()-interval '1 minute' where reservation_id=$1",
+            [held.reservationId],
+          );
+        }
+        await expect(
+          new DatabaseCapacityStore().reserve(input),
+        ).rejects.toThrow(/inactive/i);
+        expect(
+          await store.getAvailableCapacity(merchantId, capability.capabilityId),
+        ).toBe(300);
+      },
+    );
+
+    it("rejects action key reuse between job acceptance and ETA with identical fields", async () => {
+      const store = new DatabaseJobDecisionStore();
+      const input = {
+        merchantId,
+        orderId: "approved",
+        nodeId: "hoodie",
+        eta: now.toISOString(),
+        traceId: "approved",
+        actionKey: `kind:${merchantId}`,
+      };
+      await store.acceptJob(input);
+      await expect(store.updateEta(input)).rejects.toThrow(/idempotency/i);
+    });
+
+    it("subtracts reservations from reduced canonical capacity and rejects unresolved evidence", async () => {
+      const store = new DatabaseCapacityStore();
+      const input = {
+        merchantId,
+        capabilityId: capability.capabilityId,
+        orderId: "approved",
+        quantity: 20,
+        traceId: "approved",
+        actionKey: `reduced:${merchantId}`,
+      };
+      await store.reserve(input);
+      await getPool().query(
+        `insert into canonical_claims
+        (claim_id,merchant_id,field,normalized_value,source_kind,source_reference,source_authority,extraction_confidence)
+        values($1,$2,$3,'30','manual','fixture',1,1)`,
+        [
+          `capacity:${merchantId}`,
+          merchantId,
+          `${capability.capabilityId}.capacity_per_day`,
+        ],
+      );
+      expect(
+        await store.getAvailableCapacity(merchantId, capability.capabilityId),
+      ).toBe(10);
+      await expect(
+        store.reserve({ ...input, actionKey: `overbook:${merchantId}` }),
+      ).rejects.toThrow(/insufficient/i);
+      await getPool().query(
+        "update canonical_claims set resolution_status='unknown' where merchant_id=$1",
+        [merchantId],
+      );
+      expect(
+        await store.getAvailableCapacity(merchantId, capability.capabilityId),
+      ).toBe(0);
+      await expect(
+        store.reserve({
+          ...input,
+          quantity: 1,
+          actionKey: `unknown:${merchantId}`,
+        }),
+      ).rejects.toThrow(/insufficient/i);
+    });
+
     it("persists jobs, rejects changed idempotency inputs and enforces ETA acceptance", async () => {
       const store = new DatabaseJobDecisionStore();
       const input = {

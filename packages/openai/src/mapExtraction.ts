@@ -104,23 +104,44 @@ export function mapExtractionToResult(
       ),
     };
   });
-  const hardConstraints = extraction.hardConstraints.map((constraint) => ({
-    constraintId: constraintId(constraint.key, constraint, "constraint"),
-    field: constraint.field,
-    operator: constraint.operator,
-    value: constraint.value,
-    unit: constraint.unit ?? undefined,
-    description: constraint.description ?? undefined,
-  }));
-  const preferences = extraction.softPreferences.map((preference) => ({
-    constraintId: constraintId(preference.key, preference, "preference"),
-    field: preference.field,
-    operator: preference.operator,
-    value: preference.value,
-    unit: preference.unit ?? undefined,
-    description: preference.description ?? undefined,
-    weight: preference.weight,
-  }));
+  const requirementIds = new Map([
+    ...keyToOutputId,
+    ...extraction.transformations.map(
+      (item, index) =>
+        [item.key, transformations[index]!.transformationId] as const,
+    ),
+  ]);
+  const mapScope = <T extends { field: string }>(rule: T): T => {
+    const separator = rule.field.lastIndexOf(".");
+    if (separator < 0) return rule;
+    const scope = rule.field.slice(0, separator);
+    const id = requirementIds.get(scope);
+    return id === undefined ||
+      ["capacity.available", "capability.kind"].includes(rule.field)
+      ? rule
+      : { ...rule, field: `${id}${rule.field.slice(separator)}` };
+  };
+  const hardConstraints = extraction.hardConstraints
+    .map(mapScope)
+    .map((constraint) => ({
+      constraintId: constraintId(constraint.key, constraint, "constraint"),
+      field: constraint.field,
+      operator: constraint.operator,
+      value: constraint.value,
+      unit: constraint.unit ?? undefined,
+      description: constraint.description ?? undefined,
+    }));
+  const preferences = extraction.softPreferences
+    .map(mapScope)
+    .map((preference) => ({
+      constraintId: constraintId(preference.key, preference, "preference"),
+      field: preference.field,
+      operator: preference.operator,
+      value: preference.value,
+      unit: preference.unit ?? undefined,
+      description: preference.description ?? undefined,
+      weight: preference.weight,
+    }));
 
   const draft = ProductIntentDraftSchema.parse({
     intentId,
@@ -194,7 +215,7 @@ export function mapExtractionToResult(
   if (
     extraction.outcome === "NEEDS_CLARIFICATION" ||
     !complete.success ||
-    questions.length > 0
+    draft.ambiguityFlags.length > 0
   ) {
     return CompileIntentResultSchema.parse({
       status: "NEEDS_CLARIFICATION",

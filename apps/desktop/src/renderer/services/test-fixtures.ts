@@ -40,7 +40,7 @@ export function backendEvent(
   };
 }
 export function mockBridge(): DesktopBridge {
-  const settings = SettingsSchema.parse({});
+  let settings = SettingsSchema.parse({});
   return {
     bootstrap: async () => ({
       apiUrl: "http://localhost:3001",
@@ -52,11 +52,14 @@ export function mockBridge(): DesktopBridge {
     toggleOverlay: async () => undefined,
     setMode: async () => undefined,
     openDashboard: async () => undefined,
-    saveSettings: async (next) => ({
-      apiUrl: "http://localhost:3001",
-      settings: next,
-      shortcut: "Alt+Space",
-    }),
+    saveSettings: async (next) => {
+      settings = { ...settings, ...next };
+      return {
+        apiUrl: "http://localhost:3001",
+        settings,
+        shortcut: "Alt+Space",
+      };
+    },
     getPermissionStatus: async () => ({
       microphone: "granted",
       screen: "granted",

@@ -62,55 +62,79 @@ function numericMatch(text: string, pattern: RegExp): number | null {
   return value === undefined ? null : Number(value.replaceAll(",", ""));
 }
 
+function quantityIn(text: string): number | null {
+  return (
+    numericMatch(text, /(\d[\d,]*)\s+(?:[\w-]+\s+){0,4}kits?\b/) ??
+    numericMatch(
+      text,
+      /(?:quantity|qty|make|need|want)\s*(?:of\s*)?(\d[\d,]*)/,
+    ) ??
+    numericMatch(
+      text,
+      new RegExp(
+        `(\\d[\\d,]*)\\s+(?:[\\w-]+\\s+){0,3}(?:${products.map((p) => p[2]).join("|")})\\b`,
+      ),
+    )
+  );
+}
+
 function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const previous = input.previousIntent;
   const text = `${input.text}\n${input.correction?.text ?? ""}`.toLowerCase();
+  const sources = [input.correction?.text ?? "", input.text].map((source) =>
+    source.toLowerCase(),
+  );
   const clauses = clausesOf(text, /\s+(?:and|with|including)\s+|,\s+/);
   const segments = clausesOf(text, /,|\band\b/);
   const consumedClauses = new Set<number>();
   const ambiguityFlags: IntentExtraction["ambiguityFlags"] = [];
   const softPreferences: IntentExtraction["softPreferences"] = [];
-  const explicitQuantity = numericMatch(
-    text,
-    /(?:quantity|qty|make|need|want)\s*(?:of\s*)?(\d[\d,]*)/,
-  );
-  const kitQuantity = numericMatch(
-    text,
-    /(\d[\d,]*)\s+(?:[\w-]+\s+){0,4}kits?\b/,
-  );
-  const firstQuantity = numericMatch(
-    text,
-    new RegExp(
-      `(\\d[\\d,]*)\\s+(?:[\\w-]+\\s+){0,3}(?:${products.map((p) => p[2]).join("|")})\\b`,
-    ),
-  );
+  const quantitySource = sources.find((source) => quantityIn(source) !== null);
   const quantity =
-    kitQuantity ??
-    explicitQuantity ??
-    firstQuantity ??
+    (quantitySource === undefined ? null : quantityIn(quantitySource)) ??
     previous?.quantity ??
     null;
   const budget =
-    numericMatch(
-      text,
-      /(?:budget(?:\s+(?:of|is))?|max(?:imum)?|under)\s*(?:cad|usd)?\s*\$?([\d,]+(?:\.\d+)?)/,
-    ) ??
+    sources
+      .map((source) =>
+        numericMatch(
+          source,
+          /(?:budget(?:\s+(?:of|is))?|max(?:imum)?|under)\s*(?:cad|usd)?\s*\$?([\d,]+(?:\.\d+)?)/,
+        ),
+      )
+      .find((value) => value !== null) ??
     previous?.budgetMax ??
     null;
-  const iso =
-    /20\d\d-\d\d-\d\d(?:t\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:z|[+-]\d\d:\d\d))?/i.exec(
-      text,
-    )?.[0];
   let deadline = previous?.deadline ?? null;
   try {
     new Intl.DateTimeFormat("en", { timeZone: input.timeZone });
-    if (iso) {
-      deadline = new Date(
-        iso.includes("t") ? iso : `${iso}T23:59:59.000Z`,
-      ).toISOString();
-    } else {
-      deadline =
-        relativeDeadline(text, input.requestedAt, input.timeZone) ?? deadline;
+    for (const source of sources) {
+      const iso =
+        /20\d\d-\d\d-\d\d(?:t\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:z|[+-]\d\d:\d\d))?/i.exec(
+          source,
+        )?.[0];
+      if (iso) {
+        const calendarDate = iso.slice(0, 10);
+        if (
+          new Date(`${calendarDate}T00:00:00.000Z`)
+            .toISOString()
+            .slice(0, 10) !== calendarDate
+        )
+          throw new RangeError("Invalid calendar date");
+        deadline = new Date(
+          iso.includes("t") ? iso : `${iso}T23:59:59.000Z`,
+        ).toISOString();
+        break;
+      }
+      const relative = relativeDeadline(
+        source,
+        input.requestedAt,
+        input.timeZone,
+      );
+      if (relative !== null) {
+        deadline = relative;
+        break;
+      }
     }
   } catch {
     ambiguityFlags.push({
@@ -119,12 +143,14 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       question: "What is the delivery date and IANA time zone?",
     });
   }
-  const currency = /\busd\b/.test(text)
+  const currencySource =
+    sources.find((source) => /\b(?:usd|cad)\b/.test(source)) ?? "";
+  const currency = /\busd\b/.test(currencySource)
     ? "USD"
-    : /\bcad\b/.test(text)
+    : /\bcad\b/.test(currencySource)
       ? "CAD"
       : (previous?.currency ?? null);
-  if (/\busd\b/.test(text) && /\bcad\b/.test(text)) {
+  if (/\busd\b/.test(currencySource) && /\bcad\b/.test(currencySource)) {
     ambiguityFlags.push({
       field: "currency",
       reason: "conflicting currencies",
@@ -252,7 +278,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       desiredOutputs.push(output);
     }
     const componentQuantity = numericMatch(
-      text,
+      quantitySource ?? text,
       new RegExp(
         `(\\d[\\d,]*)\\s+(?:black\\s+|vegan\\s+|cotton\\s+)?${pattern}\\b`,
       ),
@@ -263,13 +289,18 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       ["material", materials],
       ["diet", ["vegan"]],
     ] as const) {
-      const value = values.find((value) =>
-        new RegExp(
-          `\\b${value}\\s+(?:(?:cotton|polyester|leather|stainless steel|glass|black|white|red|blue|green|vegan|premium|embroidered|engraved|printed)\\s+){0,3}${pattern}\\b`,
-        ).test(text),
-      );
+      const match = sources.flatMap((source) =>
+        values
+          .filter((value) =>
+            new RegExp(
+              `\\b${value}\\s+(?:(?:cotton|polyester|leather|stainless steel|glass|black|white|red|blue|green|vegan|premium|embroidered|engraved|printed)\\s+){0,3}${pattern}\\b`,
+            ).test(source),
+          )
+          .map((value) => ({ value, source })),
+      )[0];
+      const value = match?.value;
       if (value && !new RegExp(`\\b(?:no|without)\\s+${value}\\b`).test(text)) {
-        const clause = text
+        const clause = match.source
           .split(sentenceBoundary)
           .flatMap((sentence) => sentence.split(/,|\band\b|\bbut\b/))
           .find(

@@ -49,6 +49,7 @@ function corroborationBonus(
         (other) =>
           other.claimId !== claim.claimId &&
           other.source.reference !== claim.source.reference &&
+          other.normalizedUnit === claim.normalizedUnit &&
           stableJson(other.normalizedValue) ===
             stableJson(claim.normalizedValue),
       )
@@ -115,14 +116,15 @@ export function resolveClaims(
     );
 
   const top = scored[0];
-  const runnerUp = scored.find(
-    (entry) =>
-      stableJson(entry.claim.normalizedValue) !==
-      stableJson(top?.claim.normalizedValue),
-  );
   if (!top) {
     return { status: "unknown" };
   }
+  const runnerUp = scored.find(
+    (entry) =>
+      entry.claim.normalizedUnit !== top.claim.normalizedUnit ||
+      stableJson(entry.claim.normalizedValue) !==
+        stableJson(top.claim.normalizedValue),
+  );
   if (!runnerUp || top.score - runnerUp.score >= CONFLICT_MARGIN_THRESHOLD) {
     return {
       status: "resolved",

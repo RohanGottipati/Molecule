@@ -24,6 +24,16 @@ export interface ResolvedFact {
   explanation: string;
 }
 
+export class ClaimIngestionError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode = 400,
+  ) {
+    super(message);
+    this.name = "ClaimIngestionError";
+  }
+}
+
 export async function resolveMerchant(
   merchantId: string,
   traceId: string,
@@ -62,13 +72,13 @@ export async function resolveMerchant(
     const signature = stableJson({
       status: result.status,
       winner: winner?.claimId,
+      value: winner?.normalizedValue,
       claims: fieldClaims.map((claim) => claim.claimId).sort(),
     });
     const previous = await client.query<{ signature: string }>(
       "select scores->>'signature' as signature from canonical_resolutions where merchant_id=$1 and field=$2",
       [merchantId, field],
     );
-    if (previous.rows[0]?.signature === signature) continue;
     if (field === "status") {
       const status =
         result.status === "resolved" &&
@@ -81,6 +91,7 @@ export async function resolveMerchant(
         [merchantId, status],
       );
     }
+    if (previous.rows[0]?.signature === signature) continue;
     if (result.status !== "unknown") {
       for (const entry of result.allScored) {
         await client.query(
@@ -166,15 +177,19 @@ export async function ingestClaim(
   traceId: string,
   client?: DbClient,
 ) {
-  if (!traceId.trim()) throw new Error("traceId is required");
+  if (typeof traceId !== "string" || !traceId.trim())
+    throw new ClaimIngestionError("traceId is required");
   if (
     !input ||
     typeof input !== "object" ||
     typeof input.merchantId !== "string" ||
     typeof input.field !== "string" ||
-    typeof input.sourceReference !== "string"
+    typeof input.sourceReference !== "string" ||
+    !input.merchantId.trim() ||
+    !input.field.trim() ||
+    !input.sourceReference.trim()
   )
-    throw new Error("Invalid claim envelope");
+    throw new ClaimIngestionError("Invalid claim envelope");
   const raw = stableJson(input);
   const checksum = createHash("sha256").update(raw).digest("hex");
   const artifactId = `artifact:${checksum}`;
@@ -183,7 +198,8 @@ export async function ingestClaim(
       "select merchant_id from merchants where merchant_id=$1 for update",
       [input.merchantId],
     );
-    if (!merchant.rowCount) throw new Error("Unknown merchant");
+    if (!merchant.rowCount)
+      throw new ClaimIngestionError("Unknown merchant", 404);
     const inserted = await connection.query(
       `insert into raw_artifacts(artifact_id,merchant_id,source_kind,source_reference,checksum,raw_content)
       values($1,$2,$3,$4,$5,$6) on conflict(artifact_id) do nothing returning artifact_id`,

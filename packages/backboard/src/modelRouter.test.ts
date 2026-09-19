@@ -5,6 +5,23 @@ import { createModelRouter } from "./modelRouter.js";
 import { MockBackboardAdapter } from "./MockBackboardAdapter.js";
 
 describe("createModelRouter", () => {
+  it("shares in-flight discovery but retries after a transient provider failure", async () => {
+    const adapter = new MockBackboardAdapter();
+    const spy = vi
+      .spyOn(adapter, "listModels")
+      .mockRejectedValueOnce(new Error("unavailable"));
+    const router = createModelRouter(adapter);
+    const failed = await Promise.allSettled([
+      router.discoverModels(),
+      router.discoverModels(),
+    ]);
+    expect(failed.every((result) => result.status === "rejected")).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await router.discoverModels()).not.toHaveLength(0);
+    await router.discoverModels();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it("discovers models once and caches the result across multiple selections", async () => {
     const adapter = new MockBackboardAdapter();
     const spy = vi.spyOn(adapter, "listModels");

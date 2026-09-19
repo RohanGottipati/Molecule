@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { SessionConflictError } from "./repositories.js";
 
 export const ActionReceiptSchema = z.object({
   key: z.string(),
@@ -35,7 +36,9 @@ export class ActionLedger {
     const pending = this.running.get(key);
     if (pending) {
       if (pending.fingerprint !== fingerprint)
-        throw new Error("Action ID reused with different arguments");
+        throw new SessionConflictError(
+          "Action ID reused with different arguments",
+        );
       return parse(await pending.promise);
     }
     const promise = this.execute(key, fingerprint, operation);
@@ -62,9 +65,11 @@ export class ActionLedger {
       : this.memory.get(key);
     if (prior) {
       if (prior.fingerprint !== fingerprint)
-        throw new Error("Action ID reused with different arguments");
+        throw new SessionConflictError(
+          "Action ID reused with different arguments",
+        );
       if (prior.state === "complete") return prior.result;
-      throw new Error(
+      throw new SessionConflictError(
         prior.error ??
           "Action outcome unknown after restart. Refresh the project before taking another action.",
       );
@@ -72,7 +77,9 @@ export class ActionLedger {
     const receipt: ActionReceipt = { key, fingerprint, state: "pending" };
     if (this.store?.claimReceipt) {
       if (!(await this.store.claimReceipt(receipt)))
-        throw new Error("Action is already in progress. Refresh the project.");
+        throw new SessionConflictError(
+          "Action is already in progress. Refresh the project.",
+        );
     } else await this.save(receipt);
     try {
       const result = await operation();

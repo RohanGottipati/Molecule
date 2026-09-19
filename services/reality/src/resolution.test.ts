@@ -87,6 +87,26 @@ describe("resolveClaims", () => {
     expect(result.status).toBe("unknown");
   });
 
+  it("does not corroborate identical numeric values with incompatible units", () => {
+    expect(
+      resolveClaims(
+        [
+          claim({
+            claimId: "days",
+            normalizedValue: 10,
+            normalizedUnit: "days",
+          }),
+          claim({
+            claimId: "hours",
+            normalizedValue: 10,
+            normalizedUnit: "hours",
+          }),
+        ],
+        NOW,
+      ).status,
+    ).toBe("conflicted");
+  });
+
   it("ignores quarantined and superseded claims when resolving", () => {
     const claims: CanonicalClaim[] = [
       claim({

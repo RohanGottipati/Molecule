@@ -66,9 +66,11 @@ update capabilities c set capability_json=jsonb_set(c.capability_json,'{produces
 where c.merchant_id in(select merchant_id from merchants where demo_tag='MOLECULE_DEMO')
   and not exists(select 1 from jsonb_array_elements(c.capability_json->'produces') p
     where p->'attributes' ? 'operation');
-update demo_capability_baselines b set capability_json=c.capability_json
-  from capabilities c where c.capability_id=b.capability_id
-  and not exists(select 1 from jsonb_array_elements(b.capability_json->'produces') p
+update demo_capability_baselines b set capability_json=jsonb_set(b.capability_json,'{produces}',
+  (select jsonb_agg(case when port->'attributes'->>'technique' in ('embroidery','engraving')
+    then jsonb_set(port,'{attributes,operation}',port->'attributes'->'technique') else port end)
+   from jsonb_array_elements(b.capability_json->'produces') port))
+  where not exists(select 1 from jsonb_array_elements(b.capability_json->'produces') p
     where p->'attributes' ? 'operation');
 
 insert into canonical_claims(claim_id,merchant_id,field,normalized_value,source_kind,source_reference,

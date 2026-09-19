@@ -68,6 +68,7 @@ export class InMemoryCapacityStore implements CapacityStore {
     CapacityReservation
   >();
   private readonly reservationsById = new Map<string, CapacityReservation>();
+  private readonly inputsByActionKey = new Map<string, string>();
   private idSeq = 0;
 
   private capabilityKey(merchantId: string, capabilityId: string): string {
@@ -119,8 +120,20 @@ export class InMemoryCapacityStore implements CapacityStore {
   }
 
   async reserve(input: ReserveCapacityInput): Promise<CapacityReservation> {
+    if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0)
+      throw new Error("Invalid quantity");
+    const identity = JSON.stringify([
+      "reserve",
+      input.merchantId,
+      input.capabilityId,
+      input.orderId,
+      input.quantity,
+    ]);
+    this.checkAction(input.actionKey, identity);
     const existing = this.reservationsByActionKey.get(input.actionKey);
     if (existing) {
+      if (this.reservationsById.get(existing.reservationId)?.status !== "held")
+        throw new Error("Inactive reservation; use a new actionKey");
       return existing;
     }
 
@@ -151,10 +164,18 @@ export class InMemoryCapacityStore implements CapacityStore {
     };
     this.reservationsByActionKey.set(input.actionKey, reservation);
     this.reservationsById.set(reservation.reservationId, reservation);
+    this.inputsByActionKey.set(input.actionKey, identity);
     return reservation;
   }
 
   async release(input: ReleaseCapacityInput): Promise<CapacityReservation> {
+    const identity = JSON.stringify([
+      "release",
+      input.merchantId,
+      input.capabilityId,
+      input.reservationId,
+    ]);
+    this.checkAction(input.actionKey, identity);
     const existingForAction = this.reservationsByActionKey.get(input.actionKey);
     if (existingForAction) {
       return existingForAction;
@@ -179,6 +200,14 @@ export class InMemoryCapacityStore implements CapacityStore {
     };
     this.reservationsById.set(released.reservationId, released);
     this.reservationsByActionKey.set(input.actionKey, released);
+    this.inputsByActionKey.set(input.actionKey, identity);
     return released;
+  }
+
+  private checkAction(actionKey: string, identity: string): void {
+    if (!actionKey) throw new Error("Action requires actionKey");
+    const prior = this.inputsByActionKey.get(actionKey);
+    if (prior !== undefined && prior !== identity)
+      throw new Error("Idempotency key conflicts with input");
   }
 }

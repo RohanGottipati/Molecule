@@ -4,6 +4,7 @@ import type { ProductionPlan } from "@molecule/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspace } from "../lib/useWorkspace";
 import {
+  canEditBrief,
   dateLabel,
   displayValue,
   humanize,
@@ -36,6 +37,45 @@ const labels: Record<WorkspaceView, string> = {
   operations: "Operations",
   execution: "Execution",
 };
+const shortLabels: Record<WorkspaceView, string> = {
+  command: "Workspace",
+  merchants: "Merchants",
+  reality: "Evidence",
+  operations: "Operations",
+  execution: "Execution",
+};
+const routeStages = [
+  {
+    label: "Brief",
+    states: ["REQUESTED", "COMPILING_INTENT", "NEEDS_CLARIFICATION"],
+  },
+  {
+    label: "Merchant quotes",
+    states: [
+      "INTENT_COMPILED",
+      "DISCOVERING",
+      "CANDIDATES_READY",
+      "QUOTING",
+      "QUOTED",
+      "AT_RISK",
+      "RECOVERING",
+    ],
+  },
+  {
+    label: "Solver validation",
+    states: ["SOLVING", "PLAN_UNSAT", "PLAN_VALIDATED", "AWAITING_APPROVAL"],
+  },
+  {
+    label: "Execution",
+    states: [
+      "EXECUTING",
+      "SKU_CREATED",
+      "SUPPLIER_JOBS_CREATED",
+      "CUSTOMER_ORDER_CREATED",
+      "COMPLETED",
+    ],
+  },
+];
 const descriptions: Record<WorkspaceView, string> = {
   command: "From a desired outcome to a company that can deliver it.",
   merchants:
@@ -128,9 +168,21 @@ export function OrderWorkspace({
   const dialog = useRef<HTMLDialogElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const previousProjectId = useRef(workspace.orderId);
   const plan = order?.activePlan ?? null;
   const intent = order?.intent;
   const processing = order ? processingStates.includes(order.state) : false;
+  const editable = canEditBrief(order);
+  const operationLabel =
+    workspace.operation === "upload"
+      ? "Attaching context…"
+      : workspace.operation === "approval"
+        ? "Committing the approved plan…"
+        : workspace.operation === "recovery"
+          ? "Rebuilding around the outage…"
+          : processing && order
+            ? `${stateLabels[order.state]}…`
+            : "Sending your brief…";
   const stalePlan = plan && plan.intentVersion !== order?.intentVersion;
   const delta = planDelta(previousPlan, plan);
   const recovery = [...events]
@@ -163,6 +215,12 @@ export function OrderWorkspace({
   }, [selectedNode]);
   useEffect(() => {
     setSelectedNode(null);
+    if (
+      previousProjectId.current &&
+      previousProjectId.current !== workspace.orderId
+    )
+      setText("");
+    previousProjectId.current = workspace.orderId;
   }, [workspace.orderId]);
 
   function suggest(value: string) {
@@ -215,11 +273,15 @@ export function OrderWorkspace({
               key={item}
               type="button"
               className={view === item ? "nav-item active" : "nav-item"}
+              aria-label={labels[item]}
               aria-current={view === item ? "page" : undefined}
               onClick={() => workspace.navigate(item)}
             >
               <NavIcon view={item} />
-              <span>{labels[item]}</span>
+              <span className="nav-full-label">{labels[item]}</span>
+              <span className="nav-short-label" aria-hidden="true">
+                {shortLabels[item]}
+              </span>
               {view === item && <i />}
             </button>
           ))}
@@ -308,6 +370,7 @@ export function OrderWorkspace({
                 onClick={() => {
                   void workspace.refreshMarketplace();
                   void workspace.refresh();
+                  void workspace.refreshConfig();
                 }}
               >
                 {workspace.marketplaceLoading
@@ -330,7 +393,11 @@ export function OrderWorkspace({
               <span>{workspace.marketplaceError}</span>
               <button
                 type="button"
-                onClick={() => void workspace.refreshMarketplace()}
+                disabled={workspace.marketplaceLoading}
+                onClick={() => {
+                  void workspace.refreshMarketplace();
+                  void workspace.refreshConfig();
+                }}
               >
                 Retry marketplace
               </button>
@@ -340,14 +407,25 @@ export function OrderWorkspace({
             <div className="notice notice-error" role="alert">
               <strong>Action needs attention</strong>
               <span>{workspace.error}</span>
-              <button type="button" onClick={() => void workspace.refresh()}>
-                Refresh project status
-              </button>
+              {workspace.orderId && (
+                <button type="button" onClick={() => void workspace.refresh()}>
+                  Refresh project status
+                </button>
+              )}
             </div>
           )}
-          {workspace.configError && view === "execution" && (
+          {workspace.configError && (
             <div className="notice notice-warning" role="status">
               {workspace.configError}
+              <button
+                type="button"
+                disabled={workspace.configLoading}
+                onClick={() => void workspace.refreshConfig()}
+              >
+                {workspace.configLoading
+                  ? "Checking configuration…"
+                  : "Retry configuration"}
+              </button>
             </div>
           )}
           {workspace.orderId &&
@@ -395,6 +473,33 @@ export function OrderWorkspace({
                       : "No project created until you send a brief"}
                 </span>
               </div>
+              <ol className="workflow-route" aria-label="Production workflow">
+                {routeStages.map((stage, index) => {
+                  const active = stage.states.includes(
+                    order?.state ?? "REQUESTED",
+                  );
+                  return (
+                    <li
+                      key={stage.label}
+                      aria-current={active ? "step" : undefined}
+                    >
+                      <span aria-hidden="true">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      {stage.label}
+                    </li>
+                  );
+                })}
+              </ol>
+              {(busy || processing) && (
+                <div className="activity-line" role="status">
+                  <span className="status-dot working" aria-hidden="true" />
+                  {operationLabel}
+                  <small>
+                    Updates appear as the server confirms each step.
+                  </small>
+                </div>
+              )}
               <div className="command-layout">
                 <section
                   className="panel conversation-panel"
@@ -552,13 +657,32 @@ export function OrderWorkspace({
                       onChange={(event) => setText(event.target.value)}
                       maxLength={20_000}
                       rows={4}
+                      disabled={busy || loading || !editable}
+                      aria-describedby="brief-help"
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          (event.metaKey || event.ctrlKey) &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
                       placeholder={
                         order?.intent
                           ? "For example: No polyester."
                           : "Quantity, components, deadline, budget…"
                       }
                     />
-                    {order?.intent && (
+                    <p id="brief-help" className="composer-help">
+                      {editable
+                        ? "Include quantity, deadline and budget. Ctrl / ⌘ + Enter to send."
+                        : processing
+                          ? "Your current plan is being processed. Changes reopen when it is ready for review."
+                          : "This brief is closed. Start a new project for another request; execution records stay here."}
+                    </p>
+                    {order?.intent && editable && (
                       <button
                         type="button"
                         className="suggestion-chip"
@@ -574,7 +698,7 @@ export function OrderWorkspace({
                         type="file"
                         accept=".png,.jpg,.jpeg,.pdf,.csv,.txt,.json"
                         aria-label="Upload logo or context"
-                        disabled={!order || busy || loading}
+                        disabled={!order || busy || loading || !editable}
                         onChange={(event) => {
                           const file = event.target.files?.[0];
                           if (file) void workspace.upload(file);
@@ -584,7 +708,7 @@ export function OrderWorkspace({
                       <button
                         type="button"
                         className="text-button"
-                        disabled={!order || busy || loading}
+                        disabled={!order || busy || loading || !editable}
                         onClick={() => fileInput.current?.click()}
                         title={
                           order
@@ -592,7 +716,9 @@ export function OrderWorkspace({
                             : "Send your brief to create a project, then attach context"
                         }
                       >
-                        ＋ Attach context / logo
+                        {workspace.operation === "upload"
+                          ? "Attaching context…"
+                          : "＋ Attach context / logo"}
                       </button>
                       <VoiceControl />
                     </div>
@@ -606,7 +732,7 @@ export function OrderWorkspace({
                         ))}
                       </ul>
                     )}
-                    {workspace.contexts.length > 0 && (
+                    {workspace.contexts.length > 0 && editable && (
                       <p className="small muted">
                         Send a message to include attached context in the next
                         compilation.
@@ -615,13 +741,17 @@ export function OrderWorkspace({
                     <button
                       type="submit"
                       className="primary send-button"
-                      disabled={busy || loading || !text.trim() || processing}
+                      disabled={busy || loading || !text.trim() || !editable}
                     >
                       {busy
-                        ? "Waiting for server…"
-                        : order?.intent
-                          ? "Send update →"
-                          : "Assemble my company →"}
+                        ? operationLabel
+                        : !editable
+                          ? processing
+                            ? "Waiting for the current plan…"
+                            : "Brief closed"
+                          : order?.intent
+                            ? "Send update →"
+                            : "Assemble my company →"}
                     </button>
                   </form>
                 </section>

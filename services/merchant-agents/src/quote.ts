@@ -229,7 +229,7 @@ export function createQuoteService(deps: QuoteServiceDeps): QuoteService {
       traceId: request.traceId,
       orderId: request.orderId,
       message,
-      tools: request.hold ? tools : readOnlyTools,
+      tools: readOnlyTools,
       signal,
       responseSchema: QuoteResponseSchema,
       model,

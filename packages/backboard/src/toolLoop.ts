@@ -1,5 +1,6 @@
 import type { z } from "zod";
 
+import { BackboardApiError } from "./BackboardAdapter.js";
 import type {
   SendWithToolsFallbackReason,
   SendWithToolsResult,
@@ -136,7 +137,11 @@ async function callClient<T>(
     return await withTimeout(promise, timeoutMs, signal);
   } catch (error) {
     return fallback<T>(
-      error instanceof TimeoutError ? "TIMEOUT" : "PROVIDER_ERROR",
+      error instanceof TimeoutError ||
+        (error instanceof BackboardApiError &&
+          (error.code === "TIMEOUT" || error.code === "ABORTED"))
+        ? "TIMEOUT"
+        : "PROVIDER_ERROR",
       toolCalls,
     );
   }
@@ -154,6 +159,8 @@ export async function runBoundedToolLoop<T>(
   const toolCalls: ToolCallRecord[] = [];
   const toolsByName = new Map(params.tools.map((tool) => [tool.name, tool]));
   if (params.signal?.aborted) return fallback("TIMEOUT", toolCalls);
+  if (!Number.isSafeInteger(maxRounds) || maxRounds < 0)
+    return fallback("MAX_ROUNDS_EXCEEDED", toolCalls);
 
   let turn = await callClient<T>(
     params.client.start({ message: params.message }),
@@ -165,7 +172,7 @@ export async function runBoundedToolLoop<T>(
     return turn;
   }
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round = 0; round <= maxRounds; round++) {
     if (params.signal?.aborted) return fallback("TIMEOUT", toolCalls);
     if (turn.status === "completed") {
       return finalize(
@@ -177,6 +184,7 @@ export async function runBoundedToolLoop<T>(
     if (turn.status !== "requires_action") {
       return fallback("MALFORMED_OUTPUT", toolCalls);
     }
+    if (round === maxRounds) return fallback("MAX_ROUNDS_EXCEEDED", toolCalls);
 
     const outputs: { toolCallId: string; output: string }[] = [];
     for (const call of (turn as ConverseTurnRequiresAction).toolCalls) {
