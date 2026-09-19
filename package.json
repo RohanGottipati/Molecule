@@ -1,0 +1,23 @@
+{
+  "name": "molecule-os",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "prettier": "3.9.8",
+    "turbo": "2.11.2",
+    "typescript": "7.0.2"
+  }
+}
