@@ -158,177 +158,190 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     expect(executions).toBe(2);
   });
 
-  it("compiles the kit, corrects, executes, replaces a failed supplier and replays after restart", async () => {
-    const initial = OrderSessionSnapshotSchema.parse(
-      await post("/api/orders", {}),
-    );
-    const id = initial.orderId;
-    const message = {
-      text: "200 premium black onboarding kits by next Friday under CAD 7000. No leather. Hoodie logo embroidery, named engraved bottles, vegan snacks, individual packaging and fulfillment.",
-    };
-    const planned = OrderSessionSnapshotSchema.parse(
-      await post(`/api/orders/${id}/messages`, message, "initial"),
-    );
-    expect(planned.activePlan?.status, JSON.stringify(planned.quotes)).toBe(
-      "VALID",
-    );
-    expect(planned.activePlan?.nodes).toHaveLength(7);
-    const repeated = OrderSessionSnapshotSchema.parse(
-      await post(`/api/orders/${id}/messages`, message, "initial"),
-    );
-    expect(repeated.revision).toBe(planned.revision);
-    const upload = await app.inject({
-      method: "POST",
-      url: `/api/projects/${id}/context`,
-      headers: {
-        "content-type": "application/octet-stream",
-        "x-file-type": "text/plain",
-        "x-file-name": "brief.txt",
-        "x-action-id": "context",
-      },
-      payload: Buffer.from("Customer-provided branding brief"),
-    });
-    expect(upload.statusCode).toBe(200);
-    const context = ContextReceiptSchema.parse(upload.json());
-    await post(`/api/projects/${id}/actions`, {
-      actionId: "attach",
-      command: {
-        name: "attach_context",
-        args: { contextId: context.contextId },
-      },
-    });
-    const corrected = OrderSessionSnapshotSchema.parse(
-      await post(`/api/orders/${id}/messages`, { text: "No polyester." }),
-    );
-    expect(corrected.intentVersion).toBe(2);
-    expect(corrected.activePlan?.status, JSON.stringify(corrected.quotes)).toBe(
-      "VALID",
-    );
-    expect(corrected.intent?.hardConstraints).toEqual(
-      expect.arrayContaining([expect.objectContaining({ value: "polyester" })]),
-    );
-    expect(corrected.intent?.assets).toHaveLength(1);
-    const stale = await app.inject({
-      method: "POST",
-      url: `/api/orders/${id}/approve`,
-      payload: { planId: planned.activePlan!.planId, intentVersion: 1 },
-    });
-    expect(stale.statusCode).toBe(409);
-    const approval = { planId: corrected.activePlan!.planId, intentVersion: 2 };
-    const approved = OrderSessionSnapshotSchema.parse(
-      await post(`/api/orders/${id}/approve`, approval),
-    );
-    expect(approved.state, JSON.stringify(approved.executionReceipt)).toBe(
-      "COMPLETED",
-    );
-    expect(approved.executionReceipt?.supplierJobs).toHaveLength(7);
-    expect(
-      OrderSessionSnapshotSchema.parse(
+  it.each([
+    "200 premium black onboarding kits by next Friday under CAD 7000. No leather. Hoodie logo embroidery, named engraved bottles, vegan snacks, individual packaging and fulfillment.",
+    "200 premium onboarding kits by Friday under CAD 7,000, black, no leather, logo on hoodie, engraved names on bottles, vegan snacks, individually packaged.",
+  ])(
+    "compiles, corrects, executes, recovers and replays: %s",
+    async (brief) => {
+      const initial = OrderSessionSnapshotSchema.parse(
+        await post("/api/orders", {}),
+      );
+      const id = initial.orderId;
+      const message = {
+        text: brief,
+      };
+      const planned = OrderSessionSnapshotSchema.parse(
+        await post(`/api/orders/${id}/messages`, message, "initial"),
+      );
+      expect(planned.activePlan?.status, JSON.stringify(planned.quotes)).toBe(
+        "VALID",
+      );
+      expect(planned.activePlan?.nodes).toHaveLength(7);
+      const repeated = OrderSessionSnapshotSchema.parse(
+        await post(`/api/orders/${id}/messages`, message, "initial"),
+      );
+      expect(repeated.revision).toBe(planned.revision);
+      const upload = await app.inject({
+        method: "POST",
+        url: `/api/projects/${id}/context`,
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-type": "text/plain",
+          "x-file-name": "brief.txt",
+          "x-action-id": "context",
+        },
+        payload: Buffer.from("Customer-provided branding brief"),
+      });
+      expect(upload.statusCode).toBe(200);
+      const context = ContextReceiptSchema.parse(upload.json());
+      await post(`/api/projects/${id}/actions`, {
+        actionId: "attach",
+        command: {
+          name: "attach_context",
+          args: { contextId: context.contextId },
+        },
+      });
+      const corrected = OrderSessionSnapshotSchema.parse(
+        await post(`/api/orders/${id}/messages`, { text: "No polyester." }),
+      );
+      expect(corrected.intentVersion).toBe(2);
+      expect(
+        corrected.activePlan?.status,
+        JSON.stringify(corrected.quotes),
+      ).toBe("VALID");
+      expect(corrected.intent?.hardConstraints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ value: "polyester" }),
+        ]),
+      );
+      expect(corrected.intent?.assets).toHaveLength(1);
+      const stale = await app.inject({
+        method: "POST",
+        url: `/api/orders/${id}/approve`,
+        payload: { planId: planned.activePlan!.planId, intentVersion: 1 },
+      });
+      expect(stale.statusCode).toBe(409);
+      const approval = {
+        planId: corrected.activePlan!.planId,
+        intentVersion: 2,
+      };
+      const approved = OrderSessionSnapshotSchema.parse(
         await post(`/api/orders/${id}/approve`, approval),
-      ).revision,
-    ).toBe(approved.revision);
-    const supplier = approved.activePlan!.nodes.find((node) =>
-      node.capabilityId.includes("embroidery"),
-    )!;
-    const chaos = {
-      scenario: "supplier_offline",
-      orderId: id,
-      merchantId: supplier.merchantId,
-      actionId: "failure",
-    };
-    const recovered = OrderSessionSnapshotSchema.parse(
-      await post("/api/chaos", chaos),
-    );
-    expect(recovered.state, JSON.stringify(recovered)).toBe("COMPLETED");
-    expect(recovered.activePlan?.nodes).toHaveLength(7);
-    expect(
-      recovered.activePlan?.nodes.every(
-        (node) => node.merchantId !== supplier.merchantId,
-      ),
-    ).toBe(true);
-    expect(recovered.activePlan!.totalCost).toBeLessThanOrEqual(7000);
-    expect(
-      Date.parse(recovered.activePlan!.estimatedCompletion!),
-    ).toBeLessThanOrEqual(Date.parse(recovered.intent!.deadline!));
-    expect(
-      OrderSessionSnapshotSchema.parse(await post("/api/chaos", chaos))
-        .revision,
-    ).toBe(recovered.revision);
-    const before = await store.list(id, 0);
-    const recovery = before.find(
-      ({ event }) => event.eventType === "recovery.completed",
-    )!;
-    expect(recovery.event.payload.costDelta).toBe(120);
-    const snapshot = MarketplaceSnapshotSchema.parse(
-      (await app.inject("/api/marketplace")).json(),
-    );
-    expect(
-      snapshot.merchants.find(
-        (merchant) => merchant.merchantId === supplier.merchantId,
-      )?.status,
-    ).toBe("offline");
-    expect(snapshot.metrics.reservationCount).toBe(7);
-    expect(
-      snapshot.providers.find(({ name }) => name === "shopify")?.mode,
-    ).toBe("demo");
-    expect(snapshot.merchants.some(({ memories }) => memories.length > 0)).toBe(
-      true,
-    );
-    await app.close();
-    ({ app } = await createApp());
-    const restored = DesktopResultSchema.parse(
-      (await app.inject(`/api/projects/${id}`)).json(),
-    );
-    expect(restored.project.activePlan?.planId).toBe(
-      recovered.activePlan?.planId,
-    );
-    expect(restored.contexts).toHaveLength(1);
-    expect(
-      (
-        await getPool().query<{ content: Buffer }>(
-          "select content from order_contexts where context_id=$1",
-          [context.contextId],
-        )
-      ).rows[0]?.content.toString(),
-    ).toBe("Customer-provided branding brief");
-    expect((await store.list(id, 0)).map(({ event }) => event.eventId)).toEqual(
-      before.map(({ event }) => event.eventId),
-    );
-    const address = await app.listen({ host: "127.0.0.1", port: 0 });
-    const last = before.at(-1)!.cursor;
-    const controller = new AbortController();
-    const stream = await fetch(`${address}/api/orders/${id}/events`, {
-      headers: { "last-event-id": String(before.at(-2)!.cursor) },
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
-    });
-    const reader = stream.body!.getReader();
-    let text = "";
-    while (!text.includes("event: ready")) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      text += new TextDecoder().decode(chunk.value);
-    }
-    controller.abort();
-    expect(text.match(/^id: \d+/gm)).toEqual([`id: ${last}`]);
-    const replacement = recovered.activePlan!.nodes.find((node) =>
-      node.capabilityId.includes("embroidery"),
-    )!;
-    const exhausted = OrderSessionSnapshotSchema.parse(
-      await post("/api/chaos", {
-        ...chaos,
-        merchantId: replacement.merchantId,
-        actionId: "exhausted",
-      }),
-    );
-    expect(exhausted.state).toBe("NEEDS_HUMAN");
-    expect(exhausted.activePlan?.status).toBe("UNSAT");
-    await post("/api/demo/reset", {});
-    const reset = MarketplaceSnapshotSchema.parse(
-      (await app.inject("/api/marketplace")).json(),
-    );
-    expect(reset.merchants.every(({ status }) => status === "online")).toBe(
-      true,
-    );
-    expect(reset.metrics.reservationCount).toBe(0);
-  }, 30000);
+      );
+      expect(approved.state, JSON.stringify(approved.executionReceipt)).toBe(
+        "COMPLETED",
+      );
+      expect(approved.executionReceipt?.supplierJobs).toHaveLength(7);
+      expect(
+        OrderSessionSnapshotSchema.parse(
+          await post(`/api/orders/${id}/approve`, approval),
+        ).revision,
+      ).toBe(approved.revision);
+      const supplier = approved.activePlan!.nodes.find((node) =>
+        node.capabilityId.includes("embroidery"),
+      )!;
+      const chaos = {
+        scenario: "supplier_offline",
+        orderId: id,
+        merchantId: supplier.merchantId,
+        actionId: "failure",
+      };
+      const recovered = OrderSessionSnapshotSchema.parse(
+        await post("/api/chaos", chaos),
+      );
+      expect(recovered.state, JSON.stringify(recovered)).toBe("COMPLETED");
+      expect(recovered.activePlan?.nodes).toHaveLength(7);
+      expect(
+        recovered.activePlan?.nodes.every(
+          (node) => node.merchantId !== supplier.merchantId,
+        ),
+      ).toBe(true);
+      expect(recovered.activePlan!.totalCost).toBeLessThanOrEqual(7000);
+      expect(
+        Date.parse(recovered.activePlan!.estimatedCompletion!),
+      ).toBeLessThanOrEqual(Date.parse(recovered.intent!.deadline!));
+      expect(
+        OrderSessionSnapshotSchema.parse(await post("/api/chaos", chaos))
+          .revision,
+      ).toBe(recovered.revision);
+      const before = await store.list(id, 0);
+      const recovery = before.find(
+        ({ event }) => event.eventType === "recovery.completed",
+      )!;
+      expect(recovery.event.payload.costDelta).toBe(120);
+      const snapshot = MarketplaceSnapshotSchema.parse(
+        (await app.inject("/api/marketplace")).json(),
+      );
+      expect(
+        snapshot.merchants.find(
+          (merchant) => merchant.merchantId === supplier.merchantId,
+        )?.status,
+      ).toBe("offline");
+      expect(snapshot.metrics.reservationCount).toBe(7);
+      expect(
+        snapshot.providers.find(({ name }) => name === "shopify")?.mode,
+      ).toBe("demo");
+      expect(
+        snapshot.merchants.some(({ memories }) => memories.length > 0),
+      ).toBe(true);
+      await app.close();
+      ({ app } = await createApp());
+      const restored = DesktopResultSchema.parse(
+        (await app.inject(`/api/projects/${id}`)).json(),
+      );
+      expect(restored.project.activePlan?.planId).toBe(
+        recovered.activePlan?.planId,
+      );
+      expect(restored.contexts).toHaveLength(1);
+      expect(
+        (
+          await getPool().query<{ content: Buffer }>(
+            "select content from order_contexts where context_id=$1",
+            [context.contextId],
+          )
+        ).rows[0]?.content.toString(),
+      ).toBe("Customer-provided branding brief");
+      expect(
+        (await store.list(id, 0)).map(({ event }) => event.eventId),
+      ).toEqual(before.map(({ event }) => event.eventId));
+      const address = await app.listen({ host: "127.0.0.1", port: 0 });
+      const last = before.at(-1)!.cursor;
+      const controller = new AbortController();
+      const stream = await fetch(`${address}/api/orders/${id}/events`, {
+        headers: { "last-event-id": String(before.at(-2)!.cursor) },
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+      });
+      const reader = stream.body!.getReader();
+      let text = "";
+      while (!text.includes("event: ready")) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        text += new TextDecoder().decode(chunk.value);
+      }
+      controller.abort();
+      expect(text.match(/^id: \d+/gm)).toEqual([`id: ${last}`]);
+      const replacement = recovered.activePlan!.nodes.find((node) =>
+        node.capabilityId.includes("embroidery"),
+      )!;
+      const exhausted = OrderSessionSnapshotSchema.parse(
+        await post("/api/chaos", {
+          ...chaos,
+          merchantId: replacement.merchantId,
+          actionId: "exhausted",
+        }),
+      );
+      expect(exhausted.state).toBe("NEEDS_HUMAN");
+      expect(exhausted.activePlan?.status).toBe("UNSAT");
+      await post("/api/demo/reset", {});
+      const reset = MarketplaceSnapshotSchema.parse(
+        (await app.inject("/api/marketplace")).json(),
+      );
+      expect(reset.merchants.every(({ status }) => status === "online")).toBe(
+        true,
+      );
+      expect(reset.metrics.reservationCount).toBe(0);
+    },
+    30000,
+  );
 });
