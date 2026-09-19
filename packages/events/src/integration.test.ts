@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { closePool, getPool, migrate } from "@molecule/db";
 
@@ -32,6 +32,44 @@ describe.skipIf(!database)("durable event integration", () => {
     await migrate();
   });
   afterAll(closePool);
+
+  it.each([false, true])(
+    "retries delivery if error reporting fails (async=%s)",
+    async (asyncReporter) => {
+      const sample = event(randomUUID());
+      await appendEvent(sample);
+      let attempts = 0;
+      const delivered: string[] = [];
+      const errors = vi.fn(() => {
+        if (asyncReporter)
+          return Promise.reject(new Error("Reporter unavailable"));
+        throw new Error("Reporter unavailable");
+      });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const unsubscribe = await subscribePersisted(
+        (entry) => {
+          attempts++;
+          if (attempts === 1) throw new Error("Temporary delivery failure");
+          delivered.push(entry.event.eventId);
+        },
+        {
+          orderId: sample.orderId,
+          afterCursor: 0,
+          pollMs: 10,
+          onError: errors,
+        },
+      );
+      try {
+        await expect
+          .poll(() => delivered, { timeout: 1000 })
+          .toEqual([sample.eventId]);
+        expect(errors).toHaveBeenCalledOnce();
+      } finally {
+        unsubscribe();
+        log.mockRestore();
+      }
+    },
+  );
 
   it("replays by insertion cursor even when producer timestamps move backwards", async () => {
     const orderId = randomUUID();

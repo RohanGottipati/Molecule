@@ -117,6 +117,109 @@ describe("bounded Shopify transport", () => {
       transport(fetch).graphql("mutation", {}, schema, true),
     ).rejects.toMatchObject({ code: "API_VERSION_MISMATCH", uncertain: true });
   });
+  it("invalidates a rejected cached token for an explicit retry without replaying a mutation", async () => {
+    let issued = 0;
+    let revoked = false;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      if (String(url).includes("oauth")) {
+        issued++;
+        return Response.json({
+          access_token: `test-token-${issued}`,
+          expires_in: 86399,
+        });
+      }
+      const token = new Headers(init?.headers).get("x-shopify-access-token");
+      return revoked && token === "test-token-1"
+        ? new Response("private auth failure", { status: 401 })
+        : Response.json({ data: { ok: true } });
+    });
+    const client = transport(fetch, {
+      auth: { clientId: "test-client", clientSecret: "test-secret" },
+    });
+    await client.graphql("query", {}, schema);
+    revoked = true;
+    await expect(
+      client.graphql("mutation", {}, schema, true),
+    ).rejects.toMatchObject({
+      code: "HTTP_401",
+      uncertain: false,
+    });
+    expect(
+      fetch.mock.calls.filter(([, init]) =>
+        String(init?.body).includes('"mutation"'),
+      ),
+    ).toHaveLength(1);
+    await expect(client.graphql("mutation", {}, schema, true)).resolves.toEqual(
+      { ok: true },
+    );
+    expect(issued).toBe(2);
+  });
+
+  it("refreshes expiring credentials once for concurrent requests", async () => {
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(0);
+    try {
+      const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+        String(url).includes("oauth")
+          ? Response.json({ access_token: "test-token", expires_in: 120 })
+          : Response.json({ data: { ok: true } }),
+      );
+      const client = transport(fetch, {
+        auth: { clientId: "test-client", clientSecret: "test-secret" },
+      });
+      await client.graphql("query", {}, schema);
+      now.mockReturnValue(61_000);
+      await Promise.all(
+        Array.from({ length: 5 }, () => client.graphql("query", {}, schema)),
+      );
+      expect(
+        fetch.mock.calls.filter(([url]) => String(url).includes("oauth")),
+      ).toHaveLength(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each([
+    { accessToken: "" },
+    { accessToken: " " },
+    { clientId: "", clientSecret: "test" },
+    { clientId: "test", clientSecret: "" },
+  ])("rejects missing authentication before network access: %j", (auth) => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    expect(() => transport(fetch, { auth })).toThrow(
+      "INVALID_TRANSPORT_CONFIG",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not journal a token grant failure as an uncertain commerce mutation", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response("private auth failure", { status: 401 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ access_token: "test-token", expires_in: 86399 }),
+      )
+      .mockResolvedValueOnce(Response.json({ data: { ok: true } }));
+    const client = transport(fetch, {
+      auth: { clientId: "test-client", clientSecret: "test-secret" },
+    });
+    await expect(
+      client.graphql("mutation", {}, schema, true),
+    ).rejects.toMatchObject({
+      code: "AUTH_HTTP_401",
+      uncertain: false,
+    });
+    await expect(client.graphql("mutation", {}, schema, true)).resolves.toEqual(
+      { ok: true },
+    );
+    expect(
+      fetch.mock.calls.filter(([url]) => String(url).includes("graphql")),
+    ).toHaveLength(1);
+  });
+
   it("uses documented form-encoded client credentials and caches one concurrent refresh", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url).includes("oauth")

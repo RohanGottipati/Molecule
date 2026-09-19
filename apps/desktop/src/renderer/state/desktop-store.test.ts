@@ -34,6 +34,59 @@ async function fixture() {
   return { store, bridge, notify };
 }
 describe("authoritative desktop state", () => {
+  it("cancels pending capture on hide without uploading a late frame", async () => {
+    const { store } = await fixture();
+    let finish!: (files: File[]) => void;
+    let signal!: AbortSignal;
+    const upload = vi.spyOn(store, "upload");
+    const captured = store.uploadFrom((value) => {
+      signal = value;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    const rejected = expect(captured).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    store.setVisible(false);
+    expect(signal.aborted).toBe(true);
+    finish([new File(["frame"], "screen.png", { type: "image/png" })]);
+    await rejected;
+    expect(upload).not.toHaveBeenCalled();
+    store.dispose();
+  });
+  it("clears obsolete approval alerts when replay reaches execution", async () => {
+    const { store, notify } = await fixture();
+    const result = projectResult();
+    vi.spyOn(store.api, "getProject").mockResolvedValue(result);
+    await store.openProject(result.project.orderId);
+    store.receive(backendEvent("execution.approval.requested"), true);
+    expect(store.getSnapshot().alert?.kind).toBe(
+      "execution.approval.requested",
+    );
+    store.receive(backendEvent("execution.started"), true);
+    expect(store.getSnapshot().alert).toBeNull();
+    store.receive(backendEvent("solver.unsat"), true);
+    store.receive(backendEvent("project.cancelled"), true);
+    expect(store.getSnapshot().alert).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    store.dispose();
+  });
+  it("serializes preference patches with project resume updates", async () => {
+    const { store, bridge } = await fixture();
+    const result = projectResult();
+    vi.spyOn(store.api, "getProject").mockResolvedValue(result);
+    await Promise.all([
+      store.settings({ voiceEnabled: false }),
+      store.openProject(result.project.orderId),
+    ]);
+    expect(store.getSnapshot().bootstrap?.settings).toMatchObject({
+      voiceEnabled: false,
+      lastProjectId: result.project.orderId,
+    });
+    expect((await bridge.bootstrap()).settings.voiceEnabled).toBe(false);
+    store.dispose();
+  });
   it("does not reopen an event stream when a connection check resolves after disposal", async () => {
     const { store } = await fixture();
     const result = projectResult();

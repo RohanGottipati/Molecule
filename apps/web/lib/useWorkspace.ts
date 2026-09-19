@@ -22,6 +22,7 @@ import {
 } from "./api";
 import { subscribeEvents } from "./events";
 import {
+  canEditBrief,
   mergeContexts,
   mergeEvents,
   mergeSnapshot,
@@ -72,7 +73,11 @@ export function useWorkspace(initialOrderId?: string) {
   const [marketplaceLoading, setMarketplaceLoading] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [operation, setOperation] = useState<
+    "brief" | "approval" | "recovery" | "upload" | null
+  >(null);
+  const busy = operation !== null;
   const [loading, setLoading] = useState(Boolean(initialOrderId));
   const [error, setError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -129,24 +134,32 @@ export function useWorkspace(initialOrderId?: string) {
     }
   }, [apply]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void refreshMarketplace(controller.signal);
-    void getDemoMode(controller.signal)
+  const refreshConfig = useCallback(async (signal?: AbortSignal) => {
+    setConfigLoading(true);
+    await getDemoMode(signal)
       .then((enabled) => {
-        if (!controller.signal.aborted) {
+        if (!signal?.aborted) {
           setDemoMode(enabled);
           setConfigError(null);
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        if (!signal?.aborted)
           setConfigError(
             "Demo configuration unavailable. Recovery controls are disabled.",
           );
+      })
+      .finally(() => {
+        if (!signal?.aborted) setConfigLoading(false);
       });
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshMarketplace(controller.signal);
+    void refreshConfig(controller.signal);
     return () => controller.abort();
-  }, [refreshMarketplace]);
+  }, [refreshMarketplace, refreshConfig]);
 
   const changeProject = useCallback((id: string | null) => {
     activeId.current = id;
@@ -285,8 +298,14 @@ export function useWorkspace(initialOrderId?: string) {
 
   async function send(text: string) {
     if (pending.current || !text.trim()) return false;
+    if (!canEditBrief(orderRef.current)) {
+      setError(
+        "This project is not accepting brief changes. Wait for the current action, or start a new project after execution.",
+      );
+      return false;
+    }
     pending.current = true;
-    setBusy(true);
+    setOperation("brief");
     setError(null);
     const startingId = activeId.current;
     let operationId = startingId;
@@ -320,7 +339,7 @@ export function useWorkspace(initialOrderId?: string) {
         );
       }
       const id = current.orderId;
-      const key = `message:${id}:${current.intentVersion}:${await digest(text.trim())}`;
+      const key = `message:${id}:${current.intentVersion}:${current.planGeneration}:${await digest(text.trim())}`;
       const next = await submitMessage(
         current,
         text.trim(),
@@ -348,17 +367,18 @@ export function useWorkspace(initialOrderId?: string) {
       return false;
     } finally {
       pending.current = false;
-      setBusy(false);
+      setOperation(null);
     }
   }
 
   async function act(
     action: (current: OrderSessionSnapshot) => Promise<OrderSessionSnapshot>,
+    kind: "approval" | "recovery",
   ) {
     if (pending.current || !orderRef.current) return;
     const current = orderRef.current;
     pending.current = true;
-    setBusy(true);
+    setOperation(kind);
     setError(null);
     try {
       apply(await action(current));
@@ -367,7 +387,7 @@ export function useWorkspace(initialOrderId?: string) {
       if (activeId.current === current.orderId) setError(message(cause));
     } finally {
       pending.current = false;
-      setBusy(false);
+      setOperation(null);
     }
   }
 
@@ -375,7 +395,7 @@ export function useWorkspace(initialOrderId?: string) {
     if (pending.current || !orderRef.current) return;
     const current = orderRef.current;
     pending.current = true;
-    setBusy(true);
+    setOperation("upload");
     setError(null);
     try {
       fileMetadata(file, "validate-upload");
@@ -402,7 +422,7 @@ export function useWorkspace(initialOrderId?: string) {
       if (activeId.current === current.orderId) setError(message(cause));
     } finally {
       pending.current = false;
-      setBusy(false);
+      setOperation(null);
     }
   }
 
@@ -419,7 +439,9 @@ export function useWorkspace(initialOrderId?: string) {
     marketplaceLoading,
     demoMode,
     configError,
+    configLoading,
     busy,
+    operation,
     loading,
     error: error ?? syncError,
     connection,
@@ -427,17 +449,20 @@ export function useWorkspace(initialOrderId?: string) {
     newProject,
     refresh,
     refreshMarketplace,
+    refreshConfig,
     send,
     upload,
-    approve: () => act(approvePlan),
+    approve: () => act(approvePlan, "approval"),
     offline: (merchantId: string) =>
-      act((current) =>
-        triggerChaos(
-          current,
-          merchantId,
-          "supplier_offline",
-          `offline:${current.orderId}:${current.activePlan?.planId}:${merchantId}`,
-        ),
+      act(
+        (current) =>
+          triggerChaos(
+            current,
+            merchantId,
+            "supplier_offline",
+            `offline:${current.orderId}:${current.activePlan?.planId}:${merchantId}`,
+          ),
+        "recovery",
       ),
   };
 }

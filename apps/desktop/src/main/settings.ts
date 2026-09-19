@@ -1,6 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SettingsSchema, type Settings } from "../shared/bridge.js";
+import {
+  SettingsSchema,
+  SettingsPatchSchema,
+  type Settings,
+  type SettingsPatch,
+} from "../shared/bridge.js";
 
 export class SettingsStore {
   private value = SettingsSchema.parse({});
@@ -25,11 +30,15 @@ export class SettingsStore {
     return this.value;
   }
   save(value: Settings) {
-    const next = SettingsSchema.parse(value);
-    const contents = JSON.stringify(next);
+    return this.update(SettingsSchema.parse(value));
+  }
+  update(value: SettingsPatch) {
+    const patch = SettingsPatchSchema.parse(value);
     this.writes = this.writes
       .catch(() => undefined)
       .then(async () => {
+        const next = SettingsSchema.parse({ ...this.value, ...patch });
+        const contents = JSON.stringify(next);
         await mkdir(this.directory, { recursive: true });
         await writeFile(join(this.directory, "settings.next"), contents, {
           mode: 0o600,

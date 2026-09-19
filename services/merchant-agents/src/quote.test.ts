@@ -103,6 +103,52 @@ function quoteJson(overrides: Record<string, unknown>): string {
 }
 
 describe("createQuoteService", () => {
+  it.each([false, true])(
+    "never gives the quoting model mutation authority with hold=%s",
+    async (hold) => {
+      const { adapter, quote, threadId, capacity } = await setupMerchant({
+        merchantId: "stitchworks",
+        capabilityId: "embroidery",
+        orderId: "unsafe-hold",
+      });
+      adapter.programThread(threadId, [
+        {
+          type: "tool_call",
+          name: "reserve_capacity",
+          args: { capabilityId: "embroidery", quantity: 5 },
+        },
+        {
+          type: "final",
+          text: quoteJson({
+            merchantId: "stitchworks",
+            capabilityId: "embroidery",
+            status: "CAN_ACCEPT",
+          }),
+        },
+      ]);
+      const spy = vi.spyOn(adapter, "sendWithTools");
+      await expect(
+        quote.handleQuoteRequest({
+          merchantId: "stitchworks",
+          capabilityId: "embroidery",
+          orderId: "unsafe-hold",
+          traceId,
+          quantity: 5,
+          currency: "CAD",
+          hold,
+        }),
+      ).rejects.toBeInstanceOf(QuoteProtocolError);
+      expect(
+        spy.mock.calls.every(([input]) =>
+          input.tools.every((tool) => tool.risk === "read"),
+        ),
+      ).toBe(true);
+      expect(
+        await capacity.getAvailableCapacity("stitchworks", "embroidery"),
+      ).toBe(20);
+    },
+  );
+
   it("returns a non-binding CAN_ACCEPT and leaves capacity untouched when hold is false", async () => {
     const { adapter, quote, threadId, capacity } = await setupMerchant({
       merchantId: "stitchworks",

@@ -9,7 +9,7 @@ import type {
   DesktopBootstrap,
   DesktopBridge,
   OverlayMode,
-  Settings,
+  SettingsPatch,
 } from "../../shared/bridge.js";
 import {
   mapEvent,
@@ -75,6 +75,8 @@ export class DesktopStore {
   private readonly automaticActions = new Map<string, string>();
   private checking?: Promise<void>;
   private checkingProviders?: Promise<void>;
+  private savingSettings = Promise.resolve();
+  private capture = new AbortController();
   onBackendEvent?: (event: MoleculeEvent) => void;
   onContextAttached?: () => void;
   onProjectChanging?: () => void;
@@ -170,15 +172,25 @@ export class DesktopStore {
     }
   }
   setVisible(visible: boolean) {
+    if (!visible) {
+      this.capture.abort();
+      this.capture = new AbortController();
+    }
     this.patch({ visible });
   }
   async mode(mode: OverlayMode) {
     this.patch({ mode });
     await this.bridge.setMode(mode);
   }
-  async settings(settings: Settings) {
-    const bootstrap = await this.bridge.saveSettings(settings);
-    this.patch({ bootstrap });
+  settings(settings: SettingsPatch) {
+    const save = this.savingSettings
+      .catch(() => undefined)
+      .then(async () => {
+        const bootstrap = await this.bridge.saveSettings(settings);
+        if (!this.disposed) this.patch({ bootstrap });
+      });
+    this.savingSettings = save;
+    return save;
   }
   private apply(result: DesktopResult) {
     const current = this.state.project;
@@ -242,7 +254,6 @@ export class DesktopStore {
     const settings = this.state.bootstrap?.settings;
     if (settings)
       await this.settings({
-        ...settings,
         lastProjectId: result.project.orderId,
       }).catch(() => {
         if (generation === this.generation)
@@ -349,7 +360,17 @@ export class DesktopStore {
         ...this.state.activity.filter((item) => item.id !== activity.id),
         activity,
       ].slice(-40),
-      alert: activity.alert ? activity : this.state.alert,
+      alert: activity.alert
+        ? activity
+        : [
+              "intent.received",
+              "plan.invalidated",
+              "execution.started",
+              "order.completed",
+              "project.cancelled",
+            ].includes(event.eventType)
+          ? null
+          : this.state.alert,
     });
     if (!replay) {
       if (activity.alert && this.state.bootstrap?.settings.autoExpandOnAlert)
@@ -470,9 +491,14 @@ export class DesktopStore {
       }
     }
   }
-  async uploadFrom(read: () => Promise<File[]>) {
+  async uploadFrom(read: (signal: AbortSignal) => Promise<File[]>) {
     const generation = this.generation;
-    const files = await read();
+    const signal = AbortSignal.any([
+      this.selection.signal,
+      this.capture.signal,
+    ]);
+    const files = await read(signal);
+    signal.throwIfAborted();
     this.assertCurrent(generation);
     await this.upload(files);
   }

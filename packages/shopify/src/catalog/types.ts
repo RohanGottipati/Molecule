@@ -6,6 +6,10 @@ import { CurrencySchema } from "@molecule/contracts";
 
 export const ActionKeySchema = z.string().min(1);
 export const TraceIdSchema = z.string().min(1);
+const PriceSchema = z
+  .string()
+  .regex(/^\d+(?:\.\d{1,2})?$/)
+  .refine((value) => Number.isFinite(Number(value)));
 
 export const ShopifyVariantSnapshotSchema = z.object({
   variantId: z.string().min(1),
@@ -68,7 +72,7 @@ export type CatalogSearchResult = z.infer<typeof CatalogSearchResultSchema>;
 
 export const CompositeVariantInputSchema = z.object({
   optionValues: z.record(z.string(), z.string()),
-  price: z.string().min(1),
+  price: PriceSchema,
   sku: z.string().min(1),
 });
 
@@ -98,8 +102,8 @@ export type UpsertCompositeProductResult = z.infer<
 
 export const SupplierJobLineItemSchema = z.object({
   title: z.string().min(1),
-  quantity: z.number().positive(),
-  price: z.string().min(1),
+  quantity: z.number().int().positive(),
+  price: PriceSchema,
 });
 
 export const SupplierJobPlanNodeSchema = z.object({
@@ -142,7 +146,7 @@ export const CustomerCheckoutPlanSchema = z.object({
   orderId: z.string().min(1),
   planId: z.string().min(1),
   lineItemTitle: z.string().min(1),
-  price: z.string().min(1),
+  price: PriceSchema,
   currency: CurrencySchema,
 });
 export type CustomerCheckoutPlan = z.input<typeof CustomerCheckoutPlanSchema>;

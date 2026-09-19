@@ -88,6 +88,151 @@ print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True))
 
 describe("compiler and solver release acceptance", () => {
   it.each([
+    [
+      "quantity",
+      "Actually make 30 hoodies",
+      30,
+      1000,
+      "CAD",
+      extraction.deadline,
+    ],
+    ["quantity", "Actually make 30", 30, 1000, "CAD", extraction.deadline],
+    ["budget", "Actually under USD 1500", 20, 1500, "USD", extraction.deadline],
+    [
+      "deadline",
+      "Actually by 2026-10-08",
+      20,
+      1000,
+      "CAD",
+      "2026-10-08T23:59:59.000Z",
+    ],
+    [
+      "deadline",
+      "Actually by tomorrow",
+      20,
+      1000,
+      "CAD",
+      "2026-09-21T03:59:59.000Z",
+    ],
+  ] as const)(
+    "applies explicit %s corrections over the original customer text: %s",
+    async (kind, correction, quantity, budget, currency, deadline) => {
+      const adapter = new MockOpenAIAdapter();
+      const text = "Make 20 hoodies by 2026-10-01 under CAD 1000";
+      const initial = await adapter.compileIntent({ ...base, text });
+      if (initial.status !== "READY")
+        throw new Error("Expected initial intent");
+      const result = await adapter.compileIntent({
+        ...base,
+        text,
+        previousIntent: initial.intent,
+        correction: { kind, text: correction },
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY")
+        throw new Error("Expected corrected intent");
+      expect(result.intent).toMatchObject({
+        quantity,
+        budgetMax: budget,
+        currency,
+        deadline,
+        desiredOutputs: [{ outputId: "hoodie", quantity }],
+      });
+    },
+  );
+
+  it("clarifies nonexistent calendar dates instead of rolling into another month", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Make 20 hoodies by 2026-02-30 CAD",
+    });
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+    if (result.status !== "NEEDS_CLARIFICATION")
+      throw new Error("Expected clarification");
+    expect(result.draft.deadline).toBeNull();
+    expect(result.draft.ambiguityFlags).toContainEqual(
+      expect.objectContaining({ field: "deadline" }),
+    );
+  });
+
+  it("lets a component attribute correction replace the original equality", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const text = "Make 20 black hoodies by 2026-10-01 CAD";
+    const initial = await adapter.compileIntent({ ...base, text });
+    if (initial.status !== "READY") throw new Error("Expected initial intent");
+    const result = await adapter.compileIntent({
+      ...base,
+      text,
+      previousIntent: initial.intent,
+      correction: { kind: "constraint", text: "Actually white hoodies" },
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Expected corrected intent");
+    expect(result.intent.desiredOutputs[0]?.attributes.color).toBe("white");
+    expect(
+      result.intent.hardConstraints.filter(
+        ({ field }) => field === "hoodie.color",
+      ),
+    ).toEqual([expect.objectContaining({ operator: "eq", value: "white" })]);
+  });
+
+  it("keeps unresolved model flags blocking even if the question is empty", () => {
+    const result = mapExtractionToResult(
+      {
+        ...extraction,
+        ambiguityFlags: [
+          { field: "material", reason: "conflicted", question: "" },
+        ],
+      },
+      undefined,
+      [],
+    );
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+    if (result.status !== "NEEDS_CLARIFICATION")
+      throw new Error("Expected clarification");
+    expect(result.questions.length).toBeGreaterThan(0);
+  });
+
+  it("maps model constraint scopes to stable component IDs during corrections", () => {
+    const initial = mapExtractionToResult(extraction, undefined, []);
+    if (initial.status !== "READY") throw new Error("Expected initial intent");
+    const rule = {
+      key: "red",
+      field: "garment.color",
+      operator: "eq" as const,
+      value: "red",
+      unit: null,
+      description: null,
+    };
+    const result = mapExtractionToResult(
+      {
+        ...extraction,
+        desiredOutputs: extraction.desiredOutputs.map((output) => ({
+          ...output,
+          key: "garment",
+        })),
+        hardConstraints: [rule],
+        softPreferences: [
+          {
+            ...rule,
+            key: "preferred",
+            field: "garment.material",
+            value: "cotton",
+            weight: 0.5,
+          },
+        ],
+      },
+      initial.intent,
+      [],
+    );
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Expected corrected intent");
+    expect(result.intent.desiredOutputs[0]?.outputId).toBe("hoodie");
+    expect(result.intent.hardConstraints[0]?.field).toBe("hoodie.color");
+    expect(result.intent.softPreferences[0]?.field).toBe("hoodie.material");
+  });
+
+  it.each([
     "Make 200 premium black onboarding kits by next Friday (2026-09-25) under CAD 7000. No leather. Each kit needs a black hoodie with embroidered logo, a bottle engraved with the recipient's name, vegan snacks, individual packaging and fulfillment.",
     "200 premium black onboarding kits by next Friday under CAD 7000. No leather. Hoodie logo embroidery, named engraved bottles, vegan snacks, individual packaging and fulfillment.",
     canonical,

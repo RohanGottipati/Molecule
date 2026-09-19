@@ -78,6 +78,28 @@ afterEach(() => {
 });
 
 describe("Realtime lifecycle without paid calls", () => {
+  it("releases captured audio when backend setup stalls and ignores its late result", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: ReturnType<typeof projectResult>) => void;
+    const refresh = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof projectResult>>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const createSession = vi.fn(async () => ({ value: "unused" }));
+    const { client, track } = fixture({ refresh, createSession });
+    const starting = client.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refresh).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(client.getSnapshot().state).toBe("reconnecting");
+    client.stop();
+    finish(projectResult());
+    await starting;
+    expect(createSession).not.toHaveBeenCalled();
+  });
   it("requests a realtime grant for the project in the refreshed snapshot", async () => {
     const createSession = vi.fn(async () => ({
       value: "ephemeral-test-secret",

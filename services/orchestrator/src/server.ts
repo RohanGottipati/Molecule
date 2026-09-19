@@ -22,6 +22,7 @@ import { Orchestrator } from "./workflow/Orchestrator.js";
 import { registerDesktopRoutes } from "./desktopRoutes.js";
 import type { ContextStore } from "./LocalStore.js";
 import { ActionLedger } from "./ActionLedger.js";
+import { apiFailure } from "./errors.js";
 
 const MessageBody = z.object({
   text: z.string().min(1),
@@ -154,32 +155,26 @@ export async function buildServer(deps: ServerDependencies) {
 
   app.post<{ Params: { id: string } }>(
     "/api/orders/:id/approve",
-    async (request, reply) => {
+    async (request) => {
       const body = z
         .object({
           planId: z.string(),
           intentVersion: z.number().int().positive(),
         })
         .parse(request.body);
-      try {
-        return await chaosActions.run(
-          `${request.params.id}:approve:${body.planId}:${body.intentVersion}`,
-          body,
-          OrderSessionSnapshotSchema.parse,
-          async () =>
-            toSnapshot(
-              await deps.orchestrator.approve(
-                request.params.id,
-                body.planId,
-                body.intentVersion,
-              ),
+      return chaosActions.run(
+        `${request.params.id}:approve:${body.planId}:${body.intentVersion}`,
+        body,
+        OrderSessionSnapshotSchema.parse,
+        async () =>
+          toSnapshot(
+            await deps.orchestrator.approve(
+              request.params.id,
+              body.planId,
+              body.intentVersion,
             ),
-        );
-      } catch (error) {
-        return reply
-          .code(409)
-          .send({ error: error instanceof Error ? error.message : "conflict" });
-      }
+          ),
+      );
     },
   );
 
@@ -349,13 +344,23 @@ export async function buildServer(deps: ServerDependencies) {
     },
   );
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const normalized =
       error instanceof Error ? error : new Error("Unknown request error");
-    app.log.error({ err: normalized, name: normalized.name }, "request failed");
-    void reply
-      .code(400)
-      .send({ error: normalized.name, message: normalized.message });
+    const trace = request.headers["x-trace-id"];
+    const failure = apiFailure(
+      normalized,
+      typeof trace === "string" && trace ? trace.slice(0, 160) : request.id,
+    );
+    app.log.error(
+      {
+        name: normalized.name,
+        code: failure.body.code,
+        traceId: failure.body.traceId,
+      },
+      "request failed",
+    );
+    void reply.code(failure.status).send(failure.body);
   });
   return app;
 }

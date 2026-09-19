@@ -55,3 +55,21 @@ it("uses defaults after corrupt settings without crashing startup", async () => 
   const store = new SettingsStore(path);
   expect(await store.load()).toEqual(new SettingsStore(path).get());
 });
+
+it("merges concurrent preference, position and resume writes without losing fields", async () => {
+  const path = await directory();
+  const store = new SettingsStore(path);
+  const projectId = "bb812dea-31c8-4258-a81d-08c7eeb14b97";
+  await Promise.all([
+    store.update({ voiceEnabled: false }),
+    store.update({ position: { x: 120, y: 240 } }),
+    store.update({ lastProjectId: projectId }),
+    store.update({ notificationsEnabled: true }),
+  ]);
+  expect(await new SettingsStore(path).load()).toMatchObject({
+    voiceEnabled: false,
+    notificationsEnabled: true,
+    position: { x: 120, y: 240 },
+    lastProjectId: projectId,
+  });
+});
