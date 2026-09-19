@@ -27,6 +27,8 @@ const products = [
   ["jacket", "Jacket", "jackets?"],
 ] as const;
 
+const sentenceBoundary = /[!?;\r\n]+|\.(?!\d)/;
+
 function numericMatch(text: string, pattern: RegExp): number | null {
   const value = pattern.exec(text)?.[1];
   return value === undefined ? null : Number(value.replaceAll(",", ""));
@@ -34,7 +36,7 @@ function numericMatch(text: string, pattern: RegExp): number | null {
 
 function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const previous = input.previousIntent;
-  const text = `${input.text} ${input.correction?.text ?? ""}`.toLowerCase();
+  const text = `${input.text}\n${input.correction?.text ?? ""}`.toLowerCase();
   const ambiguityFlags: IntentExtraction["ambiguityFlags"] = [];
   const softPreferences: IntentExtraction["softPreferences"] = [];
   const explicitQuantity = numericMatch(
@@ -181,7 +183,9 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     const mention = new RegExp(`\\b${pattern}\\b`).exec(text);
     const prefix = text
       .slice(0, mention?.index)
-      .split(/[,;]|\band\b/)
+      .split(sentenceBoundary)
+      .at(-1)
+      ?.split(/,|\band\b/)
       .at(-1)
       ?.trim()
       .split(/\s+/)
@@ -238,7 +242,8 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       );
       if (value && !new RegExp(`\\b(?:no|without)\\s+${value}\\b`).test(text)) {
         const clause = text
-          .split(/[,;]|\band\b|\bbut\b/)
+          .split(sentenceBoundary)
+          .flatMap((sentence) => sentence.split(/,|\band\b|\bbut\b/))
           .find(
             (clause) =>
               clause.includes(value) &&
@@ -399,7 +404,11 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   ] as const) {
     if (missing) ambiguityFlags.push({ field, reason: "missing", question });
   }
-  const clauses = text.split(/\s+(?:and|with|including)\s+|,\s+/);
+  const clauses = text
+    .split(sentenceBoundary)
+    .flatMap((sentence) => sentence.split(/\s+(?:and|with|including)\s+|,\s+/))
+    .map((clause) => clause.trim())
+    .filter(Boolean);
   for (const [index, rawClause] of clauses.entries()) {
     if (index === 0) continue;
     const clause = rawClause.trim().replace(/[.!?;]+$/, "");
@@ -413,7 +422,8 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       (/\bengrav(?:e|ed|ing)\b/.test(clauses[index - 1] ?? "") &&
         /^(?:the\s+)?(?:recipient(?:['’]s|s['’]?)?\s+)?names?$/.test(clause)) ||
       /^fulfill?(?:ment)?$/.test(clause) ||
-      /^(?:no|without|budget|by|under|deliver|ship|individual|individually|named|embroider|embroidery|engrave|engraving|print|printing|logo|artwork|keep|make|qty|quantity|in|usd|cad)\b/.test(
+      /^(?:no|without|exclude)\s+(?:leather|polyester)$/.test(clause) ||
+      /^(?:actually\s+)?(?:budget|by|under|deliver|ship|individual|individually|named|embroider|embroidery|engrave|engraving|print|printing|logo|artwork|keep|make|qty|quantity|in|usd|cad)\b/.test(
         clause,
       )
     )
