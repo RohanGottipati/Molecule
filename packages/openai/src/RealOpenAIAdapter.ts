@@ -61,6 +61,14 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
     const safetyIdentifier = createHash("sha256")
       .update(parsedInput.orderId)
       .digest("hex");
+    const assets = [
+      ...new Map(
+        [
+          ...(parsedInput.previousIntent?.assets ?? []),
+          ...parsedInput.assets,
+        ].map((asset) => [asset.assetId, asset]),
+      ).values(),
+    ];
     const context = {
       requestTimestamp: parsedInput.requestedAt,
       locale: parsedInput.locale,
@@ -68,14 +76,14 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
       customerText: parsedInput.text,
       correction: parsedInput.correction ?? null,
       previousIntent: parsedInput.previousIntent ?? null,
-      assets: parsedInput.assets,
+      assets,
     };
 
     try {
       let issues: string[] = [];
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const assetContent: ResponseInputContent[] = [];
-        for (const asset of parsedInput.assets) {
+        for (const asset of assets) {
           if (!asset.url && !asset.providerFileId) continue;
           if (asset.mimeType?.startsWith("image/")) {
             assetContent.push({
@@ -94,77 +102,121 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
             });
           }
         }
-        const response = await this.client.responses.parse({
-          model: this.compilerModel,
-          instructions: INTENT_COMPILER_INSTRUCTIONS,
-          input: [
+        try {
+          const response = await this.client.responses.parse(
             {
-              role: "user",
-              content: [
+              model: this.compilerModel,
+              instructions: INTENT_COMPILER_INSTRUCTIONS,
+              input: [
                 {
-                  type: "input_text",
-                  text: JSON.stringify({
-                    ...context,
-                    validationFeedback: attempt === 0 ? null : issues,
-                  }),
+                  role: "user",
+                  content: [
+                    {
+                      type: "input_text",
+                      text: JSON.stringify({
+                        ...context,
+                        validationFeedback: attempt === 0 ? null : issues,
+                      }),
+                    },
+                    ...assetContent,
+                  ],
                 },
-                ...assetContent,
               ],
+              text: {
+                format: zodTextFormat(IntentExtractionSchema, "product_intent"),
+              },
+              store: false,
+              max_output_tokens: 6000,
+              safety_identifier: safetyIdentifier,
+              metadata: {
+                trace_id: parsedInput.traceId,
+                prompt_version: INTENT_PROMPT_VERSION,
+              },
             },
-          ],
-          text: {
-            format: zodTextFormat(IntentExtractionSchema, "product_intent"),
-          },
-          store: false,
-          safety_identifier: safetyIdentifier,
-          metadata: {
-            trace_id: parsedInput.traceId,
-            prompt_version: INTENT_PROMPT_VERSION,
-          },
-        });
-
-        if (response.status === "incomplete") {
-          throw new MoleculeOpenAIError(
-            "INCOMPLETE",
-            `OpenAI response incomplete: ${response.incomplete_details?.reason ?? "unknown"}`,
-            response.incomplete_details?.reason === "max_output_tokens",
+            {
+              timeout: this.options.timeoutMs ?? 25_000,
+              headers: {
+                "Idempotency-Key": createHash("sha256")
+                  .update(
+                    `${parsedInput.traceId}:compile:${attempt}:${JSON.stringify(context)}`,
+                  )
+                  .digest("hex"),
+              },
+            },
           );
-        }
-        if (response.output_parsed === null) {
-          const refusal = response.output
-            .filter((item) => item.type === "message")
-            .flatMap((item) => item.content)
-            .find((item) => item.type === "refusal");
-          if (refusal) {
+
+          if (response.status === "incomplete") {
             throw new MoleculeOpenAIError(
-              "REFUSAL",
-              "OpenAI refused the request",
-              false,
+              "INCOMPLETE",
+              `OpenAI response incomplete: ${response.incomplete_details?.reason ?? "unknown"}`,
+              response.incomplete_details?.reason === "max_output_tokens",
             );
           }
-          issues = ["output_parsed was null"];
-          continue;
-        }
+          if (response.status !== "completed") {
+            throw new MoleculeOpenAIError(
+              "TRANSPORT",
+              "OpenAI did not complete compilation",
+              true,
+            );
+          }
+          if (response.output_parsed === null) {
+            const refusal = response.output
+              .filter((item) => item.type === "message")
+              .flatMap((item) => item.content)
+              .find((item) => item.type === "refusal");
+            if (refusal) {
+              throw new MoleculeOpenAIError(
+                "REFUSAL",
+                "OpenAI refused the request",
+                false,
+              );
+            }
+            issues = ["output_parsed was null"];
+            continue;
+          }
 
-        const extraction = IntentExtractionSchema.safeParse(
-          response.output_parsed,
-        );
-        if (!extraction.success) {
-          issues = extraction.error.issues.map(
-            ({ code, path }) => `${path.join(".")}:${code}`,
+          const extraction = IntentExtractionSchema.safeParse(
+            response.output_parsed,
           );
-          continue;
-        }
+          if (!extraction.success) {
+            issues = extraction.error.issues.map(
+              ({ code, path }) => `${path.join(".")}:${code}`,
+            );
+            continue;
+          }
 
-        return mapExtractionToResult(
-          extraction.data,
-          parsedInput.previousIntent,
-          parsedInput.assets,
-        );
+          const result = mapExtractionToResult(
+            extraction.data,
+            parsedInput.previousIntent,
+            assets,
+          );
+          if (
+            extraction.data.outcome === "EXTRACTED" &&
+            result.status === "NEEDS_CLARIFICATION"
+          ) {
+            issues = result.draft.ambiguityFlags.map(
+              ({ field, reason }) => `${field}:${reason}`,
+            );
+            if (!issues.length) issues = ["Required domain fields are missing"];
+            continue;
+          }
+          return result;
+        } catch (error) {
+          if (error instanceof ZodError || error instanceof SyntaxError) {
+            issues =
+              error instanceof ZodError
+                ? error.issues.map(
+                    ({ code, path }) => `${path.join(".")}:${code}`,
+                  )
+                : ["Malformed JSON output"];
+            continue;
+          }
+          throw error;
+        }
       }
       throw new MoleculeOpenAIError(
         "VALIDATION",
-        `OpenAI output failed validation after retry (${issues.join(",")})`,
+        `OpenAI output failed validation after retry (${issues.slice(0, 10).join(",").slice(0, 500)})`,
         false,
       );
     } catch (error) {

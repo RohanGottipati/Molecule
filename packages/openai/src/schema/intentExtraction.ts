@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { ConstraintOperatorSchema } from "@molecule/contracts";
 
-const NullableString = z.string().nullable();
-const ExtractionValueSchema = z.union([
+const NullableString = z.string().max(600).nullable();
+export const ExtractionValueSchema = z.union([
   z.string(),
   z.number(),
   z.boolean(),
@@ -10,12 +10,12 @@ const ExtractionValueSchema = z.union([
   z.array(z.number()),
 ]);
 
-const ExtractionAttributeSchema = z.object({
+const ExtractionAttributeSchema = z.strictObject({
   name: z.string(),
   value: ExtractionValueSchema,
 });
 
-const ExtractionConstraintSchema = z.object({
+const ExtractionConstraintSchema = z.strictObject({
   key: z.string(),
   field: z.string(),
   operator: ConstraintOperatorSchema,
@@ -24,7 +24,7 @@ const ExtractionConstraintSchema = z.object({
   description: NullableString,
 });
 
-export const IntentExtractionSchema = z.object({
+export const IntentExtractionSchema = z.strictObject({
   outcome: z.enum(["EXTRACTED", "NEEDS_CLARIFICATION", "UNSUPPORTED"]),
   unsupportedReason: NullableString,
   quantity: z.number().int().positive().nullable(),
@@ -32,7 +32,7 @@ export const IntentExtractionSchema = z.object({
   currency: z.enum(["CAD", "USD"]).nullable(),
   budgetMax: z.number().positive().nullable(),
   desiredOutputs: z.array(
-    z.object({
+    z.strictObject({
       key: z.string(),
       name: z.string(),
       quantity: z.number().int().positive().nullable(),
@@ -40,10 +40,10 @@ export const IntentExtractionSchema = z.object({
     }),
   ),
   transformations: z.array(
-    z.object({
+    z.strictObject({
       key: z.string(),
       kind: z.string(),
-      description: z.string(),
+      description: z.string().max(600),
       inputKeys: z.array(z.string()),
       outputKeys: z.array(z.string()),
     }),
@@ -55,10 +55,10 @@ export const IntentExtractionSchema = z.object({
     }),
   ),
   ambiguityFlags: z.array(
-    z.object({
+    z.strictObject({
       field: z.string(),
-      reason: z.string(),
-      question: z.string(),
+      reason: z.string().max(600),
+      question: z.string().max(600),
     }),
   ),
 });
