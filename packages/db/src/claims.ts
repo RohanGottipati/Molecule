@@ -1,4 +1,4 @@
-import type { CanonicalClaim } from "@molecule/contracts";
+import { CanonicalClaimSchema, type CanonicalClaim } from "@molecule/contracts";
 
 import { getPool, type DbClient } from "./client.js";
 
@@ -20,7 +20,7 @@ interface ClaimRow {
 }
 
 function rowToClaim(row: ClaimRow): CanonicalClaim {
-  return {
+  return CanonicalClaimSchema.parse({
     claimId: row.claim_id,
     merchantId: row.merchant_id,
     field: row.field,
@@ -37,7 +37,7 @@ function rowToClaim(row: ClaimRow): CanonicalClaim {
     extractionConfidence: Number(row.extraction_confidence),
     resolutionStatus: row.resolution_status,
     evidenceText: row.evidence_text ?? undefined,
-  };
+  });
 }
 
 /** Insert a new claim. Never overwrites an existing claim_id. */
@@ -45,6 +45,7 @@ export async function insertClaim(
   claim: CanonicalClaim,
   client: DbClient = getPool(),
 ): Promise<void> {
+  claim = CanonicalClaimSchema.parse(claim);
   await client.query(
     `insert into canonical_claims
        (claim_id, merchant_id, field, normalized_value, normalized_unit,
@@ -85,6 +86,17 @@ export async function listClaimsForField(
     [merchantId, field],
   );
   return result.rows.map(rowToClaim);
+}
+
+export async function listMerchantClaims(
+  merchantId: string,
+  client: DbClient = getPool(),
+): Promise<CanonicalClaim[]> {
+  const rows = await client.query<ClaimRow>(
+    "select * from canonical_claims where merchant_id=$1 order by field,claim_id",
+    [merchantId],
+  );
+  return rows.rows.map(rowToClaim);
 }
 
 export async function setClaimStatus(

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
-import type { CanonicalClaim } from "@molecule/contracts";
+import { CanonicalClaimSchema, type CanonicalClaim } from "@molecule/contracts";
 
 export interface RawClaimInput {
   merchantId: string;
@@ -16,8 +16,7 @@ export interface RawClaimInput {
 }
 
 export type NormalizeResult =
-  | { ok: true; value: number; unit?: string }
-  | { ok: false; reason: string };
+  { ok: true; value: unknown; unit?: string } | { ok: false; reason: string };
 
 /**
  * Normalizes a raw extracted value for a known numeric field. Anything that
@@ -31,34 +30,68 @@ export type NormalizeResult =
  * lands as a claim — normalization failure only blocks fields we claim to
  * understand.
  */
-export function normalizeValue(field: string, rawValue: unknown): NormalizeResult {
+export function normalizeValue(
+  field: string,
+  rawValue: unknown,
+): NormalizeResult {
+  field = field.split(".").at(-1) ?? field;
   const numericFields = new Set([
     "capacity_per_day",
     "price",
+    "unitPrice",
     "lead_time_hours",
     "quantity",
     "setup_fee",
+    "capacity",
+    "inventory",
   ]);
 
   if (!numericFields.has(field)) {
-    return { ok: true, value: rawValue as number };
+    if (rawValue === null || rawValue === undefined)
+      return { ok: false, reason: "Unknown value" };
+    return {
+      ok: true,
+      value:
+        typeof rawValue === "string" ? rawValue.trim().toLowerCase() : rawValue,
+    };
   }
 
-  if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
-    return { ok: true, value: rawValue, unit: field === "capacity_per_day" ? "units" : undefined };
+  if (
+    typeof rawValue === "number" &&
+    Number.isFinite(rawValue) &&
+    rawValue >= 0
+  ) {
+    return {
+      ok: true,
+      value: rawValue,
+      unit: field === "capacity_per_day" ? "units" : undefined,
+    };
   }
 
   if (typeof rawValue === "string") {
-    const cleaned = rawValue.replace(/[,$]/g, "").trim();
-    const match = cleaned.match(/^-?\d+(\.\d+)?/);
-    if (match && Number.isFinite(Number(match[0]))) {
-      return { ok: true, value: Number(match[0]) };
+    const cleaned = rawValue.trim();
+    const price =
+      field === "price" || field === "unitPrice" || field === "setup_fee";
+    const pattern = price
+      ? /^(?:CAD\s*|\$\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)$/
+      : field === "lead_time_hours"
+        ? /^(\d+(?:\.\d+)?)(?:\s*hours?)?$/
+        : field === "capacity_per_day"
+          ? /^(\d+(?:\.\d+)?)(?:\s*units?(?:\/day)?)?$/
+          : /^(\d+(?:\.\d+)?)(?:\s*units?)?$/;
+    const match = cleaned.match(pattern);
+    if (match?.[1] && Number.isFinite(Number(match[1].replaceAll(",", "")))) {
+      return {
+        ok: true,
+        value: Number(match[1].replaceAll(",", "")),
+        unit: field === "capacity_per_day" ? "units" : undefined,
+      };
     }
   }
 
   return {
     ok: false,
-    reason: `Could not parse a numeric value for field "${field}" from: ${JSON.stringify(rawValue)}`,
+    reason: `Invalid nonnegative numeric value or unit for field "${field}"`,
   };
 }
 
@@ -77,15 +110,26 @@ export function toCanonicalClaim(
     return { ok: false, reason: normalized.reason };
   }
 
-  if (input.sourceAuthority < 0 || input.sourceAuthority > 1) {
+  if (
+    !Number.isFinite(input.sourceAuthority) ||
+    input.sourceAuthority < 0 ||
+    input.sourceAuthority > 1
+  ) {
     return { ok: false, reason: "sourceAuthority must be between 0 and 1" };
   }
-  if (input.extractionConfidence < 0 || input.extractionConfidence > 1) {
-    return { ok: false, reason: "extractionConfidence must be between 0 and 1" };
+  if (
+    !Number.isFinite(input.extractionConfidence) ||
+    input.extractionConfidence < 0 ||
+    input.extractionConfidence > 1
+  ) {
+    return {
+      ok: false,
+      reason: "extractionConfidence must be between 0 and 1",
+    };
   }
 
   const claim: CanonicalClaim = {
-    claimId: randomUUID(),
+    claimId: createHash("sha256").update(stableJson(input)).digest("hex"),
     merchantId: input.merchantId,
     field: input.field,
     normalizedValue: normalized.value,
@@ -93,7 +137,9 @@ export function toCanonicalClaim(
     source: {
       kind: input.sourceKind,
       reference: input.sourceReference,
-      checksum: input.sourceChecksum,
+      checksum:
+        input.sourceChecksum ??
+        createHash("sha256").update(stableJson(input.rawValue)).digest("hex"),
     },
     observedAt: input.observedAt,
     ingestedAt: now.toISOString(),
@@ -103,5 +149,26 @@ export function toCanonicalClaim(
     evidenceText: input.evidenceText,
   };
 
-  return { ok: true, claim };
+  const parsed = CanonicalClaimSchema.safeParse(claim);
+  if (
+    !parsed.success ||
+    !input.merchantId.trim() ||
+    !input.field.trim() ||
+    !input.sourceReference.trim()
+  ) {
+    return { ok: false, reason: "Invalid claim metadata" };
+  }
+  return { ok: true, claim: parsed.data };
+}
+
+export function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
