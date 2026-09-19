@@ -248,6 +248,10 @@ For macOS mock testing, use `DEMO_MODE=true USE_MOCK_OPENAI=true` and an isolate
 
 The notification follow-up used the same `a2dda05` source in a separately signed copy. Strict deep signature verification passed; native logs confirmed matching bundle identifiers and successful delivery. The automatic authorization callback initially failed; delivery/click passed after the normal app-specific Settings toggle. A transient desktop banner was not separately certified. That follow-up also exposed the solver's null-versus-omitted completion mismatch when both suppliers were exhausted; the HTTP serialization and real-solver regression now cover that case.
 
+The final focused run at `8045d6e` executed the committed `package:mac:local` command without manual re-signing. The resulting arm64 app passed strict deep signature verification, launched through Launch Services, and delivered native notifications with the existing app-specific permission. Actual Notification Center clicks opened the correct project after both successful recovery and exhausted-supplier failure. The latter returned HTTP 200, persisted `recovery.failed`, and displayed `UNSAT` / `NEEDS_HUMAN` with a public explanation and both failed suppliers; no stale valid plan remained. Native telemetry recorded six requests, six shown callbacks and no failures. This run used the real local solver/orchestrator and mocked providers.
+
+Fresh notification authorization, transient desktop banners, physical/live voice and distribution signing remain unverified. An incidental microphone prompt was declined normally and text remained usable; this is not comprehensive permission-denial coverage.
+
 ### Manual acceptance
 
 On a Mac with account-supported OpenAI models and the missing real provider integrations connected:
