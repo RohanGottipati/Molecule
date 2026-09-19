@@ -1,4 +1,9 @@
-import type { CanonicalClaim, MerchantCapability, ProductIntent } from "@molecule/contracts";
+import type {
+  CanonicalClaim,
+  MerchantCapability,
+  ProductIntent,
+} from "@molecule/contracts";
+export { kitIntent } from "./kit.js";
 
 /** The demo world's forced capacity conflict, mirroring sql/004_seed.sql. */
 export const CUSTOMIZECO_CAPACITY_CLAIMS: CanonicalClaim[] = [
@@ -14,7 +19,8 @@ export const CUSTOMIZECO_CAPACITY_CLAIMS: CanonicalClaim[] = [
     sourceAuthority: 0.5,
     extractionConfidence: 0.6,
     resolutionStatus: "active",
-    evidenceText: 'Shopify product page lists "up to 100 units/day" in marketing copy',
+    evidenceText:
+      'Shopify product page lists "up to 100 units/day" in marketing copy',
   },
   {
     claimId: "claim-cust-capacity-pdf",
@@ -42,7 +48,8 @@ export const CUSTOMIZECO_CAPACITY_CLAIMS: CanonicalClaim[] = [
     sourceAuthority: 0.9,
     extractionConfidence: 0.95,
     resolutionStatus: "active",
-    evidenceText: 'Merchant-submitted note: "machine #2 is down, capacity is 20/day until fixed"',
+    evidenceText:
+      'Merchant-submitted note: "machine #2 is down, capacity is 20/day until fixed"',
   },
 ];
 
@@ -53,7 +60,13 @@ export const BASEGOODS_CAPABILITY: MerchantCapability = {
   name: "Black cotton hoodie",
   description: "Black cotton hoodies, sizes S-XL",
   accepts: [],
-  produces: [{ kind: "garment", name: "cotton_hoodie", attributes: { color: "black", material: "cotton" } }],
+  produces: [
+    {
+      kind: "garment",
+      name: "cotton_hoodie",
+      attributes: { color: "black", material: "cotton" },
+    },
+  ],
   quantity: { min: 1, max: 500, unit: "unit" },
   pricing: { currency: "CAD", unitPrice: 18, setupFee: 0 },
   leadTime: { min: 4, max: 24, unit: "hours" },

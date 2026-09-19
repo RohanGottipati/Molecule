@@ -16,7 +16,13 @@ export function getPool(): pg.Pool {
         "DATABASE_URL is not set. Copy .env.example to .env and fill it in.",
       );
     }
-    pool = new Pool({ connectionString });
+    pool = new Pool({
+      connectionString,
+      max: 12,
+      connectionTimeoutMillis: 5_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 15_000,
+    });
   }
   return pool;
 }
@@ -29,3 +35,21 @@ export async function closePool(): Promise<void> {
 }
 
 export type DbClient = pg.Pool | pg.PoolClient;
+
+export async function transaction<T>(
+  work: (client: pg.PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(73481203)");
+    const result = await work(client);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}

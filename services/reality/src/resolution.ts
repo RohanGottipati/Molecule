@@ -1,4 +1,5 @@
 import type { CanonicalClaim } from "@molecule/contracts";
+import { stableJson } from "./ingestion.js";
 
 /**
  * Weights are intentionally named constants, not magic numbers, so the
@@ -38,12 +39,21 @@ function recencyScore(claim: CanonicalClaim, now: Date): number {
   return Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
 }
 
-function corroborationBonus(claim: CanonicalClaim, allClaims: CanonicalClaim[]): number {
-  const agreeingCount = allClaims.filter(
-    (other) =>
-      other.claimId !== claim.claimId &&
-      JSON.stringify(other.normalizedValue) === JSON.stringify(claim.normalizedValue),
-  ).length;
+function corroborationBonus(
+  claim: CanonicalClaim,
+  allClaims: CanonicalClaim[],
+): number {
+  const agreeingCount = new Set(
+    allClaims
+      .filter(
+        (other) =>
+          other.claimId !== claim.claimId &&
+          other.source.reference !== claim.source.reference &&
+          stableJson(other.normalizedValue) ===
+            stableJson(claim.normalizedValue),
+      )
+      .map((other) => other.source.reference),
+  ).size;
   // Diminishing returns: first corroborating source matters most.
   return agreeingCount === 0 ? 0 : 1 - 1 / (agreeingCount + 1);
 }
@@ -87,7 +97,11 @@ export function resolveClaims(
   now: Date = new Date(),
 ): ResolutionResult {
   const active = claims.filter(
-    (c) => c.resolutionStatus === "active" || c.resolutionStatus === "conflicted",
+    (c) =>
+      (c.resolutionStatus === "active" ||
+        c.resolutionStatus === "conflicted") &&
+      c.normalizedValue !== undefined &&
+      c.normalizedValue !== null,
   );
   if (active.length === 0) {
     return { status: "unknown" };
@@ -95,9 +109,17 @@ export function resolveClaims(
 
   const scored = active
     .map((claim) => scoreClaim(claim, active, now))
-    .sort((a, b) => b.score - a.score);
+    .sort(
+      (a, b) =>
+        b.score - a.score || a.claim.claimId.localeCompare(b.claim.claimId),
+    );
 
-  const [top, runnerUp] = scored;
+  const top = scored[0];
+  const runnerUp = scored.find(
+    (entry) =>
+      stableJson(entry.claim.normalizedValue) !==
+      stableJson(top?.claim.normalizedValue),
+  );
   if (!top) {
     return { status: "unknown" };
   }
