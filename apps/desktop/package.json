@@ -1,0 +1,33 @@
+{
+  "name": "@molecule/desktop",
+  "productName": "Molecule",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs && vite build",
+    "dev": "node scripts/dev.mjs",
+    "start": "electron .",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "package:mac": "pnpm build && electron-packager . Molecule --platform=darwin --arch=arm64,x64 --out=release --asar --ignore='^/(src|scripts|node_modules|release)' --app-bundle-id=ai.molecule.desktop --extend-info=Info.plist",
+    "package:mac:local": "pnpm build && node scripts/package-mac-local.mjs"
+  },
+  "dependencies": {
+    "@molecule/contracts": "workspace:*",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@electron/packager": "18.4.4",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "electron": "44.3.0",
+    "esbuild": "0.25.10",
+    "vite": "7.1.5",
+    "vitest": "5.0.1"
+  }
+}

@@ -15,3 +15,16 @@ Before a demo, reset the deterministic seed world and verify OpenAI, Backboard, 
 7. Summarize the cost/deadline delta and show persisted events.
 
 The full detailed runbook and acceptance matrix are in the source playbook document.
+
+## B5 persistent memory demo prep
+
+Before the demo, seed the "Never auto-accept rush embroidery above 40 units while
+machine #2 is down" correction through `MerchantTwinService.ensureMerchantMemory`
+(`buildDemoMerchantMemory()` in `@molecule/backboard`) — the supported API workflow —
+rather than relying on the assistant to extract it live from a conversation. Memory
+is only ever written through this explicit call; a quote request only reads it back
+(`GET /api/merchant-agents/:merchantId/memory` for the sanitized merchant-memory
+card), so there is no uncontrolled extraction timing to depend on. If a live run's
+memory recall still looks inconsistent, re-seed via the same call immediately before
+going on and treat the memory step as **readonly** for that demo — do not attempt to
+record new memory from the live assistant on stage.

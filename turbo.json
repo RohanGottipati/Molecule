@@ -1,5 +1,12 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "TEST_DATABASE_URL",
+    "SHOPIFY_TEST_DATABASE_URL",
+    "ORCHESTRATOR_TEST_DATABASE_URL",
+    "SOLVER_PYTHON"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -10,14 +17,15 @@
       "persistent": true
     },
     "lint": {
-      "dependsOn": ["^lint"]
+      "dependsOn": ["^build", "^lint"]
     },
     "test": {
+      "cache": false,
       "dependsOn": ["^build"],
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": ["^typecheck"]
+      "dependsOn": ["^build", "^typecheck"]
     }
   }
 }

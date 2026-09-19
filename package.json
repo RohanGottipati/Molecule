@@ -8,16 +8,31 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "bootstrap": "node scripts/setup.mjs",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "turbo run lint",
-    "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "solver:dev": "services/solver/.venv/bin/uvicorn app.main:app --app-dir services/solver --reload --port 8000",
+    "solver:lint": "services/solver/.venv/bin/ruff check services/solver && services/solver/.venv/bin/mypy services/solver/app",
+    "solver:test": "services/solver/.venv/bin/pytest services/solver/tests -q",
+    "test": "turbo run test --concurrency=2",
+    "test:adversary": "pnpm --filter @molecule/orchestrator test && pnpm solver:test",
+    "typecheck": "turbo run typecheck",
+    "verify:openai": "node --import tsx scripts/verify-openai.ts",
+    "verify:desktop": "node --import tsx scripts/verify-desktop.mjs",
+    "verify:kit": "node --import tsx scripts/verify-kit.mjs",
+    "verify:durable": "pnpm --filter @molecule/orchestrator exec vitest run src/durableRuntime.integration.test.ts",
+    "verify:secrets": "node scripts/verify-no-client-secrets.mjs",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/migrate.ts",
+    "db:seed": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/migrate.ts --seed-only",
+    "db:reset": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/reset.ts"
   },
   "devDependencies": {
+    "@types/node": "26.6.2",
     "prettier": "3.9.8",
     "turbo": "2.11.2",
+    "tsx": "4.23.13",
     "typescript": "7.0.2"
   }
 }

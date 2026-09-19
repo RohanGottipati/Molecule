@@ -12,6 +12,7 @@ coverage/
 
 .DS_Store
 *.log
+*.tsbuildinfo
 
 __pycache__/
 *.py[cod]
@@ -19,3 +20,6 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.venv312/
+.molecule-data/
+apps/desktop/release/

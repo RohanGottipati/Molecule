@@ -1,0 +1,30 @@
+{
+  "name": "@molecule/orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.3.0",
+    "@molecule/contracts": "workspace:*",
+    "@molecule/db": "workspace:*",
+    "@molecule/events": "workspace:*",
+    "@molecule/merchant-agents": "workspace:*",
+    "@molecule/openai": "workspace:*",
+    "@molecule/service-reality": "workspace:*",
+    "@molecule/shopify": "workspace:*",
+    "fastify": "5.12.5",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "tsx": "4.23.13",
+    "vitest": "5.0.1"
+  }
+}
