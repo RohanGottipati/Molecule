@@ -190,9 +190,18 @@ Operations are associated by clause rather than by adjacency, so "hoodie logo
 embroidery", "hoodies with embroidered logo" and "logo on hoodie" all target the
 single component named in that clause; a clause naming several or no components
 falls back to the only requested component, otherwise it asks which component
-needs the operation. A detached color clause in a kit request ("... , black, ...")
-scopes to the requested wearable; unsupported components and qualifiers such as
-"logo on umbrellas" or "matte black" still ask for clarification.
+needs the operation. Explicit printing or engraving takes precedence over generic
+logo-to-embroidery inference within the same clause, so "printed logo on shirts"
+does not introduce embroidery. Other clauses can still request embroidery.
+A detached color clause in a kit request ("... , black, ...") scopes only when
+there is one requested color and one wearable. Multiple wearables or colors
+require clarification without assigning an arbitrary component.
+
+Standalone attributes are accepted only after a rule or preference consumes the
+clause. "Cotton" and "vegan" without component scope, and detached colors outside
+kit requests, require clarification; "premium" records a quality preference.
+This also applies to standalone additive corrections. Unsupported components and
+qualifiers such as "logo on umbrellas" or "matte black" still ask for clarification.
 
 The Python solver runs as a subprocess in the package integration test. Each
 solve is bounded at 20s and `packages/openai/vitest.config.ts` sets a 30s
