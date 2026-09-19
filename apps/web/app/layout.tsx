@@ -6,7 +6,8 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   title: "Molecule OS",
-  description: "Constraint-aware production planning",
+  description:
+    "You describe something that should exist. Molecule assembles a company to make it.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
