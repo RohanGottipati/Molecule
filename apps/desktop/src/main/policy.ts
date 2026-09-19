@@ -1,3 +1,68 @@
+import { z } from "zod";
+
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function serviceOrigin(value: string): string {
+  const url = new URL(value);
+  if (
+    !["https:", "http:"].includes(url.protocol) ||
+    (url.protocol === "http:" && !loopbackHosts.has(url.hostname)) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
+  )
+    throw new Error(
+      "Use an HTTPS service origin or local HTTP origin without credentials.",
+    );
+  return url.origin;
+}
+
+export function rendererOrigin(value?: string): string {
+  if (!value) return "app://molecule";
+  const origin = serviceOrigin(value);
+  if (!loopbackHosts.has(new URL(origin).hostname))
+    throw new Error("Renderer must be local");
+  return origin;
+}
+
+export function isTrustedFrame(value: string, origin: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      !url.username &&
+      !url.password &&
+      `${url.protocol}//${url.host}` === origin
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function allowsIpcSender(
+  sender: { id: number; mainFrame: boolean; url: string },
+  expectedId: number,
+  origin: string,
+): boolean {
+  return (
+    sender.id === expectedId &&
+    sender.mainFrame &&
+    isTrustedFrame(sender.url, origin)
+  );
+}
+
+export function allowsMediaCheck(
+  permission: string,
+  mediaType: string | undefined,
+  selected: boolean,
+) {
+  return permission === "display-capture"
+    ? selected
+    : permission === "media" &&
+        (mediaType === "audio" || (mediaType === "unknown" && selected));
+}
+
 export function allowsMediaRequest(
   permission: string,
   mediaTypes: readonly string[] | undefined,
@@ -10,10 +75,8 @@ export function allowsMediaRequest(
 }
 
 export function dashboardUrl(base: string, projectId?: string): string {
-  const url = new URL(base);
-  if (!["http:", "https:"].includes(url.protocol))
-    throw new Error("Invalid dashboard URL");
-  if (projectId && !/^[a-f0-9-]{36}$/i.test(projectId))
+  const url = new URL(serviceOrigin(base));
+  if (projectId && !z.uuid().safeParse(projectId).success)
     throw new Error("Invalid project");
   url.pathname = projectId ? `/projects/${encodeURIComponent(projectId)}` : "/";
   url.search = "";
@@ -27,7 +90,12 @@ export function projectFromLink(value: string): string | null {
     const id = url.pathname.slice(1);
     return url.protocol === "molecule:" &&
       url.hostname === "project" &&
-      /^[a-f0-9-]{36}$/i.test(id)
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      !url.search &&
+      !url.hash &&
+      z.uuid().safeParse(id).success
       ? id
       : null;
   } catch {

@@ -2,7 +2,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #f1efe8;
   font-synthesis: none;
-  --acid: #c9ff34;
+  --acid: #6ee7b7;
   --muted: #aaa99f;
 }
 * {
@@ -74,14 +74,26 @@ header span {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 25%, #e8ff9a, #c9ff34 40%, #57852c);
-  color: #142108;
+  background: radial-gradient(circle at 30% 25%, #a7f3d0, #6ee7b7 40%, #047857);
+  color: #052e25;
   font-size: 25px;
   font-weight: 800;
   padding: 0;
   box-shadow:
-    inset 0 0 14px #f3ffc680,
-    0 0 24px #c9ff3420;
+    inset 0 0 14px #d1fae580,
+    0 0 24px #6ee7b720;
+}
+.provider-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.provider-status p small {
+  display: block;
+  margin-top: 4px;
+}
+.provider-status > button {
+  display: block;
+  margin-top: 10px;
 }
 .icon {
   padding: 4px 8px;
@@ -158,7 +170,7 @@ header .connection.offline {
 }
 .mic-button.active {
   color: var(--acid);
-  border-color: #c9ff3450;
+  border-color: #6ee7b750;
 }
 header > button:last-child {
   border: 0;
@@ -226,7 +238,7 @@ select {
   padding: 12px;
 }
 .primary:hover {
-  background: #d8ff76;
+  background: #a7f3d0;
 }
 .section-title {
   display: flex;
@@ -287,8 +299,8 @@ div.error {
 }
 .alert.success {
   color: #d4f5a8;
-  border-color: #c9ff3450;
-  background: #c9ff340c;
+  border-color: #6ee7b750;
+  background: #6ee7b70c;
 }
 .error button {
   padding: 6px 8px;
@@ -305,7 +317,7 @@ div.error {
 }
 .recovery-summary span {
   padding: 4px 7px;
-  background: #c9ff340a;
+  background: #6ee7b70a;
   border-radius: 5px;
 }
 .voice-controls {
@@ -359,7 +371,7 @@ div.error {
   line-height: 1.5;
 }
 .transcript.assistant {
-  border-left: 2px solid #c9ff3460;
+  border-left: 2px solid #6ee7b760;
 }
 .context-tools {
   display: flex;
@@ -429,7 +441,7 @@ div.error {
 }
 button[aria-pressed="true"] {
   color: var(--acid);
-  border-color: #c9ff3450;
+  border-color: #6ee7b750;
 }
 .company {
   padding: 0;
@@ -462,9 +474,9 @@ button[aria-pressed="true"] {
   gap: 10px;
   align-items: center;
   padding: 10px;
-  border: 1px solid #c9ff3428;
+  border: 1px solid #6ee7b728;
   border-radius: 12px;
-  background: #c9ff3404;
+  background: #6ee7b704;
 }
 .merchant > div:nth-child(2) {
   flex: 1;

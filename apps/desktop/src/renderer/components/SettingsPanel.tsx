@@ -15,6 +15,7 @@ export function SettingsPanel({
   const [draft, setDraft] = useState(value);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     void navigator.mediaDevices
       .enumerateDevices()
@@ -34,6 +35,9 @@ export function SettingsPanel({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          if (saving) return;
+          setSaving(true);
+          setError("");
           void save(draft)
             .then(close)
             .catch((cause: unknown) =>
@@ -42,7 +46,8 @@ export function SettingsPanel({
                   ? cause.message
                   : "Settings could not be saved",
               ),
-            );
+            )
+            .finally(() => setSaving(false));
         }}
       >
         <label>
@@ -125,8 +130,8 @@ export function SettingsPanel({
             {error}
           </p>
         )}
-        <button type="submit" className="primary">
-          Save settings
+        <button type="submit" className="primary" disabled={saving}>
+          {saving ? "Saving…" : "Save settings"}
         </button>
       </form>
     </section>

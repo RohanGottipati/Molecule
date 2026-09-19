@@ -6,9 +6,76 @@ import {
   projectFromLink,
   registerShortcut,
   toggleWindow,
+  serviceOrigin,
+  rendererOrigin,
+  isTrustedFrame,
+  allowsIpcSender,
+  allowsMediaCheck,
 } from "./policy.js";
 
 describe("desktop platform policy", () => {
+  it.each([
+    "https://user:secret@example.com",
+    "http://example.com",
+    "file:///secret",
+    "https://example.com/?token=secret",
+    "https://example.com/api",
+    "javascript:alert(1)",
+  ])("rejects unsafe service configuration %s", (url) => {
+    expect(() => serviceOrigin(url)).toThrow();
+    expect(() => dashboardUrl(url)).toThrow();
+  });
+  it("trusts only the configured main frame of this window", () => {
+    const origin = rendererOrigin("http://127.0.0.1:5173");
+    expect(
+      allowsIpcSender(
+        { id: 1, mainFrame: true, url: `${origin}/index.html` },
+        1,
+        origin,
+      ),
+    ).toBe(true);
+    expect(
+      allowsIpcSender({ id: 2, mainFrame: true, url: `${origin}/` }, 1, origin),
+    ).toBe(false);
+    expect(
+      allowsIpcSender(
+        { id: 1, mainFrame: false, url: `${origin}/` },
+        1,
+        origin,
+      ),
+    ).toBe(false);
+    for (const url of [
+      "http://127.0.0.1:51730/",
+      "http://127.0.0.1:5173.evil/",
+      "http://user:secret@127.0.0.1:5173/",
+      "about:blank",
+    ])
+      expect(isTrustedFrame(url, origin)).toBe(false);
+    expect(isTrustedFrame("app://molecule/index.html", rendererOrigin())).toBe(
+      true,
+    );
+    expect(
+      isTrustedFrame("app://molecule.evil/index.html", rendererOrigin()),
+    ).toBe(false);
+    expect(() => rendererOrigin("https://example.com")).toThrow();
+    expect(() => rendererOrigin("ftp://localhost")).toThrow();
+  });
+  it("denies camera and unknown media checks without explicit screen selection", () => {
+    expect(allowsMediaCheck("media", "video", true)).toBe(false);
+    expect(allowsMediaCheck("media", "unknown", false)).toBe(false);
+    expect(allowsMediaCheck("media", "audio", false)).toBe(true);
+    expect(allowsMediaCheck("media", "unknown", true)).toBe(true);
+    expect(allowsMediaCheck("geolocation", "audio", true)).toBe(false);
+  });
+  it("rejects malformed deep links and credentials", () => {
+    const id = "bc812dea-31c8-4258-a81d-08c7eeb14b97";
+    for (const url of [
+      `molecule://user@project/${id}`,
+      `molecule://project/${id}?next=evil`,
+      `molecule://project/${"-".repeat(36)}`,
+    ])
+      expect(projectFromLink(url)).toBeNull();
+  });
   it.each([
     ["media", [], true, true],
     ["media", [], false, false],

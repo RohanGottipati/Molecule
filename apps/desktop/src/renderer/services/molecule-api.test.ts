@@ -8,6 +8,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("desktop commands", () => {
+  it("does not retry an HTTP rejection with a non-JSON error body", async () => {
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("<h1>Unavailable</h1>", { status: 503 }));
+    await expect(
+      new MoleculeApi("http://localhost:3001", transport).config(),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+  it("rejects malformed success payloads without repeating a mutation", async () => {
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("not JSON"));
+    await expect(
+      new MoleculeApi("http://localhost:3001", transport).createProject("one"),
+    ).rejects.toThrow("invalid response");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+  it("cancels retries when navigation aborts a read", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError("offline"));
+    const promise = new MoleculeApi(
+      "http://localhost:3001",
+      transport,
+    ).getProject("one", controller.signal);
+    const assertion = expect(promise).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    controller.abort();
+    await assertion;
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+  it("rejects unsafe filenames before sending any bytes", () => {
+    expect(() => validateContext(new File(["secret"], "../brief.txt"))).toThrow(
+      "filename",
+    );
+    expect(() => validateContext(new File(["secret"], "brief\n.txt"))).toThrow(
+      "filename",
+    );
+  });
   it("calls browser fetch with its Window receiver", async () => {
     const transport = vi.fn(function (this: unknown) {
       expect(this).toBe(globalThis);

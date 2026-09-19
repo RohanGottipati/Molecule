@@ -22,7 +22,10 @@ export function App() {
     void operation.catch((error: unknown) => store.error(error));
   };
   useEffect(() => {
-    void store.initialize();
+    void store.initialize().then(() => store.refreshProviders());
+    const providersTimer = setInterval(() => {
+      void store.refreshProviders();
+    }, 60_000);
     const unsubscribe = store.bridge.onSignal((signal) => {
       if (signal.type === "visibility") store.setVisible(signal.visible);
       if (signal.type === "project") run(store.openProject(signal.projectId));
@@ -33,6 +36,7 @@ export function App() {
     });
     return () => {
       unsubscribe();
+      clearInterval(providersTimer);
       store.dispose();
     };
   }, [store]);
@@ -77,16 +81,18 @@ export function App() {
         run(
           (async () => {
             if (files.length) return store.upload(files);
-            const captured = await store.bridge.pasteFiles();
-            if (captured.length)
-              return store.upload(
-                captured.map(
-                  (file) =>
-                    new File([new Uint8Array(file.bytes)], file.name, {
-                      type: file.mimeType,
-                    }),
-                ),
+            let pasted = false;
+            await store.uploadFrom(async () => {
+              const captured = await store.bridge.pasteFiles();
+              pasted = captured.length > 0;
+              return captured.map(
+                (file) =>
+                  new File([new Uint8Array(file.bytes)], file.name, {
+                    type: file.mimeType,
+                  }),
               );
+            });
+            if (pasted) return;
             setText(
               (current) => current.slice(0, start) + plain + current.slice(end),
             );
@@ -170,6 +176,7 @@ export function App() {
               )}
               {!state.project && state.bootstrap?.settings.lastProjectId && (
                 <button
+                  disabled={state.pending > 0}
                   onClick={() =>
                     run(
                       store.openProject(
@@ -409,11 +416,9 @@ export function App() {
                           run(
                             (async () => {
                               setSources(null);
-                              const file = await captureFrame(
-                                store.bridge,
-                                sourceId,
-                              );
-                              await store.upload([file]);
+                              await store.uploadFrom(async () => [
+                                await captureFrame(store.bridge, sourceId),
+                              ]);
                               const settings =
                                 store.getSnapshot().bootstrap?.settings;
                               if (settings)
@@ -464,14 +469,17 @@ export function App() {
                     New project
                   </button>
                   <button
-                    disabled={[
-                      "CANCELLED",
-                      "COMPLETED",
-                      "EXECUTING",
-                      "SKU_CREATED",
-                      "SUPPLIER_JOBS_CREATED",
-                      "CUSTOMER_ORDER_CREATED",
-                    ].includes(project.state)}
+                    disabled={
+                      state.pending > 0 ||
+                      [
+                        "CANCELLED",
+                        "COMPLETED",
+                        "EXECUTING",
+                        "SKU_CREATED",
+                        "SUPPLIER_JOBS_CREATED",
+                        "CUSTOMER_ORDER_CREATED",
+                      ].includes(project.state)
+                    }
                     onClick={() => {
                       voice.stop();
                       run(store.command({ name: "cancel_project", args: {} }));
@@ -500,6 +508,7 @@ export function App() {
                           `${constraint.field} ${constraint.operator} ${String(constraint.value)}`}
                       </span>
                       <button
+                        disabled={state.pending > 0}
                         aria-label={`Remove requirement ${constraint.field}`}
                         onClick={() =>
                           run(
@@ -575,7 +584,35 @@ export function App() {
                   </button>
                 </>
               )}
-              {state.mockProviders.length > 0 && (
+              <details className="provider-status">
+                <summary>
+                  {state.marketplace
+                    ? `${state.marketplace.mode} providers`
+                    : "Provider availability unknown"}
+                </summary>
+                {state.marketplace?.providers.map((provider) => (
+                  <p key={provider.name}>
+                    <strong>{provider.name}</strong> · {provider.mode} ·{" "}
+                    {provider.status}
+                    <small>{provider.detail}</small>
+                  </p>
+                ))}
+                {state.providerError && (
+                  <p role="status">{state.providerError}</p>
+                )}
+                {state.marketplace && (
+                  <small>
+                    Checked{" "}
+                    {new Date(
+                      state.marketplace.generatedAt,
+                    ).toLocaleTimeString()}
+                  </small>
+                )}
+                <button onClick={() => run(store.refreshProviders())}>
+                  Refresh availability
+                </button>
+              </details>
+              {!state.marketplace && state.mockProviders.length > 0 && (
                 <p className="demo-note">
                   Development providers: {state.mockProviders.join(", ")} are
                   mocked.
@@ -593,7 +630,7 @@ export function App() {
                 </details>
               )}
               <footer>
-                <span>Option + Space to return</span>
+                <span>{state.bootstrap?.shortcut ?? "Menu bar"} to return</span>
                 <button onClick={() => setShowSettings(true)}>Settings</button>
               </footer>
             </>

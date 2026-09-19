@@ -25,8 +25,8 @@ export class SettingsStore {
     return this.value;
   }
   save(value: Settings) {
-    this.value = SettingsSchema.parse(value);
-    const contents = JSON.stringify(this.value);
+    const next = SettingsSchema.parse(value);
+    const contents = JSON.stringify(next);
     this.writes = this.writes
       .catch(() => undefined)
       .then(async () => {
@@ -38,6 +38,7 @@ export class SettingsStore {
           join(this.directory, "settings.next"),
           join(this.directory, "settings.json"),
         );
+        this.value = next;
       });
     return this.writes;
   }

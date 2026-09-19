@@ -7,19 +7,19 @@ export function useVoice(store: DesktopStore) {
   const [voice] = useState(
     () =>
       new RealtimeClient({
-        createSession: async () =>
-          store.api.createRealtimeSession(
-            (await store.ensureProject()).project.orderId,
-          ),
+        createSession: (projectId) =>
+          store.api.createRealtimeSession(projectId),
         permission: () => store.bridge.requestMicrophone(),
         microphoneDevice: () =>
           store.getSnapshot().bootstrap?.settings.microphoneDevice ?? "",
         mockProviders: () => store.getSnapshot().mockProviders,
         refresh: async () => {
-          const { project } = await store.ensureProject();
-          const result = await store.api.getProject(project.orderId);
+          await store.ensureProject();
           await store.refresh();
-          return result;
+          const result = store.getSnapshot();
+          if (!result.project)
+            throw new DOMException("Project changed", "AbortError");
+          return { project: result.project, contexts: result.attachments };
         },
         tools: new ToolDispatcher((command, actionId) =>
           store.command(command, actionId),
@@ -37,6 +37,7 @@ export function useVoice(store: DesktopStore) {
     await voice.start();
   };
   useEffect(() => {
+    store.onProjectChanging = () => voice.stop();
     const unsubscribe = store.bridge.onSignal((signal) => {
       if (
         (signal.type === "visibility" && !signal.visible) ||
@@ -72,6 +73,7 @@ export function useVoice(store: DesktopStore) {
       voice.stop();
       store.onBackendEvent = undefined;
       store.onContextAttached = undefined;
+      store.onProjectChanging = undefined;
     };
   }, [store, voice]);
   return { voice, state, toggle };

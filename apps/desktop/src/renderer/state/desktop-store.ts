@@ -3,6 +3,7 @@ import type {
   DesktopCommand,
   DesktopResult,
   MoleculeEvent,
+  MarketplaceSnapshot,
 } from "@molecule/contracts";
 import type {
   DesktopBootstrap,
@@ -33,6 +34,8 @@ export interface DesktopState {
   error: string | null;
   demoMode: boolean;
   mockProviders: string[];
+  marketplace: MarketplaceSnapshot | null;
+  providerError: string | null;
 }
 
 export class DesktopStore {
@@ -51,6 +54,8 @@ export class DesktopStore {
     error: null,
     demoMode: false,
     mockProviders: [],
+    marketplace: null,
+    providerError: null,
   };
   private readonly listeners = new Set<() => void>();
   private apiClient?: MoleculeApi;
@@ -60,8 +65,19 @@ export class DesktopStore {
   private creating?: Promise<DesktopResult>;
   private createActionId = crypto.randomUUID();
   private generation = 0;
+  private disposed = false;
+  private selection = new AbortController();
+  private readonly seenEvents = new Set<string>();
+  private readonly commands = new Map<
+    string,
+    { fingerprint: string; result?: Promise<DesktopResult> }
+  >();
+  private readonly automaticActions = new Map<string, string>();
+  private checking?: Promise<void>;
+  private checkingProviders?: Promise<void>;
   onBackendEvent?: (event: MoleculeEvent) => void;
   onContextAttached?: () => void;
+  onProjectChanging?: () => void;
   constructor(readonly bridge: DesktopBridge) {}
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => {
@@ -79,6 +95,7 @@ export class DesktopStore {
     return this.apiClient;
   }
   error(cause: unknown) {
+    if (cause instanceof DOMException && cause.name === "AbortError") return;
     this.patch({
       error:
         cause instanceof Error
@@ -92,18 +109,29 @@ export class DesktopStore {
   async initialize() {
     try {
       const bootstrap = await this.bridge.bootstrap();
+      if (this.disposed) return;
       this.apiClient = new MoleculeApi(bootstrap.apiUrl);
       this.patch({ bootstrap });
       await this.bridge.ready();
+      if (this.disposed) return;
       await this.checkConnection();
     } catch (error) {
       this.error(error);
       this.patch({ connection: "offline" });
     }
   }
-  async checkConnection() {
+  checkConnection() {
+    if (this.disposed) return Promise.resolve();
+    if (this.checking) return this.checking;
+    this.checking = this.loadConnection().finally(() => {
+      this.checking = undefined;
+    });
+    return this.checking;
+  }
+  private async loadConnection() {
     try {
       const config = await this.api.config();
+      if (this.disposed) return;
       this.patch({
         connection: "connected",
         demoMode: config.demoMode,
@@ -114,8 +142,31 @@ export class DesktopStore {
       });
       if (this.state.project) this.connectEvents();
     } catch (error) {
+      if (this.disposed) return;
       this.error(error);
       this.patch({ connection: "offline" });
+    }
+  }
+  refreshProviders() {
+    if (this.disposed) return Promise.resolve();
+    if (this.checkingProviders) return this.checkingProviders;
+    this.checkingProviders = this.loadProviders().finally(() => {
+      this.checkingProviders = undefined;
+    });
+    return this.checkingProviders;
+  }
+  private async loadProviders() {
+    try {
+      const marketplace = await this.api.marketplace();
+      if (this.disposed) return;
+      this.patch({ marketplace, providerError: null });
+    } catch {
+      if (this.disposed) return;
+      this.patch({
+        marketplace: null,
+        providerError:
+          "Provider availability is unavailable. Text actions remain available through the backend.",
+      });
     }
   }
   setVisible(visible: boolean) {
@@ -139,63 +190,95 @@ export class DesktopStore {
     if (this.state.project)
       return { project: this.state.project, contexts: this.state.attachments };
     if (this.creating) return this.creating;
-    this.creating = this.api
+    const generation = this.generation;
+    const creating = this.api
       .createProject(this.createActionId)
       .then(async (result) => {
+        this.assertCurrent(generation);
         this.createActionId = crypto.randomUUID();
-        await this.select(result);
+        await this.select(result, generation);
         return result;
       })
       .finally(() => {
-        this.creating = undefined;
+        if (this.creating === creating) this.creating = undefined;
       });
+    this.creating = creating;
     return this.creating;
   }
-  private async select(result: DesktopResult) {
+  private assertCurrent(generation: number) {
+    if (generation !== this.generation)
+      throw new DOMException("Project changed", "AbortError");
+  }
+  private resetProject() {
+    this.onProjectChanging?.();
     this.generation += 1;
+    this.selection.abort();
+    this.selection = new AbortController();
     this.stream?.abort();
+    clearTimeout(this.refreshTimer);
+    this.creating = undefined;
+    this.commands.clear();
+    this.automaticActions.clear();
+    this.seenEvents.clear();
     this.cursor = 0;
+    this.createActionId = crypto.randomUUID();
     this.patch({
-      project: result.project,
-      attachments: result.contexts,
+      project: null,
+      attachments: [],
+      uploading: [],
+      pending: 0,
       activity: [],
       alert: null,
       failedMerchants: [],
       recovery: null,
       error: null,
     });
+    return this.generation;
+  }
+  private async select(result: DesktopResult, generation: number) {
+    this.assertCurrent(generation);
+    this.patch({ project: result.project, attachments: result.contexts });
+    this.connectEvents();
     const settings = this.state.bootstrap?.settings;
     if (settings)
       await this.settings({
         ...settings,
         lastProjectId: result.project.orderId,
+      }).catch(() => {
+        if (generation === this.generation)
+          this.error(
+            new Error(
+              "Project opened, but the resume preference could not be saved.",
+            ),
+          );
       });
-    this.connectEvents();
   }
   async openProject(id: string) {
-    await this.select(await this.api.getProject(id));
-    await this.mode("company");
+    const generation = this.resetProject();
+    this.patch({ pending: 1 });
+    try {
+      const result = await this.api.getProject(id, this.selection.signal);
+      await this.select(result, generation);
+      this.assertCurrent(generation);
+      await this.mode("company");
+    } finally {
+      if (generation === this.generation) this.patch({ pending: 0 });
+    }
   }
   async newProject() {
-    if (this.creating) await this.creating;
-    this.stream?.abort();
-    this.generation += 1;
-    this.patch({
-      project: null,
-      attachments: [],
-      activity: [],
-      alert: null,
-      failedMerchants: [],
-      recovery: null,
-    });
-    this.createActionId = crypto.randomUUID();
+    this.resetProject();
     await this.mode("conversation");
   }
-  async refresh() {
+  async refresh(signal?: AbortSignal) {
     const id = this.state.project?.orderId;
     if (!id) return;
     const generation = this.generation;
-    const result = await this.api.getProject(id);
+    const result = await this.api.getProject(
+      id,
+      signal
+        ? AbortSignal.any([signal, this.selection.signal])
+        : this.selection.signal,
+    );
     if (generation === this.generation) this.apply(result);
   }
   private connectEvents() {
@@ -209,7 +292,10 @@ export class DesktopStore {
       url: `${this.api.base}/api/orders/${projectId}/events`,
       cursor: this.cursor,
       signal: controller.signal,
-      refresh: () => this.refresh(),
+      refresh: async (signal) => {
+        if (generation === this.generation && !controller.signal.aborted)
+          await this.refresh(signal);
+      },
       onStatus: (connection) => {
         if (generation === this.generation && !controller.signal.aborted)
           this.patch({ connection });
@@ -220,12 +306,23 @@ export class DesktopStore {
         this.receive(event, replay);
         clearTimeout(this.refreshTimer);
         this.refreshTimer = setTimeout(() => {
-          void this.refresh().catch((error) => this.error(error));
+          if (generation === this.generation)
+            void this.refresh().catch((error) => {
+              if (generation === this.generation) this.error(error);
+            });
         }, 80);
       },
     });
   }
   receive(event: MoleculeEvent, replay = false) {
+    if (
+      event.orderId !== this.state.project?.orderId ||
+      this.seenEvents.has(event.eventId)
+    )
+      return;
+    this.seenEvents.add(event.eventId);
+    if (this.seenEvents.size > 2000)
+      this.seenEvents.delete(this.seenEvents.values().next().value!);
     const activity = mapEvent(event);
     if (event.eventType === "supplier.offline") {
       const merchantId =
@@ -269,58 +366,121 @@ export class DesktopStore {
       this.onBackendEvent?.(event);
     }
   }
-  async command(
+  command(command: DesktopCommand, actionId?: string): Promise<DesktopResult> {
+    const fingerprint = JSON.stringify(command);
+    const automatic = actionId === undefined;
+    actionId ??= this.automaticActions.get(fingerprint) ?? crypto.randomUUID();
+    const existing = this.commands.get(actionId);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint)
+        return Promise.reject(
+          new Error("Action ID reused for a different command."),
+        );
+      if (existing.result) return existing.result;
+    }
+    const id = actionId;
+    if (automatic) this.automaticActions.set(fingerprint, id);
+    const result = this.execute(command, actionId);
+    this.commands.set(actionId, { fingerprint, result });
+    void result
+      .then(
+        () => {
+          if (this.automaticActions.get(fingerprint) === id)
+            this.automaticActions.delete(fingerprint);
+        },
+        () => {
+          if (this.commands.get(id)?.result === result)
+            this.commands.set(id, { fingerprint });
+        },
+      )
+      .finally(() => {
+        if (this.commands.size > 500)
+          this.commands.delete(this.commands.keys().next().value!);
+      })
+      .catch(() => undefined);
+    return result;
+  }
+  private async execute(
     command: DesktopCommand,
-    actionId: string = crypto.randomUUID(),
+    actionId: string,
   ): Promise<DesktopResult> {
+    const generation = this.generation;
     this.patch({ pending: this.state.pending + 1, error: null });
     try {
       const { project } = await this.ensureProject();
+      this.assertCurrent(generation);
+      const result = await this.api.command(project.orderId, command, actionId);
+      this.assertCurrent(generation);
+      this.apply(result);
       if (command.name === "open_command_center")
         await this.bridge.openDashboard(project.orderId);
-      const result = await this.api.command(project.orderId, command, actionId);
-      this.apply(result);
-      return result;
+      this.assertCurrent(generation);
+      return {
+        ...result,
+        project: this.state.project ?? result.project,
+        contexts: this.state.attachments,
+      };
     } catch (error) {
-      this.error(error);
+      if (generation === this.generation) this.error(error);
       throw error;
     } finally {
-      this.patch({ pending: Math.max(0, this.state.pending - 1) });
+      if (generation === this.generation)
+        this.patch({ pending: Math.max(0, this.state.pending - 1) });
     }
   }
   async upload(files: File[]) {
     if (files.length > 8) throw new Error("Attach up to eight files at a time");
+    if (!files.length) return;
+    files.forEach(validateContext);
+    const generation = this.generation;
+    const { project } = await this.ensureProject();
+    this.assertCurrent(generation);
     for (const file of files) {
       try {
-        validateContext(file);
+        this.assertCurrent(generation);
         this.patch({
           uploading: [...this.state.uploading, file.name],
           error: null,
         });
-        const { project } = await this.ensureProject();
         const actionId = crypto.randomUUID();
         const context = await this.api.uploadContext(
           project.orderId,
           file,
           actionId,
         );
+        this.assertCurrent(generation);
         const result = await this.api.command(
           project.orderId,
           { name: "attach_context", args: { contextId: context.contextId } },
           `${actionId}:attach`,
         );
+        this.assertCurrent(generation);
         this.apply(result);
         this.onContextAttached?.();
       } catch (error) {
+        if (generation !== this.generation) return;
         this.error(error);
       } finally {
-        this.patch({
-          uploading: this.state.uploading.filter((name) => name !== file.name),
-        });
+        if (generation === this.generation)
+          this.patch({
+            uploading: this.state.uploading.filter(
+              (name) => name !== file.name,
+            ),
+          });
       }
     }
   }
+  async uploadFrom(read: () => Promise<File[]>) {
+    const generation = this.generation;
+    const files = await read();
+    this.assertCurrent(generation);
+    await this.upload(files);
+  }
   async chaos() {
+    if (!this.state.demoMode)
+      throw new Error("Supplier-offline controls require demo mode.");
+    if (this.state.pending > 0) return;
+    const generation = this.generation;
     const project = this.state.project;
     const supplier = project?.activePlan?.nodes.find((node) => {
       const candidate = project.candidates.find(
@@ -332,18 +492,22 @@ export class DesktopStore {
       throw new Error("No embroidery supplier is selected.");
     this.patch({ pending: this.state.pending + 1 });
     try {
-      this.apply(
-        await this.api.supplierOffline(
-          project.orderId,
-          supplier.merchantId,
-          crypto.randomUUID(),
-        ),
+      const result = await this.api.supplierOffline(
+        project.orderId,
+        supplier.merchantId,
+        crypto.randomUUID(),
       );
+      this.assertCurrent(generation);
+      this.apply(result);
     } finally {
-      this.patch({ pending: Math.max(0, this.state.pending - 1) });
+      if (generation === this.generation)
+        this.patch({ pending: Math.max(0, this.state.pending - 1) });
     }
   }
   dispose() {
+    this.disposed = true;
+    this.generation += 1;
+    this.selection.abort();
     this.stream?.abort();
     clearTimeout(this.refreshTimer);
   }
