@@ -28,39 +28,115 @@ const MATERIALS: Material[] = [
   { key: "cotton_tshirt", name: "Cotton t-shirt blank", category: "apparel" },
   { key: "cotton_hoodie", name: "Cotton hoodie blank", category: "apparel" },
   { key: "denim_jacket", name: "Denim jacket blank", category: "apparel" },
-  { key: "canvas_tote_bag", name: "Canvas tote bag blank", category: "apparel" },
-  { key: "leather_wallet_blank", name: "Leather wallet blank", category: "leather" },
-  { key: "leather_belt_blank", name: "Leather belt blank", category: "leather" },
+  {
+    key: "canvas_tote_bag",
+    name: "Canvas tote bag blank",
+    category: "apparel",
+  },
+  {
+    key: "leather_wallet_blank",
+    name: "Leather wallet blank",
+    category: "leather",
+  },
+  {
+    key: "leather_belt_blank",
+    name: "Leather belt blank",
+    category: "leather",
+  },
   { key: "ceramic_mug_blank", name: "Ceramic mug blank", category: "ceramic" },
-  { key: "glass_ornament_blank", name: "Glass ornament blank", category: "glass" },
-  { key: "acrylic_keychain_blank", name: "Acrylic keychain blank", category: "acrylic" },
-  { key: "wood_cutting_board_blank", name: "Wood cutting board blank", category: "wood" },
-  { key: "metal_water_bottle_blank", name: "Metal water bottle blank", category: "metal" },
-  { key: "silicone_phone_case_blank", name: "Silicone phone case blank", category: "silicone" },
-  { key: "vinyl_sticker_sheet_blank", name: "Vinyl sticker sheet blank", category: "vinyl" },
+  {
+    key: "glass_ornament_blank",
+    name: "Glass ornament blank",
+    category: "glass",
+  },
+  {
+    key: "acrylic_keychain_blank",
+    name: "Acrylic keychain blank",
+    category: "acrylic",
+  },
+  {
+    key: "wood_cutting_board_blank",
+    name: "Wood cutting board blank",
+    category: "wood",
+  },
+  {
+    key: "metal_water_bottle_blank",
+    name: "Metal water bottle blank",
+    category: "metal",
+  },
+  {
+    key: "silicone_phone_case_blank",
+    name: "Silicone phone case blank",
+    category: "silicone",
+  },
+  {
+    key: "vinyl_sticker_sheet_blank",
+    name: "Vinyl sticker sheet blank",
+    category: "vinyl",
+  },
   { key: "candle_wax_blank", name: "Candle wax blank", category: "wax" },
   { key: "paper_poster_blank", name: "Paper poster blank", category: "paper" },
   // Furniture
-  { key: "wood_table_top_blank", name: "Wood table top blank", category: "furniture" },
-  { key: "metal_chair_frame_blank", name: "Metal chair frame blank", category: "furniture" },
-  { key: "upholstery_fabric_roll", name: "Upholstery fabric roll", category: "furniture" },
-  { key: "steel_shelf_bracket_blank", name: "Steel shelf bracket blank", category: "furniture" },
+  {
+    key: "wood_table_top_blank",
+    name: "Wood table top blank",
+    category: "furniture",
+  },
+  {
+    key: "metal_chair_frame_blank",
+    name: "Metal chair frame blank",
+    category: "furniture",
+  },
+  {
+    key: "upholstery_fabric_roll",
+    name: "Upholstery fabric roll",
+    category: "furniture",
+  },
+  {
+    key: "steel_shelf_bracket_blank",
+    name: "Steel shelf bracket blank",
+    category: "furniture",
+  },
   // Appliances / electronics
-  { key: "mini_fridge_shell_blank", name: "Mini fridge shell blank", category: "appliance" },
-  { key: "speaker_casing_blank", name: "Speaker casing blank", category: "electronics" },
+  {
+    key: "mini_fridge_shell_blank",
+    name: "Mini fridge shell blank",
+    category: "appliance",
+  },
+  {
+    key: "speaker_casing_blank",
+    name: "Speaker casing blank",
+    category: "electronics",
+  },
   // Outdoor / lighting
   { key: "bike_frame_blank", name: "Bike frame blank", category: "outdoor" },
-  { key: "garden_planter_blank", name: "Garden planter blank", category: "outdoor" },
-  { key: "glass_lamp_shade_blank", name: "Glass lamp shade blank", category: "lighting" },
+  {
+    key: "garden_planter_blank",
+    name: "Garden planter blank",
+    category: "outdoor",
+  },
+  {
+    key: "glass_lamp_shade_blank",
+    name: "Glass lamp shade blank",
+    category: "lighting",
+  },
   // Corporate onboarding-kit categories (researched against real Shopify
   // merchants -- see REAL_MERCHANTS below): vegan snacks and custom
   // packaging don't need a transform step, they go straight to fulfillment.
   { key: "vegan_snack_pack", name: "Vegan snack pack", category: "food" },
-  { key: "custom_packaging_blank", name: "Custom branded packaging box", category: "packaging" },
+  {
+    key: "custom_packaging_blank",
+    name: "Custom branded packaging box",
+    category: "packaging",
+  },
   // Additional markets: beauty, pet, office, sports/wellness, baby.
   { key: "soap_bar_blank", name: "Soap bar blank", category: "beauty" },
   { key: "pet_bandana_blank", name: "Pet bandana blank", category: "pet" },
-  { key: "notebook_cover_blank", name: "Notebook cover blank", category: "office" },
+  {
+    key: "notebook_cover_blank",
+    name: "Notebook cover blank",
+    category: "office",
+  },
   { key: "yoga_mat_blank", name: "Yoga mat blank", category: "sports" },
   { key: "baby_onesie_blank", name: "Baby onesie blank", category: "baby" },
 ];
@@ -73,52 +149,194 @@ const MATERIALS: Material[] = [
 // filled out with generated competitor names to reach real store counts.
 const REAL_MERCHANTS: Record<string, { name: string; note: string }[]> = {
   cotton_hoodie: [
-    { name: "Apliiq", note: "real Shopify print-on-demand apparel + embroidery partner, apliiq.com" },
+    {
+      name: "Apliiq",
+      note: "real Shopify print-on-demand apparel + embroidery partner, apliiq.com",
+    },
   ],
   embroidery: [
-    { name: "Apliiq", note: "apliiq.com/custom/embroidery -- no-minimum custom embroidery" },
-    { name: "Printful", note: "printful.com -- Shopify POD embroidery partner" },
+    {
+      name: "Apliiq",
+      note: "apliiq.com/custom/embroidery -- no-minimum custom embroidery",
+    },
+    {
+      name: "Printful",
+      note: "printful.com -- Shopify POD embroidery partner",
+    },
   ],
   metal_water_bottle_blank: [
-    { name: "Merchology", note: "merchology.com/collections/drinkware -- real tumbler priced at $4.99" },
-    { name: "Corporate Gear", note: "corporategear.com/accessories/drinkware/bottles.html" },
+    {
+      name: "Merchology",
+      note: "merchology.com/collections/drinkware -- real tumbler priced at $4.99",
+    },
+    {
+      name: "Corporate Gear",
+      note: "corporategear.com/accessories/drinkware/bottles.html",
+    },
   ],
   engraving: [
-    { name: "Crystal Imagery", note: "crystalimagery.com -- real 32oz laser-engraved insulated bottle, wholesale logo bottles" },
+    {
+      name: "Crystal Imagery",
+      note: "crystalimagery.com -- real 32oz laser-engraved insulated bottle, wholesale logo bottles",
+    },
   ],
   vegan_snack_pack: [
-    { name: "Packed with Purpose", note: "shop.packedwithpurpose.gifts -- real vegan pretzel braids $5/5oz, gift boxes $149.99-$229.99" },
-    { name: "Emmy's Organics", note: "Shopify success story, organic/vegan snack brand" },
+    {
+      name: "Packed with Purpose",
+      note: "shop.packedwithpurpose.gifts -- real vegan pretzel braids $5/5oz, gift boxes $149.99-$229.99",
+    },
+    {
+      name: "Emmy's Organics",
+      note: "Shopify success story, organic/vegan snack brand",
+    },
   ],
   custom_packaging_blank: [
-    { name: "Brandable Box", note: "brandablebox.io -- Shopify app + merchant for logo-branded shipping boxes" },
-    { name: "G10 Fulfillment", note: "g10fulfillment.com -- custom packaging + 3PL" },
+    {
+      name: "Brandable Box",
+      note: "brandablebox.io -- Shopify app + merchant for logo-branded shipping boxes",
+    },
+    {
+      name: "G10 Fulfillment",
+      note: "g10fulfillment.com -- custom packaging + 3PL",
+    },
   ],
 };
 
 const TRANSFORMS: Transform[] = [
-  { key: "embroidery", name: "Embroidery", accepts: ["cotton_tshirt", "cotton_hoodie", "denim_jacket", "canvas_tote_bag", "pet_bandana_blank", "baby_onesie_blank"] },
-  { key: "screen_printing", name: "Screen printing", accepts: ["cotton_tshirt", "cotton_hoodie", "canvas_tote_bag", "paper_poster_blank", "yoga_mat_blank"] },
-  { key: "engraving", name: "Engraving", accepts: ["leather_wallet_blank", "leather_belt_blank", "wood_cutting_board_blank", "metal_water_bottle_blank", "acrylic_keychain_blank"] },
-  { key: "laser_cutting", name: "Laser cutting", accepts: ["acrylic_keychain_blank", "wood_cutting_board_blank"] },
-  { key: "dyeing", name: "Dyeing", accepts: ["denim_jacket", "canvas_tote_bag", "cotton_tshirt"] },
-  { key: "uv_printing", name: "UV printing", accepts: ["ceramic_mug_blank", "metal_water_bottle_blank", "silicone_phone_case_blank", "glass_ornament_blank"] },
-  { key: "vinyl_cutting", name: "Vinyl cutting", accepts: ["vinyl_sticker_sheet_blank"] },
-  { key: "hand_painting", name: "Hand painting", accepts: ["ceramic_mug_blank", "glass_ornament_blank", "candle_wax_blank", "glass_lamp_shade_blank"] },
-  { key: "heat_pressing", name: "Heat pressing", accepts: ["cotton_tshirt", "cotton_hoodie", "silicone_phone_case_blank"] },
-  { key: "leather_stamping", name: "Leather stamping", accepts: ["leather_wallet_blank", "leather_belt_blank"] },
+  {
+    key: "embroidery",
+    name: "Embroidery",
+    accepts: [
+      "cotton_tshirt",
+      "cotton_hoodie",
+      "denim_jacket",
+      "canvas_tote_bag",
+      "pet_bandana_blank",
+      "baby_onesie_blank",
+    ],
+  },
+  {
+    key: "screen_printing",
+    name: "Screen printing",
+    accepts: [
+      "cotton_tshirt",
+      "cotton_hoodie",
+      "canvas_tote_bag",
+      "paper_poster_blank",
+      "yoga_mat_blank",
+    ],
+  },
+  {
+    key: "engraving",
+    name: "Engraving",
+    accepts: [
+      "leather_wallet_blank",
+      "leather_belt_blank",
+      "wood_cutting_board_blank",
+      "metal_water_bottle_blank",
+      "acrylic_keychain_blank",
+    ],
+  },
+  {
+    key: "laser_cutting",
+    name: "Laser cutting",
+    accepts: ["acrylic_keychain_blank", "wood_cutting_board_blank"],
+  },
+  {
+    key: "dyeing",
+    name: "Dyeing",
+    accepts: ["denim_jacket", "canvas_tote_bag", "cotton_tshirt"],
+  },
+  {
+    key: "uv_printing",
+    name: "UV printing",
+    accepts: [
+      "ceramic_mug_blank",
+      "metal_water_bottle_blank",
+      "silicone_phone_case_blank",
+      "glass_ornament_blank",
+    ],
+  },
+  {
+    key: "vinyl_cutting",
+    name: "Vinyl cutting",
+    accepts: ["vinyl_sticker_sheet_blank"],
+  },
+  {
+    key: "hand_painting",
+    name: "Hand painting",
+    accepts: [
+      "ceramic_mug_blank",
+      "glass_ornament_blank",
+      "candle_wax_blank",
+      "glass_lamp_shade_blank",
+    ],
+  },
+  {
+    key: "heat_pressing",
+    name: "Heat pressing",
+    accepts: ["cotton_tshirt", "cotton_hoodie", "silicone_phone_case_blank"],
+  },
+  {
+    key: "leather_stamping",
+    name: "Leather stamping",
+    accepts: ["leather_wallet_blank", "leather_belt_blank"],
+  },
   // Furniture / appliance / outdoor transforms
-  { key: "varnishing", name: "Varnishing", accepts: ["wood_table_top_blank", "wood_cutting_board_blank"] },
-  { key: "powder_coating", name: "Powder coating", accepts: ["metal_chair_frame_blank", "steel_shelf_bracket_blank", "bike_frame_blank"] },
-  { key: "upholstering", name: "Upholstering", accepts: ["metal_chair_frame_blank"] },
-  { key: "assembly_electronics", name: "Electronics assembly", accepts: ["speaker_casing_blank", "mini_fridge_shell_blank"] },
-  { key: "anodizing", name: "Anodizing", accepts: ["bike_frame_blank", "metal_water_bottle_blank", "garden_planter_blank"] },
+  {
+    key: "varnishing",
+    name: "Varnishing",
+    accepts: ["wood_table_top_blank", "wood_cutting_board_blank"],
+  },
+  {
+    key: "powder_coating",
+    name: "Powder coating",
+    accepts: [
+      "metal_chair_frame_blank",
+      "steel_shelf_bracket_blank",
+      "bike_frame_blank",
+    ],
+  },
+  {
+    key: "upholstering",
+    name: "Upholstering",
+    accepts: ["metal_chair_frame_blank"],
+  },
+  {
+    key: "assembly_electronics",
+    name: "Electronics assembly",
+    accepts: ["speaker_casing_blank", "mini_fridge_shell_blank"],
+  },
+  {
+    key: "anodizing",
+    name: "Anodizing",
+    accepts: [
+      "bike_frame_blank",
+      "metal_water_bottle_blank",
+      "garden_planter_blank",
+    ],
+  },
   // Beauty / office transforms
-  { key: "soap_molding", name: "Soap molding and scenting", accepts: ["soap_bar_blank"] },
-  { key: "debossing", name: "Debossing", accepts: ["notebook_cover_blank", "leather_wallet_blank", "leather_belt_blank"] },
+  {
+    key: "soap_molding",
+    name: "Soap molding and scenting",
+    accepts: ["soap_bar_blank"],
+  },
+  {
+    key: "debossing",
+    name: "Debossing",
+    accepts: [
+      "notebook_cover_blank",
+      "leather_wallet_blank",
+      "leather_belt_blank",
+    ],
+  },
 ];
 
-const FULFILLMENT = { key: "assembly_and_packaging", name: "Assembly and packaging" };
+const FULFILLMENT = {
+  key: "assembly_and_packaging",
+  name: "Assembly and packaging",
+};
 
 type ProductStep =
   | { kind: "SUPPLY"; materialKey: string }
@@ -135,7 +353,10 @@ function buildProducts(): Product[] {
       const material = MATERIALS.find((m) => m.key === materialKey)!;
       products.push({
         name: `${t.name} ${material.name.replace(" blank", "")}`,
-        steps: [{ kind: "SUPPLY", materialKey }, { kind: "TRANSFORM", transformKey: t.key }],
+        steps: [
+          { kind: "SUPPLY", materialKey },
+          { kind: "TRANSFORM", transformKey: t.key },
+        ],
       });
     }
   }
@@ -171,28 +392,148 @@ function buildProducts(): Product[] {
   // transform, combined at fulfillment. These are the ones that genuinely
   // require visiting multiple different stores for different materials.
   const bundles: [string, string, string, string, string][] = [
-    ["ceramic_mug_blank", "uv_printing", "candle_wax_blank", "hand_painting", "Mug + candle gift set"],
-    ["leather_wallet_blank", "engraving", "leather_belt_blank", "leather_stamping", "Wallet + belt leather set"],
-    ["acrylic_keychain_blank", "laser_cutting", "canvas_tote_bag", "embroidery", "Keychain + tote bundle"],
-    ["cotton_tshirt", "screen_printing", "vinyl_sticker_sheet_blank", "vinyl_cutting", "Shirt + sticker pack"],
-    ["metal_water_bottle_blank", "uv_printing", "silicone_phone_case_blank", "uv_printing", "Bottle + phone case set"],
-    ["cotton_tshirt", "screen_printing", "canvas_tote_bag", "embroidery", "Shirt + tote combo"],
-    ["denim_jacket", "embroidery", "leather_wallet_blank", "engraving", "Jacket + wallet gift set"],
-    ["wood_cutting_board_blank", "engraving", "ceramic_mug_blank", "uv_printing", "Board + mug kitchen set"],
-    ["glass_ornament_blank", "hand_painting", "candle_wax_blank", "hand_painting", "Ornament + candle holiday set"],
-    ["paper_poster_blank", "screen_printing", "vinyl_sticker_sheet_blank", "vinyl_cutting", "Poster + sticker pack"],
-    ["metal_chair_frame_blank", "upholstering", "wood_table_top_blank", "varnishing", "Dining table + chair set"],
-    ["mini_fridge_shell_blank", "assembly_electronics", "steel_shelf_bracket_blank", "powder_coating", "Mini fridge + shelf bracket kit"],
-    ["speaker_casing_blank", "assembly_electronics", "bike_frame_blank", "anodizing", "Speaker + bike accessory bundle"],
-    ["garden_planter_blank", "anodizing", "glass_lamp_shade_blank", "hand_painting", "Planter + lamp shade patio set"],
-    ["wood_cutting_board_blank", "varnishing", "steel_shelf_bracket_blank", "powder_coating", "Board + shelf bracket kitchen kit"],
+    [
+      "ceramic_mug_blank",
+      "uv_printing",
+      "candle_wax_blank",
+      "hand_painting",
+      "Mug + candle gift set",
+    ],
+    [
+      "leather_wallet_blank",
+      "engraving",
+      "leather_belt_blank",
+      "leather_stamping",
+      "Wallet + belt leather set",
+    ],
+    [
+      "acrylic_keychain_blank",
+      "laser_cutting",
+      "canvas_tote_bag",
+      "embroidery",
+      "Keychain + tote bundle",
+    ],
+    [
+      "cotton_tshirt",
+      "screen_printing",
+      "vinyl_sticker_sheet_blank",
+      "vinyl_cutting",
+      "Shirt + sticker pack",
+    ],
+    [
+      "metal_water_bottle_blank",
+      "uv_printing",
+      "silicone_phone_case_blank",
+      "uv_printing",
+      "Bottle + phone case set",
+    ],
+    [
+      "cotton_tshirt",
+      "screen_printing",
+      "canvas_tote_bag",
+      "embroidery",
+      "Shirt + tote combo",
+    ],
+    [
+      "denim_jacket",
+      "embroidery",
+      "leather_wallet_blank",
+      "engraving",
+      "Jacket + wallet gift set",
+    ],
+    [
+      "wood_cutting_board_blank",
+      "engraving",
+      "ceramic_mug_blank",
+      "uv_printing",
+      "Board + mug kitchen set",
+    ],
+    [
+      "glass_ornament_blank",
+      "hand_painting",
+      "candle_wax_blank",
+      "hand_painting",
+      "Ornament + candle holiday set",
+    ],
+    [
+      "paper_poster_blank",
+      "screen_printing",
+      "vinyl_sticker_sheet_blank",
+      "vinyl_cutting",
+      "Poster + sticker pack",
+    ],
+    [
+      "metal_chair_frame_blank",
+      "upholstering",
+      "wood_table_top_blank",
+      "varnishing",
+      "Dining table + chair set",
+    ],
+    [
+      "mini_fridge_shell_blank",
+      "assembly_electronics",
+      "steel_shelf_bracket_blank",
+      "powder_coating",
+      "Mini fridge + shelf bracket kit",
+    ],
+    [
+      "speaker_casing_blank",
+      "assembly_electronics",
+      "bike_frame_blank",
+      "anodizing",
+      "Speaker + bike accessory bundle",
+    ],
+    [
+      "garden_planter_blank",
+      "anodizing",
+      "glass_lamp_shade_blank",
+      "hand_painting",
+      "Planter + lamp shade patio set",
+    ],
+    [
+      "wood_cutting_board_blank",
+      "varnishing",
+      "steel_shelf_bracket_blank",
+      "powder_coating",
+      "Board + shelf bracket kitchen kit",
+    ],
     // Beauty / pet / office / sports / baby markets, each paired with a
     // second, unrelated category so the bundle genuinely spans two markets.
-    ["soap_bar_blank", "soap_molding", "candle_wax_blank", "hand_painting", "Spa gift set (soap + candle)"],
-    ["pet_bandana_blank", "embroidery", "ceramic_mug_blank", "uv_printing", "Pet parent bundle (bandana + mug)"],
-    ["notebook_cover_blank", "debossing", "leather_wallet_blank", "leather_stamping", "Executive desk set (notebook + wallet)"],
-    ["yoga_mat_blank", "screen_printing", "metal_water_bottle_blank", "engraving", "Wellness kit (yoga mat + bottle)"],
-    ["baby_onesie_blank", "embroidery", "wood_cutting_board_blank", "engraving", "New parent gift set (onesie + keepsake board)"],
+    [
+      "soap_bar_blank",
+      "soap_molding",
+      "candle_wax_blank",
+      "hand_painting",
+      "Spa gift set (soap + candle)",
+    ],
+    [
+      "pet_bandana_blank",
+      "embroidery",
+      "ceramic_mug_blank",
+      "uv_printing",
+      "Pet parent bundle (bandana + mug)",
+    ],
+    [
+      "notebook_cover_blank",
+      "debossing",
+      "leather_wallet_blank",
+      "leather_stamping",
+      "Executive desk set (notebook + wallet)",
+    ],
+    [
+      "yoga_mat_blank",
+      "screen_printing",
+      "metal_water_bottle_blank",
+      "engraving",
+      "Wellness kit (yoga mat + bottle)",
+    ],
+    [
+      "baby_onesie_blank",
+      "embroidery",
+      "wood_cutting_board_blank",
+      "engraving",
+      "New parent gift set (onesie + keepsake board)",
+    ],
   ];
   for (const [mat1, t1, mat2, t2, bundleName] of bundles) {
     products.push({
@@ -326,17 +667,47 @@ function materialPriceRange(category: string): [number, number] {
 // the REAL_MERCHANTS below -- avoids the catalog reading as "Catalog Store
 // 47" placeholders once real names run out for a given capability.
 const NAME_PREFIXES = [
-  "North", "Coastal", "Union", "Maple", "Harbor", "Foundry", "Thistle", "Cedar",
-  "Ironwood", "Bramble", "Summit", "Alder", "Birchwood", "Lantern", "Anchor",
-  "Meridian", "Hollow", "Quarry", "Stonegate", "Willow",
+  "North",
+  "Coastal",
+  "Union",
+  "Maple",
+  "Harbor",
+  "Foundry",
+  "Thistle",
+  "Cedar",
+  "Ironwood",
+  "Bramble",
+  "Summit",
+  "Alder",
+  "Birchwood",
+  "Lantern",
+  "Anchor",
+  "Meridian",
+  "Hollow",
+  "Quarry",
+  "Stonegate",
+  "Willow",
 ];
 const NAME_SUFFIXES = [
-  "& Co.", "Supply Co.", "Goods", "Works", "Studio", "Collective", "Trading Co.",
-  "Provisions", "Makers", "Workshop", "Partners", "Outfitters",
+  "& Co.",
+  "Supply Co.",
+  "Goods",
+  "Works",
+  "Studio",
+  "Collective",
+  "Trading Co.",
+  "Provisions",
+  "Makers",
+  "Workshop",
+  "Partners",
+  "Outfitters",
 ];
 function generateStoreName(seedIndex: number): string {
   const prefix = NAME_PREFIXES[seedIndex % NAME_PREFIXES.length];
-  const suffix = NAME_SUFFIXES[Math.floor(seedIndex / NAME_PREFIXES.length) % NAME_SUFFIXES.length];
+  const suffix =
+    NAME_SUFFIXES[
+      Math.floor(seedIndex / NAME_PREFIXES.length) % NAME_SUFFIXES.length
+    ];
   return `${prefix} ${suffix}`;
 }
 
@@ -346,7 +717,10 @@ function generateStoreName(seedIndex: number): string {
 // the same order of magnitude from general finishing/service industry
 // pricing since exact per-unit rates for those services aren't published
 // the way embroidery/screen-printing rates are.
-const TRANSFORM_PRICE_RANGE: Record<string, { unit: [number, number]; setup: [number, number] }> = {
+const TRANSFORM_PRICE_RANGE: Record<
+  string,
+  { unit: [number, number]; setup: [number, number] }
+> = {
   embroidery: { unit: [6, 14], setup: [25, 50] }, // grounded: small-batch (12-50pc) embroidery rates
   screen_printing: { unit: [3, 18], setup: [5, 20] }, // grounded: per-shirt cost scales with volume
   engraving: { unit: [2, 8], setup: [15, 40] },
@@ -365,14 +739,19 @@ const TRANSFORM_PRICE_RANGE: Record<string, { unit: [number, number]; setup: [nu
   soap_molding: { unit: [2, 6], setup: [5, 15] },
   debossing: { unit: [2, 7], setup: [10, 20] },
 };
-function transformPriceRange(key: string): { unit: [number, number]; setup: [number, number] } {
+function transformPriceRange(key: string): {
+  unit: [number, number];
+  setup: [number, number];
+} {
   return TRANSFORM_PRICE_RANGE[key] ?? { unit: [3, 20], setup: [10, 40] };
 }
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set. Export it before running this script.");
+    throw new Error(
+      "DATABASE_URL is not set. Export it before running this script.",
+    );
   }
 
   const products = buildProducts();
@@ -380,8 +759,20 @@ async function main() {
 
   // Collect the distinct capability "slots" that need providers: every
   // material, every transform, plus fulfillment.
-  const materialKeys = new Set(products.flatMap((p) => p.steps.filter((s) => s.kind === "SUPPLY").map((s) => (s as any).materialKey)));
-  const transformKeys = new Set(products.flatMap((p) => p.steps.filter((s) => s.kind === "TRANSFORM").map((s) => (s as any).transformKey)));
+  const materialKeys = new Set(
+    products.flatMap((p) =>
+      p.steps
+        .filter((s) => s.kind === "SUPPLY")
+        .map((s) => (s as any).materialKey),
+    ),
+  );
+  const transformKeys = new Set(
+    products.flatMap((p) =>
+      p.steps
+        .filter((s) => s.kind === "TRANSFORM")
+        .map((s) => (s as any).transformKey),
+    ),
+  );
 
   const client = new Client({ connectionString });
   await client.connect();
@@ -390,7 +781,10 @@ async function main() {
   let merchantCounter = 1;
   const usedNames = new Set<string>();
   const merchants: { merchantId: string; name: string }[] = [];
-  function newMerchant(preferredName?: string): { merchantId: string; name: string } {
+  function newMerchant(preferredName?: string): {
+    merchantId: string;
+    name: string;
+  } {
     const id = `m-catalog-${String(merchantCounter).padStart(3, "0")}`;
     let name = preferredName;
     if (!name || usedNames.has(name)) {
@@ -407,7 +801,12 @@ async function main() {
     return m;
   }
 
-  const catalogReference: any = { materials: [], transforms: [], fulfillment: [], products: [] };
+  const catalogReference: any = {
+    materials: [],
+    transforms: [],
+    fulfillment: [],
+    products: [],
+  };
 
   try {
     await client.query("begin");
@@ -438,7 +837,13 @@ async function main() {
           name: material.name,
           description: `${material.name} supplied by ${merchant.name}`,
           accepts: [],
-          produces: [{ kind: "material", name: material.key, attributes: { category: material.category } }],
+          produces: [
+            {
+              kind: "material",
+              name: material.key,
+              attributes: { category: material.category },
+            },
+          ],
           quantity: { min: 1, max: capacity, unit: "unit" },
           pricing: { currency: "CAD", unitPrice, setupFee },
           leadTime: { min: leadMin, max: leadMax, unit: "hours" },
@@ -451,9 +856,22 @@ async function main() {
           `insert into capabilities (capability_id, merchant_id, kind, name, description, capability_json)
            values ($1, $2, 'SUPPLY', $3, $4, $5)
            on conflict (capability_id) do nothing;`,
-          [capabilityId, merchant.merchantId, material.name, capabilityJson.description, JSON.stringify(capabilityJson)],
+          [
+            capabilityId,
+            merchant.merchantId,
+            material.name,
+            capabilityJson.description,
+            JSON.stringify(capabilityJson),
+          ],
         );
-        entry.providers.push({ merchantId: merchant.merchantId, merchantName: merchant.name, unitPrice, leadMin, leadMax, capacity });
+        entry.providers.push({
+          merchantId: merchant.merchantId,
+          merchantName: merchant.name,
+          unitPrice,
+          leadMin,
+          leadMax,
+          capacity,
+        });
       }
       catalogReference.materials.push(entry);
     }
@@ -464,7 +882,10 @@ async function main() {
       const realNames = REAL_MERCHANTS[key] ?? [];
       const providerCount = Math.max(randInt(2, 6), realNames.length);
       const entry: any = { transform: transform.name, providers: [] };
-      const { unit: [tUnitMin, tUnitMax], setup: [tSetupMin, tSetupMax] } = transformPriceRange(key);
+      const {
+        unit: [tUnitMin, tUnitMax],
+        setup: [tSetupMin, tSetupMax],
+      } = transformPriceRange(key);
       for (let i = 0; i < providerCount; i++) {
         const merchant = newMerchant(realNames[i]?.name);
         const unitPrice = Number(rand(tUnitMin, tUnitMax).toFixed(2));
@@ -483,8 +904,18 @@ async function main() {
           kind: "TRANSFORM",
           name: transform.name,
           description: `${transform.name} offered by ${merchant.name}`,
-          accepts: transform.accepts.map((materialKey) => ({ kind: "material", name: materialKey, attributes: {} })),
-          produces: [{ kind: "material", name: `${transform.key}_output`, attributes: {} }],
+          accepts: transform.accepts.map((materialKey) => ({
+            kind: "material",
+            name: materialKey,
+            attributes: {},
+          })),
+          produces: [
+            {
+              kind: "material",
+              name: `${transform.key}_output`,
+              attributes: {},
+            },
+          ],
           quantity: { min: 1, max: capacity, unit: "unit" },
           pricing: { currency: "CAD", unitPrice, setupFee },
           leadTime: { min: leadMin, max: leadMax, unit: "hours" },
@@ -497,16 +928,32 @@ async function main() {
           `insert into capabilities (capability_id, merchant_id, kind, name, description, capability_json)
            values ($1, $2, 'TRANSFORM', $3, $4, $5)
            on conflict (capability_id) do nothing;`,
-          [capabilityId, merchant.merchantId, transform.name, capabilityJson.description, JSON.stringify(capabilityJson)],
+          [
+            capabilityId,
+            merchant.merchantId,
+            transform.name,
+            capabilityJson.description,
+            JSON.stringify(capabilityJson),
+          ],
         );
-        entry.providers.push({ merchantId: merchant.merchantId, merchantName: merchant.name, unitPrice, leadMin, leadMax, capacity });
+        entry.providers.push({
+          merchantId: merchant.merchantId,
+          merchantName: merchant.name,
+          unitPrice,
+          leadMin,
+          leadMax,
+          capacity,
+        });
       }
       catalogReference.transforms.push(entry);
     }
 
     // Fulfillment: several generic packers, any of them can finish any order.
     const fulfillmentProviderCount = randInt(6, 12);
-    const fulfillmentEntry: any = { fulfillment: FULFILLMENT.name, providers: [] };
+    const fulfillmentEntry: any = {
+      fulfillment: FULFILLMENT.name,
+      providers: [],
+    };
     for (let i = 0; i < fulfillmentProviderCount; i++) {
       const merchant = newMerchant();
       const unitPrice = Number(rand(1.5, 6).toFixed(2));
@@ -539,9 +986,22 @@ async function main() {
         `insert into capabilities (capability_id, merchant_id, kind, name, description, capability_json)
          values ($1, $2, 'FULFILL', $3, $4, $5)
          on conflict (capability_id) do nothing;`,
-        [capabilityId, merchant.merchantId, FULFILLMENT.name, capabilityJson.description, JSON.stringify(capabilityJson)],
+        [
+          capabilityId,
+          merchant.merchantId,
+          FULFILLMENT.name,
+          capabilityJson.description,
+          JSON.stringify(capabilityJson),
+        ],
       );
-      fulfillmentEntry.providers.push({ merchantId: merchant.merchantId, merchantName: merchant.name, unitPrice, leadMin, leadMax, capacity });
+      fulfillmentEntry.providers.push({
+        merchantId: merchant.merchantId,
+        merchantName: merchant.name,
+        unitPrice,
+        leadMin,
+        leadMax,
+        capacity,
+      });
     }
     catalogReference.fulfillment.push(fulfillmentEntry);
 
@@ -549,6 +1009,9 @@ async function main() {
     // providers on random materials so the store count lands near 100.
     while (merchants.length < 100) {
       const material = MATERIALS[randInt(0, MATERIALS.length - 1)];
+      if (!material) {
+        throw new Error("MATERIALS must not be empty");
+      }
       const merchant = newMerchant();
       const [topUpMin, topUpMax] = materialPriceRange(material.category);
       const unitPrice = Number(rand(topUpMin, topUpMax).toFixed(2));
@@ -565,9 +1028,19 @@ async function main() {
         name: material.name,
         description: `${material.name} supplied by ${merchant.name}`,
         accepts: [],
-        produces: [{ kind: "material", name: material.key, attributes: { category: material.category } }],
+        produces: [
+          {
+            kind: "material",
+            name: material.key,
+            attributes: { category: material.category },
+          },
+        ],
         quantity: { min: 1, max: capacity, unit: "unit" },
-        pricing: { currency: "CAD", unitPrice, setupFee: Number(rand(0, topUpMax * 0.4).toFixed(2)) },
+        pricing: {
+          currency: "CAD",
+          unitPrice,
+          setupFee: Number(rand(0, topUpMax * 0.4).toFixed(2)),
+        },
         leadTime: { min: randInt(2, 24), max: randInt(24, 72), unit: "hours" },
         capacity: { available: capacity, maximum: capacity, period: "week" },
         hardRules: [],
@@ -578,13 +1051,23 @@ async function main() {
         `insert into capabilities (capability_id, merchant_id, kind, name, description, capability_json)
          values ($1, $2, 'SUPPLY', $3, $4, $5)
          on conflict (capability_id) do nothing;`,
-        [capabilityId, merchant.merchantId, material.name, capabilityJson.description, JSON.stringify(capabilityJson)],
+        [
+          capabilityId,
+          merchant.merchantId,
+          material.name,
+          capabilityJson.description,
+          JSON.stringify(capabilityJson),
+        ],
       );
     }
 
     catalogReference.products = products.map((p) => ({
       name: p.name,
-      steps: p.steps.map((s) => (s.kind === "SUPPLY" ? { supply: (s as any).materialKey } : { transform: (s as any).transformKey })),
+      steps: p.steps.map((s) =>
+        s.kind === "SUPPLY"
+          ? { supply: (s as any).materialKey }
+          : { transform: (s as any).transformKey },
+      ),
     }));
 
     await client.query("commit");
@@ -599,8 +1082,12 @@ async function main() {
   const outPath = path.join(here, "..", "..", "catalog-reference.json");
   writeFileSync(outPath, JSON.stringify(catalogReference, null, 2));
 
-  process.stdout.write(`Done. Created ${merchants.length} merchants across materials/transforms/fulfillment.\n`);
-  process.stdout.write(`${products.length} product definitions written to packages/db/catalog-reference.json\n`);
+  process.stdout.write(
+    `Done. Created ${merchants.length} merchants across materials/transforms/fulfillment.\n`,
+  );
+  process.stdout.write(
+    `${products.length} product definitions written to packages/db/catalog-reference.json\n`,
+  );
 }
 
 main().catch((err) => {
