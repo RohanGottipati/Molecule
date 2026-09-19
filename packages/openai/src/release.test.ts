@@ -84,10 +84,13 @@ print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True))
 }
 
 describe("compiler and solver release acceptance", () => {
-  it("compiles the desktop kit request with operation and recipient-name clauses", async () => {
+  it.each([
+    "Make 200 premium black onboarding kits by next Friday (2026-09-25) under CAD 7000. No leather. Each kit needs a black hoodie with embroidered logo, a bottle engraved with the recipient's name, vegan snacks, individual packaging and fulfillment.",
+    "200 premium black onboarding kits by next Friday under CAD 7000. No leather. Hoodie logo embroidery, named engraved bottles, vegan snacks, individual packaging and fulfillment.",
+  ])("compiles the integrated kit request: %s", async (text) => {
     const result = await new MockOpenAIAdapter().compileIntent({
       ...base,
-      text: "Make 200 premium black onboarding kits by next Friday (2026-09-25) under CAD 7000. No leather. Each kit needs a black hoodie with embroidered logo, a bottle engraved with the recipient's name, vegan snacks, individual packaging and fulfillment.",
+      text,
     });
     expect(result.status).toBe("READY");
     if (result.status !== "READY")
@@ -137,6 +140,76 @@ describe("compiler and solver release acceptance", () => {
       ]),
     );
   });
+
+  it.each([".", "!", "?", ";", "\n"])(
+    "separates material exclusions and products across %j boundaries",
+    async (separator) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text: [
+          "Make 30 by Friday under CAD 2000.50",
+          "No leather",
+          "Without polyester",
+          "Hoodies",
+          "",
+        ].join(`${separator} `),
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY") throw new Error("Sentence parsing failed");
+      expect(result.intent.budgetMax).toBe(2000.5);
+      expect(result.intent.desiredOutputs[0]?.attributes).not.toHaveProperty(
+        "material",
+      );
+      expect(result.intent.hardConstraints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "material",
+            operator: "not_contains",
+            value: "leather",
+          }),
+          expect.objectContaining({
+            field: "material",
+            operator: "not_contains",
+            value: "polyester",
+          }),
+        ]),
+      );
+    },
+  );
+
+  it("keeps preference language within its sentence", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Make 30 hoodies by Friday CAD. Prefer blue bottles. Red shirts.",
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY")
+      throw new Error("Sentence preference parsing failed");
+    expect(result.intent.softPreferences).toContainEqual(
+      expect.objectContaining({ field: "bottle.color", value: "blue" }),
+    );
+    expect(result.intent.hardConstraints).toContainEqual(
+      expect.objectContaining({ field: "shirt.color", value: "red" }),
+    );
+  });
+
+  it.each([
+    "Fireproof shirts.",
+    "Umbrellas.",
+    "Refrigerated storage.",
+    "No silicone.",
+    "Without secret branding.",
+    "Hoodies with fireproof coating.",
+  ])(
+    "still asks about unknown sentence requirements: %s",
+    async (requirement) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text: `Make 30 hoodies by Friday CAD. No leather. ${requirement}`,
+      });
+      expect(result.status).toBe("NEEDS_CLARIFICATION");
+    },
+  );
 
   it.each([
     ["hoodies with embroidered logo", "embroidery"],
