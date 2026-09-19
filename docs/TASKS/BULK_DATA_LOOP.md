@@ -6,10 +6,10 @@ Goal: more data means harder queries and a better demo. Millions of rows go into
 
 ## 1. Where the data comes from
 
-| Dataset | Licence | What we use | Where it lands |
-|---|---|---|---|
-| UCI Online Retail II | CC BY 4.0 | 1,032,918 real invoice lines from a UK online retailer (Dec 2009 to Dec 2011), service codes and non-positive prices removed, overlapping December 2010 rows de-duplicated | `bulk_order_lines` (pass 0) |
-| Open Food Facts | ODbL | 107,420 real food products (name, brand, category, Nutri-Score, NOVA, per-100g nutrition, ingredients). OFF has no prices, so prices are synthetic and flagged (`price_is_synthetic`, Shopify tag `synthetic-price`) | `bulk_products`, then Shopify |
+| Dataset              | Licence   | What we use                                                                                                                                                                                                          | Where it lands                |
+| -------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| UCI Online Retail II | CC BY 4.0 | 1,032,918 real invoice lines from a UK online retailer (Dec 2009 to Dec 2011), service codes and non-positive prices removed, overlapping December 2010 rows de-duplicated                                           | `bulk_order_lines` (pass 0)   |
+| Open Food Facts      | ODbL      | 107,420 real food products (name, brand, category, Nutri-Score, NOVA, per-100g nutrition, ingredients). OFF has no prices, so prices are synthetic and flagged (`price_is_synthetic`, Shopify tag `synthetic-price`) | `bulk_products`, then Shopify |
 
 Replay passes (`pass` 1 to 8) are derived data, not real: each re-times the real pass into other years, gives customers new ids, applies 3% yearly price drift, a per-pass volume scale and keep-rate, and per-line quantity jitter. Pass 1 ends near today, each further pass is 2 years earlier, so the series runs continuously from 2009 to Sep 2026. Say this out loud in the demo: "1M real lines, grown to 5M by replay". `pass = 0` filters to the real rows only.
 
@@ -26,13 +26,13 @@ Current size: 5,022,872 order lines plus 112,141 products, about 1.8 GB database
 
 Always run from the repo root with both env files: `node --env-file=.env --env-file=.env.local scripts/bulk/<script>`.
 
-| Script | Purpose |
-|---|---|
-| `prep_uci.py`, `prep_off.py` | convert the raw downloads to slim CSVs (run once) |
-| `bulk-load.mjs` | `--uci=<csv> --off=<csv>` load real data; `--replay --target-rows=N` grow it; `--compress`, `--aggregates`, `--stats`. Every step resumes, `--max-seconds` bounds one run |
-| `shopify-catalog-fill.mjs` | `--bulk` submits Shopify bulk operations (server-side, about 7 products per second per store); `--collect` records results; without flags it upserts sequentially (small top-ups) |
-| `demo-queries.mjs` | 7 showcase queries with timings |
-| `run-loop.sh` | the loop: replay, collect, submit, compress, sleep, repeat. Safe to stop and restart |
+| Script                       | Purpose                                                                                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prep_uci.py`, `prep_off.py` | convert the raw downloads to slim CSVs (run once)                                                                                                                                 |
+| `bulk-load.mjs`              | `--uci=<csv> --off=<csv>` load real data; `--replay --target-rows=N` grow it; `--compress`, `--aggregates`, `--stats`. Every step resumes, `--max-seconds` bounds one run         |
+| `shopify-catalog-fill.mjs`   | `--bulk` submits Shopify bulk operations (server-side, about 7 products per second per store); `--collect` records results; without flags it upserts sequentially (small top-ups) |
+| `demo-queries.mjs`           | 7 showcase queries with timings                                                                                                                                                   |
+| `run-loop.sh`                | the loop: replay, collect, submit, compress, sleep, repeat. Safe to stop and restart                                                                                              |
 
 Raise the caps with env vars: `TARGET_ROWS=10000000 PER_STORE=20000 scripts/bulk/run-loop.sh`. A size guard (`--max-gb`, default 8) stops the replay before Tiger fills up.
 
@@ -42,15 +42,15 @@ Shopify's API allows a few product writes per second per store, and every full s
 
 ## 5. Demo queries (all measured on Tiger, 5M rows)
 
-| Query | Time |
-|---|---|
-| Revenue by year (continuous aggregate) | 0.1 s |
+| Query                                            | Time  |
+| ------------------------------------------------ | ----- |
+| Revenue by year (continuous aggregate)           | 0.1 s |
 | Seasonality by month (window over the aggregate) | 0.0 s |
-| Top products by lifetime revenue | 5.8 s |
-| RFM customer segments (NTILE) | 4.5 s |
-| Customer cohort retention | 4.2 s |
-| Market-basket pairs (self-join, one quarter) | 24 s |
-| Nutrition by Nutri-Score (112k products) | 0.4 s |
+| Top products by lifetime revenue                 | 5.8 s |
+| RFM customer segments (NTILE)                    | 4.5 s |
+| Customer cohort retention                        | 4.2 s |
+| Market-basket pairs (self-join, one quarter)     | 24 s  |
+| Nutrition by Nutri-Score (112k products)         | 0.4 s |
 
 The slow one (basket pairs) is the "look how much data this is" moment. The aggregates are the "and it is still instant" moment.
 
