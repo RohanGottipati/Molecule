@@ -1,0 +1,44 @@
+{
+  "batchId": "rox-full-s42",
+  "seed": 42,
+  "scale": "full",
+  "generatedAt": "2026-09-19T12:00:00.000Z",
+  "artifacts": 1226,
+  "byType": {
+    "emails": 156,
+    "pricesheets": 40,
+    "threads": 60,
+    "tickets": 800,
+    "wms": 30,
+    "portal": 30,
+    "briefs": 50,
+    "invoices": 60
+  },
+  "truthRows": 691,
+  "expectations": {
+    "ignore": 16,
+    "claim": 627,
+    "ambiguous": 27,
+    "quarantine": 21
+  },
+  "chaosCoverage": {
+    "missing": 18,
+    "unit_restated": 35,
+    "currency_mixed": 39,
+    "alias": 7046,
+    "sku_drift": 104,
+    "duplicate": 36,
+    "contradiction": 55,
+    "stale": 85,
+    "ambiguous_date": 66,
+    "encoding": 109,
+    "digit_typo": 4,
+    "typos": 57,
+    "schema_drift": 800,
+    "truncated": 85,
+    "injection": 14,
+    "multilingual": 12,
+    "ocr": 60
+  },
+  "aliases": 52
+}

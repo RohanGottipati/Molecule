@@ -1,0 +1,4 @@
+# Regenerable from a seed: `node corpus/generate.mjs --seed=42 --scale=full`
+corpus/inbox/
+corpus/truth.jsonl
+report.html

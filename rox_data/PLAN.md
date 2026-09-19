@@ -141,15 +141,34 @@ sql/013_rox_ingest.sql
 
 ## 11. Status
 
-- [ ] Plan approved
-- [ ] 013 migration applied to Tiger
-- [ ] Corpus generator v1 + truth.jsonl
-- [ ] Pipeline stages 1-4 end to end
-- [ ] Resolver + write-back closing the loop
-- [ ] Scorecard v1 with baseline comparison
-- [ ] Entity resolution (pgvector)
-- [ ] Rule-compiler at scale
-- [ ] Judge dashboard + demo script
+Built and running against Tiger (`db-37507`):
+
+- [x] Plan approved - Medium scope, real model calls, USD 50 ceiling
+- [x] Migrations `013_rox_ingest`, `014_rox_links`, `015_rox_quantities` applied and recorded in `molecule_migrations`
+- [x] Corpus generator: 1,226 artifacts across 8 document types, 17 chaos dimensions, ~690 ground-truth rows, deterministic from `--seed`
+- [x] Ground truth loaded into `rox_truth` by a command no pipeline stage calls
+- [x] `intake` - decode, repair mojibake, detect malformed containers, dedupe on (checksum, source)
+- [x] `extract` - real structured-output calls, evidence spans mandatory, injection guard
+- [x] `link` - database-duplicate merge, capability-id evidence, alias ladder exact -> containment -> trigram -> pgvector -> model
+- [x] `normalize` - units, currency, periods, business days; quarantine with a reason
+- [x] `resolve` - the scoring mirror of `services/reality/src/resolution.ts`
+- [x] `act` - drafted supplier follow-ups and proposed Shopify write-backs, both awaiting approval
+- [x] `score` - scorecard vs ground truth, stored in `rox_scorecard`
+- [x] `baseline` - regex control group through the identical downstream
+- [x] `rules` - the rule compiler for 61k free-text Open Food Facts quantities
+- [x] `report` - self-contained HTML report
+- [x] `reset-batch` - re-runnable demo
+- [ ] Full-corpus scored run and baseline comparison (in progress)
+- [ ] Rule compiler executed end to end
+- [ ] Shopify write-back applied (`--apply`) and the self-heal loop demonstrated
+- [ ] Judge surface ported into `apps/web`
+
+### Honest gaps
+
+- The judge-facing page is a generated HTML file, not a page inside `apps/web`, because `pnpm` is not installed on this machine (no `corepack`) and the Next app cannot be built or verified here. Porting it is a small job for whoever has the workspace installed.
+- `rox_data` is an npm package outside the pnpm workspace for the same reason. It imports nothing from `@molecule/*`; it re-implements the resolution weights instead, and `pipeline/config.mjs` says so.
+- The rule compiler's holdout is labelled by a model, so its "precision" means agreement with a careful per-item read, not human truth. The output says this.
+- Support tickets and customer briefs carry no capability facts by design; they exercise the agent's ability to return nothing.
 
 ## 12. Decisions (locked Sat Sep 19 2026)
 
