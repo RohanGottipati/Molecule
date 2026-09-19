@@ -115,6 +115,8 @@ Official API references used:
 
 Electron 44 uses asynchronous `clipboard.read()` / `ClipboardItem.getType()`, rather than the removed synchronous clipboard methods.
 
+Electron 44.3 reports display capture to its permission handler as `media` with an empty `mediaTypes` array. That request is accepted only for the trusted main frame after explicit source selection; camera and mixed camera/microphone requests remain denied. The display handler consumes the selected source once.
+
 ## Recovery and notifications
 
 The company view lays out actual plan edges in layers, including parallel suppliers. Selected nodes, quote statuses, failed merchants, costs, deadline, and feasibility all come from backend state/events.
@@ -181,6 +183,26 @@ pnpm verify:secrets
 `verify:desktop` starts a real CP-SAT HTTP solver on an ephemeral local port, exercises the desktop API with mock providers, checks duplicate retries, context attachment, hard material correction, approved recovery, actual cost/deadline facts, and persistence after restart. Set `SOLVER_PYTHON` to an alternate Python environment if needed. It makes no paid calls and cleans up its temporary state.
 
 Automated suites cover shortcut fallback/toggle, URL validation, event parsing/filtering/reconnect, stable tool IDs, mock WebRTC interruption/cleanup/retries, uploads and attachment commands, backend corrections/cancellation, durable receipts, supplier/recovery UI state, and material exclusion including unknown facts.
+
+### Recorded Linux acceptance
+
+Electron UI verification used the real durable backend and CP-SAT solver with disclosed provider mocks. The golden path was recorded at `d77b136`, with fixes and focused follow-up at `bbe1d85`.
+
+| Area | Observed result |
+| --- | --- |
+| Overlay | Hidden startup, fallback shortcut, compact/conversation/company/legible alert views |
+| Text and events | Valid plan, live backend activity, logo follow-up, hard `material not_contains polyester` correction |
+| Context | Native chooser, drag/drop PNG, clipboard image/text, explicit screen-frame upload; persisted bytes verified |
+| Execution | Explicit approval before mock Shopify completion |
+| Recovery | `stitch-works` → `thread-forge`; CAD 3300 → 3420, deadline preserved, approved recovery needed no further action |
+| Restart | Settings persisted; startup offered Resume without voice; recovered plan and four attachments restored |
+| Command Center | Correct existing project and recovered plan; no unrelated sample request in the composer |
+| Notifications | Hidden backend recovery ran; native delivery/click untested because the Linux notification service was unavailable |
+| Voice | Missing-device handling preserved text; physical microphone, live voice and barge-in remain untested |
+
+The earlier recording ends with a screen-permission error resolved and verified in the follow-up. Screen-permission denial guidance was not exercised after that fix. The fixture's selected merchants were cotton-compatible already, so their remaining selected after the polyester exclusion is expected; incompatible-candidate exclusion is covered by solver tests.
+
+The workspace lint/typecheck/tests, solver Ruff/mypy/tests, desktop/web builds, client-secret scan and real-solver integration verification passed. GitHub reported no CI checks for the PR. Native macOS and live-provider acceptance below remains open.
 
 ### Manual acceptance
 
