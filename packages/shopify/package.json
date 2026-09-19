@@ -1,0 +1,28 @@
+{
+  "name": "@molecule/shopify",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:db": "vitest run src/repository.integration.test.ts"
+  },
+  "dependencies": {
+    "@molecule/contracts": "workspace:*",
+    "pg": "8.13.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.10",
+    "vitest": "5.0.1"
+  }
+}
