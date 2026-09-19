@@ -222,6 +222,8 @@ export class ShopifyTransport {
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
+      if (response.status === 401 && this.token?.value === token)
+        this.token = undefined;
       if (!response.ok)
         throw new ShopifyError(
           `HTTP_${response.status}`,
