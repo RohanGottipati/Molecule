@@ -74,7 +74,12 @@ async function insertMarketBatch(
   );
 }
 
-async function insertNetworkBatch(client: pg.Client, distinctMerchants: string[], rows: number, offset: number) {
+async function insertNetworkBatch(
+  client: pg.Client,
+  distinctMerchants: string[],
+  rows: number,
+  offset: number,
+) {
   await client.query(
     `
     insert into network_events (ts, trace_id, merchant_id, event_type, source, severity, numeric_value, unit)
@@ -99,7 +104,9 @@ async function runBatched(
   totalRows: number,
   runBatch: (rows: number, offset: number) => Promise<void>,
 ) {
-  process.stdout.write(`Generating ${totalRows.toLocaleString()} ${label} rows in batches of ${BATCH_SIZE.toLocaleString()}...\n`);
+  process.stdout.write(
+    `Generating ${totalRows.toLocaleString()} ${label} rows in batches of ${BATCH_SIZE.toLocaleString()}...\n`,
+  );
   let done = 0;
   const start = Date.now();
   while (done < totalRows) {
@@ -116,7 +123,10 @@ async function runBatched(
 }
 
 async function main() {
-  const numericArg = process.argv.slice(2).map(Number).find((n) => Number.isFinite(n) && n > 0);
+  const numericArg = process.argv
+    .slice(2)
+    .map(Number)
+    .find((n) => Number.isFinite(n) && n > 0);
   const total = numericArg ?? 3_000_000;
 
   const fulfillmentRows = Math.floor(total * 0.4);
@@ -125,33 +135,55 @@ async function main() {
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set. Export it before running this script.");
+    throw new Error(
+      "DATABASE_URL is not set. Export it before running this script.",
+    );
   }
 
   const client = new Client({ connectionString });
   await client.connect();
   await client.query(`set synchronous_commit = off;`);
 
-  const pairsResult = await client.query(`select merchant_id, capability_id from capabilities;`);
+  const pairsResult = await client.query(
+    `select merchant_id, capability_id from capabilities;`,
+  );
   if (pairsResult.rows.length === 0) {
-    throw new Error("No capabilities found. Run generate-catalog (and the base migrate/seed) first.");
+    throw new Error(
+      "No capabilities found. Run generate-catalog (and the base migrate/seed) first.",
+    );
   }
   const merchantIds: string[] = pairsResult.rows.map((r) => r.merchant_id);
   const capabilityIds: string[] = pairsResult.rows.map((r) => r.capability_id);
   const pairCount = merchantIds.length;
   const distinctMerchants: string[] = Array.from(new Set(merchantIds));
 
-  process.stdout.write(`Spreading volume across ${pairCount} merchant/capability pairs (${distinctMerchants.length} distinct merchants).\n`);
+  process.stdout.write(
+    `Spreading volume across ${pairCount} merchant/capability pairs (${distinctMerchants.length} distinct merchants).\n`,
+  );
 
   const start = Date.now();
 
   try {
     await runBatched("fulfillment_samples", fulfillmentRows, (rows, offset) =>
-      insertFulfillmentBatch(client, merchantIds, capabilityIds, rows, pairCount, offset),
+      insertFulfillmentBatch(
+        client,
+        merchantIds,
+        capabilityIds,
+        rows,
+        pairCount,
+        offset,
+      ),
     );
 
     await runBatched("market_metrics", marketRows, (rows, offset) =>
-      insertMarketBatch(client, merchantIds, capabilityIds, rows, pairCount, offset),
+      insertMarketBatch(
+        client,
+        merchantIds,
+        capabilityIds,
+        rows,
+        pairCount,
+        offset,
+      ),
     );
 
     await runBatched("network_events", networkRows, (rows, offset) =>
@@ -159,7 +191,9 @@ async function main() {
     );
 
     const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
-    process.stdout.write(`Done. Inserted ${total.toLocaleString()} rows across 3 hypertables in ${elapsedSec}s.\n`);
+    process.stdout.write(
+      `Done. Inserted ${total.toLocaleString()} rows across 3 hypertables in ${elapsedSec}s.\n`,
+    );
 
     const counts = await client.query(`
       select 'fulfillment_samples' as table, count(*) from fulfillment_samples
@@ -167,7 +201,9 @@ async function main() {
       union all select 'network_events', count(*) from network_events;
     `);
     for (const row of counts.rows) {
-      process.stdout.write(`  ${row.table}: ${Number(row.count).toLocaleString()} total rows\n`);
+      process.stdout.write(
+        `  ${row.table}: ${Number(row.count).toLocaleString()} total rows\n`,
+      );
     }
 
     const spread = await client.query(`
