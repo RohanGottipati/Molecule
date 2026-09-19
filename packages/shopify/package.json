@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "default": "./dist/catalog/index.js"
     }
   },
   "scripts": {
@@ -19,7 +23,8 @@
   "dependencies": {
     "@molecule/contracts": "workspace:*",
     "pg": "8.13.1",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "@molecule/test-fixtures": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "8.11.10",

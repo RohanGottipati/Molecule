@@ -112,3 +112,23 @@ export const SAMPLE_PRODUCT_INTENT: ProductIntent = {
   assets: [],
   ambiguityFlags: [],
 };
+
+export {
+  catalogFor,
+  releaseCatalogFor,
+  roleForStore,
+  slug,
+  MERCHANT_IDS,
+  STITCHWORKS_CAPACITY_EVIDENCE,
+} from "./seed-data.mjs";
+
+export const DEMO_STORE_HANDLES = [
+  "molecule-storefront",
+  "stitchworks-7gw6fagb",
+  "threadforge-eznglsyk",
+  "basegoods-tyefhh8o",
+  "laserlab-yprjwhc5",
+  "packship-5lfaj5qq",
+  "snackbox-0hubj57j",
+  "printpress-b9oy1d5n",
+] as const;

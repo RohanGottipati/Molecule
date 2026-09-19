@@ -391,3 +391,32 @@ Official references reviewed:
 - [Client credentials](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant)
 - [HTTPS webhooks](https://shopify.dev/docs/apps/build/webhooks/subscribe/https)
 - [API limits](https://shopify.dev/docs/api/usage/limits)
+
+## Catalog mock compatibility entry point
+
+The durable execution API remains at `@molecule/shopify`. The independently
+developed per-operation interface is preserved at `@molecule/shopify/catalog`:
+
+```ts
+import { MockShopifyAdapter } from "@molecule/shopify/catalog";
+const catalog = new MockShopifyAdapter();
+const snapshot = await catalog.getSnapshot("stitchworks-7gw6fagb");
+```
+
+This entry point exports its own `ShopifyAdapter`, `MockShopifyAdapter`, options,
+and provider-specific catalog schemas. It retains snapshot, capacity, catalog,
+composite-product, supplier-job, supersession, checkout, inventory-adjustment,
+and reset methods. It is an in-memory development fixture, not the durable
+orchestrator execution provider; there is no real catalog implementation yet.
+No network or credentials are used. Checkout URLs use `shopify-mock.invalid`
+and must never be presented as payment links. Unknown capacity is `null`.
+The default clock is fixed at 2026-09-19T12:00:00Z; inject `now` when needed.
+Reset restores the same seed identifiers, and returned objects are isolated.
+Action keys bind to both operation and parsed inputs; conflicting reuse throws
+`ACTION_KEY_CONFLICT`. Inventory adjustment/reset are local fixture controls.
+
+Catalog fixtures and CLI seeding share `packages/test-fixtures/src/seed-data.mjs`;
+`scripts/seed-data.mjs` preserves the CLI import surface. Existing release
+catalogs, canonical supplier aliases, and capacity evidence remain intact.
+The Shopify workstream checklists describe historical branch progress and do
+not establish completion of their unchecked live-provider roadmap items.

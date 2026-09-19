@@ -173,6 +173,9 @@ importers:
       "@molecule/contracts":
         specifier: workspace:*
         version: link:../contracts
+      "@molecule/test-fixtures":
+        specifier: workspace:*
+        version: link:../test-fixtures
       pg:
         specifier: 8.13.1
         version: 8.13.1
