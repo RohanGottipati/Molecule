@@ -69,6 +69,34 @@ def _choice(
     data: SolverInput,
 ) -> Choice | None:
     capability = candidate.capability
+    if candidate.catalog_version is not None:
+        if (
+            candidate.selected_item is None
+            or not candidate.resource_refs
+            or candidate.transfer_minutes is None
+            or candidate.synthetic is None
+            or quote.catalog_version != candidate.catalog_version
+            or quote.selected_item != candidate.selected_item
+            or quote.quoted_quantity != need.quantity
+            or not set(candidate.required_asset_ids or []).issubset(
+                {asset.asset_id for asset in data.intent.assets if asset.url or asset.checksum}
+            )
+        ):
+            return None
+        for resource in candidate.resource_refs:
+            if (
+                resource.available <= 0
+                or _date(resource.observed_at) > _date(data.now)
+                or resource.unit != capability.quantity.unit
+            ):
+                return None
+            if (
+                resource.kind == "inventory"
+                and resource.available < need.quantity * resource.units_per_item
+            ):
+                return None
+    elif candidate.selected_item is not None or candidate.resource_refs is not None:
+        return None
     available = capability.capacity.available
     ports = matching_ports(candidate, need)
     if (
@@ -127,6 +155,17 @@ def _choice(
     if need.kind != "SUPPLY" and capability.capacity.period is not None:
         period = {"hour": 60, "day": 1440, "week": 10080}[capability.capacity.period]
         duration = max(duration, need.quantity / available * period)
+    for resource in candidate.resource_refs or []:
+        if resource.kind == "processing":
+            assert resource.period_minutes is not None
+            duration = max(
+                duration,
+                need.quantity
+                * resource.units_per_item
+                / resource.available
+                * resource.period_minutes,
+            )
+    duration += candidate.transfer_minutes or 0
     total = Decimal(str(quote.unit_price)) * need.quantity + Decimal(str(quote.setup_fee))
     total = max(total, Decimal(str(capability.pricing.minimum_total or 0)))
     cents = _integer((total * 100).to_integral_value(rounding=ROUND_CEILING))
@@ -304,6 +343,79 @@ def _solve(data: SolverInput) -> ProductionPlan:
                 )
                 model.add(port_quantity <= _integer(inventory))
 
+    # Resource IDs, not capability IDs, identify physical stock and machines.
+    shared: dict[str, list[tuple[Requirement, int, Choice]]] = {}
+    for need in needs:
+        for index, choice in enumerate(groups[need.key]):
+            refs = choice.candidate.resource_refs or []
+            if len({ref.resource_id for ref in refs}) != len(refs):
+                return _unsat(data, "Duplicate resource reference in catalog candidate.")
+            for resource in refs:
+                shared.setdefault(resource.resource_id, []).append((need, index, choice))
+    for resource_id, choices in shared.items():
+        refs = [
+            next(
+                ref
+                for ref in choice.candidate.resource_refs or []
+                if ref.resource_id == resource_id
+            )
+            for _, _, choice in choices
+        ]
+        first = refs[0]
+        if any(
+            (
+                ref.kind,
+                ref.unit,
+                ref.available,
+                ref.period_minutes,
+                ref.observed_at,
+                ref.source_reference,
+            )
+            != (
+                first.kind,
+                first.unit,
+                first.available,
+                first.period_minutes,
+                first.observed_at,
+                first.source_reference,
+            )
+            for ref in refs
+        ):
+            return _unsat(data, f"Conflicting resource snapshots for {resource_id}.")
+        if first.kind == "inventory":
+            # Fixed thousandths, rounded conservatively so fractional consumption is never lost.
+            model.add(
+                sum(
+                    _integer(
+                        (Decimal(str(ref.units_per_item)) * need.quantity * 1000).to_integral_value(
+                            rounding=ROUND_CEILING
+                        )
+                    )
+                    * variables[need.key, index]
+                    for (need, index, _), ref in zip(choices, refs, strict=True)
+                )
+                <= _integer(
+                    (Decimal(str(first.available)) * 1000).to_integral_value(rounding=ROUND_FLOOR)
+                )
+            )
+        else:
+            jobs = [
+                model.new_optional_interval_var(
+                    starts[need.key],
+                    choice.minutes,
+                    ends[need.key],
+                    variables[need.key, index],
+                    f"resource:{resource_id}:{need.key}:{index}",
+                )
+                for need, index, choice in choices
+            ]
+            for index, occupied in enumerate(first.occupied_intervals or []):
+                start = max(0, int((_date(occupied.starts_at) - now).total_seconds() // 60))
+                end = min(horizon, ceil((_date(occupied.completes_at) - now).total_seconds() / 60))
+                if end > start:
+                    jobs.append(model.new_fixed_size_interval_var(start, end-start, f"occupied:{resource_id}:{index}"))
+            model.add_no_overlap(jobs)
+
     for edge in dependencies:
         model.add(starts[edge.target] >= ends[edge.source])
         for i, upstream in enumerate(groups[edge.source]):
@@ -426,6 +538,19 @@ def _solve(data: SolverInput) -> ProductionPlan:
             capability_id=chosen.candidate.capability_id,
             kind=chosen.candidate.capability.kind,
             quantity=need.quantity,
+            customization_assets=[
+                asset
+                for asset in data.intent.assets
+                if asset.asset_id in (chosen.candidate.required_asset_ids or [])
+            ]
+            if chosen.candidate.catalog_version
+            else None,
+            catalog_version=chosen.candidate.catalog_version,
+            selected_item=chosen.candidate.selected_item,
+            resource_refs=chosen.candidate.resource_refs,
+            required_asset_ids=chosen.candidate.required_asset_ids,
+            transfer_minutes=chosen.candidate.transfer_minutes,
+            synthetic=chosen.candidate.synthetic,
             unit_cost=chosen.quote.unit_price,
             total_cost=chosen.cents / 100,
             starts_at=_iso(now + timedelta(minutes=solver.value(starts[need.key]))),

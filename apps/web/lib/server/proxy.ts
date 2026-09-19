@@ -6,6 +6,7 @@ import {
 } from "@molecule/contracts";
 
 const readPaths = [
+  /^catalog\/recipes$/,
   /^marketplace$/,
   /^desktop\/config$/,
   /^orders\/[^/]+(?:\/(?:events|messages|actions|capabilities))?$/,

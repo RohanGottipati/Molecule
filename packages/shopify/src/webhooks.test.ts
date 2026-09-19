@@ -46,6 +46,23 @@ describe("Shopify webhooks", () => {
     expect(events[0]?.payload.available).toBe(0);
     expect(JSON.stringify(events)).not.toContain("never-store");
   });
+  it("returns Shopify's verified delivery timestamp for ordered parent projections", async () => {
+    const result = await handleShopifyWebhook(
+      {
+        secret,
+        repository: new TestRepository(),
+        allowedDomains: ["base-goods.myshopify.com"],
+      },
+      {
+        rawBody,
+        headers: {
+          ...headers(),
+          "x-shopify-triggered-at": "2026-09-19T12:00:00.000000000Z",
+        },
+      },
+    );
+    expect(result.triggeredAt).toBe("2026-09-19T12:00:00.000Z");
+  });
   it("rejects unknown stores, bad HMAC, unsupported topics and replay conflicts", async () => {
     const repository = new TestRepository();
     const options = {

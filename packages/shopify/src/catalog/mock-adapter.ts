@@ -169,6 +169,11 @@ export class MockShopifyAdapter implements ShopifyAdapter {
     return store;
   }
 
+  /** Exposes the deterministic configured stores for read-only catalog consumers. */
+  listStores(): readonly string[] {
+    return [...this.storeHandles];
+  }
+
   async getSnapshot(shop: string): Promise<ShopifySnapshot> {
     const store = this.requireStore(shop);
     const role = roleForStore(shop);

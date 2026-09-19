@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closePool,
   getPool,
+  listMerchantClaims,
   migrate,
   reserveCapacity,
   seedDemo,
@@ -217,6 +218,67 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     expect(candidate?.capability.sourceClaimIds).not.toContain(
       "demo:cap-base-hoodie:price",
     );
+  });
+
+  it("supersedes older observations from one operational source without erasing them", async () => {
+    const sourceReference = `shopify:inventory:${randomUUID()}`;
+    const first = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "capacity_per_day",
+        rawValue: 20,
+        sourceKind: "shopify",
+        sourceReference,
+        observedAt: "2026-09-19T12:00:00.000Z",
+        sourceAuthority: 0.9,
+        extractionConfidence: 1,
+      },
+      "shopify-first-observation",
+    );
+    const newest = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "capacity_per_day",
+        rawValue: 0,
+        sourceKind: "shopify",
+        sourceReference,
+        observedAt: "2026-09-19T12:01:00.000Z",
+        sourceAuthority: 0.9,
+        extractionConfidence: 1,
+      },
+      "shopify-newest-observation",
+    );
+    const delayed = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "capacity_per_day",
+        rawValue: 10,
+        sourceKind: "shopify",
+        sourceReference,
+        observedAt: "2026-09-19T12:00:30.000Z",
+        sourceAuthority: 0.9,
+        extractionConfidence: 1,
+      },
+      "shopify-delayed-observation",
+    );
+    expect(first.ok && newest.ok && delayed.ok).toBe(true);
+    if (!first.ok || !newest.ok || !delayed.ok) return;
+
+    const claims = await listMerchantClaims("base-goods");
+    expect(
+      claims.find((claim) => claim.claimId === first.claim.claimId)
+        ?.resolutionStatus,
+    ).toBe("superseded");
+    expect(
+      claims.find((claim) => claim.claimId === delayed.claim.claimId)
+        ?.resolutionStatus,
+    ).toBe("superseded");
+    expect(
+      claims.find((claim) => claim.claimId === newest.claim.claimId),
+    ).toMatchObject({
+      resolutionStatus: "active",
+      normalizedValue: 0,
+    });
   });
 
   it("re-resolves offline merchants before filtering search candidates", async () => {

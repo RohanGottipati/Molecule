@@ -221,8 +221,35 @@ export async function ingestClaim(
       if (!stored) throw new Error("Previously ingested claim was removed");
       return { ok: true as const, claim: stored };
     }
-    if (result.ok) await insertClaim(result.claim, connection);
-    else
+    if (result.ok) {
+      await insertClaim(result.claim, connection);
+      // A source can publish successive observations of one fact (for example,
+      // Shopify inventory for the same inventory item). Keep the full audit
+      // trail, but make older observations in that exact source stream
+      // ineligible for resolution. A delayed webhook cannot regress a newer
+      // fact because the source's observed timestamp decides which stays
+      // active; ties remain active and resolve normally as a conflict.
+      await connection.query(
+        `with source_observations as (
+           select claim_id,
+                  coalesce(observed_at, ingested_at) as observed_at,
+                  max(coalesce(observed_at, ingested_at)) over () as newest_observed_at
+           from canonical_claims
+           where merchant_id=$1 and field=$2 and source_kind=$3 and source_reference=$4
+             and resolution_status in ('active','conflicted')
+         )
+         update canonical_claims claims set resolution_status='superseded'
+         from source_observations observations
+         where claims.claim_id=observations.claim_id
+           and observations.observed_at < observations.newest_observed_at`,
+        [
+          result.claim.merchantId,
+          result.claim.field,
+          result.claim.source.kind,
+          result.claim.source.reference,
+        ],
+      );
+    } else
       await connection.query(
         "insert into quarantined_claims(quarantine_id,artifact_id,reason) values($1,$2,$3)",
         [artifactId, artifactId, result.reason],

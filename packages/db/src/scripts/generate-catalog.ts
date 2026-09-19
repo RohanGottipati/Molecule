@@ -1008,10 +1008,7 @@ async function main() {
     // If we're short of 100 merchants, top up with extra competing
     // providers on random materials so the store count lands near 100.
     while (merchants.length < 100) {
-      const material = MATERIALS[randInt(0, MATERIALS.length - 1)];
-      if (!material) {
-        throw new Error("MATERIALS must not be empty");
-      }
+      const material = MATERIALS[randInt(0, MATERIALS.length - 1)]!;
       const merchant = newMerchant();
       const [topUpMin, topUpMax] = materialPriceRange(material.category);
       const unitPrice = Number(rand(topUpMin, topUpMax).toFixed(2));

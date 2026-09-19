@@ -16,6 +16,18 @@ import {
 } from "./schema/intentExtraction.js";
 
 const products = [
+  ["phone case", "Phone case", "phone cases?"],
+  ["laptop sleeve", "Laptop sleeve", "laptop sleeves?"],
+  ["desk mat", "Desk mat", "desk mats?"],
+  ["keycap", "Keycap", "keycaps?"],
+  ["picture frame", "Picture frame", "picture frames?"],
+  ["cutting board", "Cutting board", "cutting boards?"],
+  ["gym towel", "Gym towel", "gym towels?"],
+  ["pet tag", "Pet tag", "pet tags?"],
+  ["luggage tag", "Luggage tag", "luggage tags?"],
+  ["gift tin", "Gift tin", "gift tins?"],
+  ["organizer", "Organizer", "organizers?"],
+  ["enclosure", "Enclosure", "enclosures?"],
   ["hoodie", "Hoodie", "hoodies?"],
   ["bottle", "Bottle", "bottles?"],
   ["snacks", "Snacks", "snacks?"],
@@ -30,6 +42,7 @@ const products = [
 const sentenceBoundary = /[!?;\r\n]+|\.(?!\d)/;
 const colors = ["black", "white", "red", "blue", "green"] as const;
 const materials = [
+  "polycarbonate", "acrylic", "bamboo", "nylon", "wood", "aluminum", "ceramic", "pla", "petg", "abs", "resin", "tpu", "cork",
   "cotton",
   "polyester",
   "leather",
@@ -38,6 +51,13 @@ const materials = [
 ] as const;
 const wearables = ["hoodie", "shirt", "jacket", "hat"];
 const operations = [
+  [/\buv[ _-]print\w*\b/, "uv_printing", "uv-printed"],
+  [/\bscreen[ _-]print\w*\b/, "screen_printing", "screen-printed"],
+  [/\bdigital[ _-]print\w*\b/, "digital_printing", "digital-printed"],
+  [/\bpad[ _-]print\w*\b/, "pad_printing", "pad-printed"],
+  [/\b3d[ _-]print\w*\b/, "3d_printing", "3d-printed"],
+  [/\bheat[ _-]transfer\w*\b/, "heat_transfer", "heat-transferred"],
+  [/\b(?:dye[ _-])?sublimat\w*\b/, "sublimation", "sublimated"],
   [/\bembroider\w*\b/, "embroidery", "embroidered"],
   [/\bengrav\w*\b/, "engraving", "engraved"],
   [/\bprint\w*\b/, "printing", "printed"],
@@ -249,6 +269,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       .at(-1);
     if (
       prefix &&
+      !materials.some(material => material === prefix) &&
       !/^(?:\d[\d,]*|a|an|the|some|make|need|want|of|with|on|onto|for|to|per|include|including|black|white|red|blue|green|cotton|polyester|leather|steel|glass|vegan|premium|embroidered|engraved|printed|named)$/.test(
         prefix,
       )
@@ -276,6 +297,15 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
         attributes: [{ name: "product", value: product }],
       };
       desiredOutputs.push(output);
+    }
+    if (product === "phone case") {
+      const model = /\b(?:iphone|pixel|galaxy)\s+\d+(?:\s+(?:pro|max|plus|mini)){0,2}\b/.exec(text)?.[0];
+      if (model) output.attributes = [...output.attributes.filter(attribute => attribute.name !== "deviceModel"), { name: "deviceModel", value: model }];
+      else ambiguityFlags.push({ field: "phone case.deviceModel", reason: "Device model is required", question: "Which phone model must the case fit?" });
+    }
+    if (product === "enclosure") {
+      const dimensions = /(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)\s*mm\b/.exec(text);
+      if (dimensions) for (const [index, name] of ["widthMm", "depthMm", "heightMm"].entries()) output.attributes.push({ name, value: Number(dimensions[index+1]) });
     }
     const componentQuantity = numericMatch(
       quantitySource ?? text,
@@ -384,6 +414,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     outputKeys: t.outputRefs,
   }));
   for (const [trigger, kind, result] of operations) {
+    if (kind === "printing" && /\b(?:uv|screen|digital|pad|3d)[ _-]print/.test(text)) continue;
     const operationSegments = segments.filter(
       (segment) =>
         trigger.test(segment) ||
@@ -425,16 +456,20 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
           kind === "engraving" && /\b(?:named|names?)\b/.test(text)
             ? "Engrave individual names"
             : `${kind} using supplied artwork`,
-        inputKeys: [output.key],
+        inputKeys: [transformations.filter(t => t.key === output.key || t.outputKeys.some(ref => ref.endsWith(`-${output.key}`))).at(-1)?.outputKeys[0] ?? output.key],
         outputKeys: [`${result}-${output.key}`],
       });
     }
   }
   const finalRef = (key: string): string => {
-    const transformation = transformations.find((t) =>
-      t.inputKeys.includes(key),
-    );
-    return transformation?.outputKeys[0] ?? key;
+    const seen = new Set<string>();
+    while (!seen.has(key)) {
+      seen.add(key);
+      const transformation = transformations.find(t => t.inputKeys.length === 1 && t.inputKeys.includes(key));
+      if (!transformation?.outputKeys[0]) break;
+      key = transformation.outputKeys[0];
+    }
+    return key;
   };
   if (
     (hasKit && desiredOutputs.some((o) => o.key !== "kit")) ||

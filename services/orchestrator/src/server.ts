@@ -16,6 +16,11 @@ import {
   type MarketplaceSnapshot,
   type ChaosRequest,
 } from "@molecule/contracts";
+import {
+  handleShopifyWebhook,
+  ShopifyError,
+  type WebhookOptions,
+} from "@molecule/shopify";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -28,10 +33,36 @@ import { Orchestrator } from "./workflow/Orchestrator.js";
 import { registerDesktopRoutes } from "./desktopRoutes.js";
 import type { ContextStore } from "./LocalStore.js";
 import { ActionLedger } from "./ActionLedger.js";
-import { apiFailure } from "./errors.js";
+import { apiFailure, RequestProblem } from "./errors.js";
 import { readMessageHistory } from "./messageHistory.js";
 
+const SHOPIFY_WEBHOOK_PATH = "/api/shopify/webhooks";
+
+function singleValueHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value[0] : value,
+    ]),
+  );
+}
+
+function shopifyWebhookStatus(error: ShopifyError): number {
+  if (error.code === "WEBHOOK_UNAUTHORIZED") return 401;
+  if (error.code === "WEBHOOK_TOO_LARGE") return 413;
+  if (
+    error.code === "PERSISTENCE_FAILED" ||
+    error.code === "PERSISTENCE_DISCONNECTED"
+  )
+    return 503;
+  return 400;
+}
+
+
 export interface ServerDependencies {
+  catalogGallery?: () => Promise<import("@molecule/contracts").CatalogGallery>;
   config: Config;
   sessions: SessionRepository;
   events: EventStore;
@@ -42,10 +73,47 @@ export interface ServerDependencies {
   marketplace?: () => Promise<MarketplaceSnapshot>;
   applyChaos?: (request: ChaosRequest, traceId: string) => Promise<void>;
   resetDemo?: () => Promise<void>;
+  shopifyWebhook?: {
+    options: WebhookOptions;
+    ingestInventoryUpdate?: (input: {
+      shop: string;
+      inventoryItemId: string | number;
+      locationId?: string | number;
+      available: number;
+      observedAt?: string;
+      traceId: string;
+    }) => Promise<void>;
+  };
 }
 
 export async function buildServer(deps: ServerDependencies) {
   const app = Fastify({ logger: true });
+  app.get("/api/catalog/recipes", async () => deps.catalogGallery ? deps.catalogGallery() : { catalogVersion: null, recipes: [] });
+  if (deps.shopifyWebhook) {
+    app.removeContentTypeParser("application/json");
+    app.addContentTypeParser(
+      "application/json",
+      { parseAs: "buffer" },
+      (request, body, done) => {
+        if (request.url.split("?")[0] === SHOPIFY_WEBHOOK_PATH) {
+          done(null, body);
+          return;
+        }
+        try {
+          done(null, JSON.parse(body.toString("utf8")));
+        } catch {
+          done(
+            new RequestProblem(
+              400,
+              "VALIDATION_ERROR",
+              "Request body must contain valid JSON",
+            ),
+            undefined,
+          );
+        }
+      },
+    );
+  }
   const origins = [
     deps.config.ALLOWED_ORIGIN,
     deps.config.DESKTOP_ORIGIN,
@@ -62,6 +130,56 @@ export async function buildServer(deps: ServerDependencies) {
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/ready", async () => ({ status: "ready" }));
+  if (deps.shopifyWebhook) {
+    app.post(
+      SHOPIFY_WEBHOOK_PATH,
+      { bodyLimit: deps.shopifyWebhook.options.maxBodyBytes ?? 1_000_000 },
+      async (request, reply) => {
+        if (!Buffer.isBuffer(request.body))
+          throw new ShopifyError("WEBHOOK_INVALID_PAYLOAD");
+        try {
+          const result = await handleShopifyWebhook(
+            deps.shopifyWebhook!.options,
+            {
+              rawBody: request.body,
+              headers: singleValueHeaders(request.headers),
+            },
+          );
+          if (
+            result.topic === "inventory_levels/update" &&
+            result.payload.inventory_item_id !== undefined &&
+            result.payload.available !== undefined &&
+            result.payload.available !== null
+          ) {
+            try {
+              await deps.shopifyWebhook!.ingestInventoryUpdate?.({
+                shop: result.domain,
+                inventoryItemId: result.payload.inventory_item_id,
+                locationId: result.payload.location_id,
+                available: result.payload.available,
+                ...(result.triggeredAt
+                  ? { observedAt: result.triggeredAt }
+                  : {}),
+                traceId: `shopify-webhook:${result.deliveryId}`,
+              });
+            } catch {
+              throw new ShopifyError("PERSISTENCE_FAILED");
+            }
+          }
+          return reply.code(200).send({
+            status: result.status,
+            eventId: result.eventId,
+          });
+        } catch (error) {
+          if (error instanceof ShopifyError)
+            return reply.code(shopifyWebhookStatus(error)).send({
+              error: error.code,
+            });
+          throw error;
+        }
+      },
+    );
+  }
   const chaosActions = new ActionLedger(deps.desktopStore);
   registerDesktopRoutes(app, deps, chaosActions);
   app.get("/api/projects", async (request, reply) => {

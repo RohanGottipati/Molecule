@@ -608,6 +608,8 @@ export class Orchestrator {
       });
       try {
         const request = CurrentQuoteRequestSchema.parse({
+          catalogVersion: candidate.catalogVersion,
+          selectedItem: candidate.selectedItem,
           orderId: session.orderId,
           traceId: session.traceId,
           merchantId: candidate.merchantId,
@@ -860,9 +862,17 @@ export class Orchestrator {
     return completed;
   }
 
+  async recoverResource(orderId: string, resourceId: string): Promise<OrderSession> {
+    const session = await this.load(orderId);
+    const node = session.activePlan?.nodes.find(node => node.resourceRefs?.some(ref => ref.resourceId === resourceId));
+    if (!node) return session;
+    return this.recoverSupplier(orderId, node.merchantId, resourceId);
+  }
+
   async recoverSupplier(
     orderId: string,
     merchantId: string,
+    resourceId?: string,
   ): Promise<OrderSession> {
     let session = await this.load(orderId);
     if (
@@ -882,18 +892,18 @@ export class Orchestrator {
     }
     await this.emit(
       session,
-      "supplier.offline",
+      resourceId ? "catalog.resource.invalidated" : "supplier.offline",
       "orchestrator",
-      { merchantId },
+      { merchantId, ...(resourceId ? { resourceId } : {}) },
       merchantId,
     );
-    session = await this.move(
+    if (session.state !== "NEEDS_HUMAN") session = await this.move(
       session,
       "AT_RISK",
       "plan.invalidated",
       "orchestrator",
       {
-        reason: "supplier_offline",
+        reason: resourceId ? "resource_availability_changed" : "supplier_offline",
         merchantId,
       },
     );
@@ -925,7 +935,7 @@ export class Orchestrator {
     );
     let recovered: OrderSession;
     try {
-      recovered = await this.plan(session, [merchantId]);
+      recovered = await this.plan(session, resourceId ? [] : [merchantId]);
     } catch (error) {
       return this.failCurrent(session, error, "recovery.failed");
     }

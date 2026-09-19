@@ -143,7 +143,7 @@ test build`, and for anything touching Postgres, the `TEST_DATABASE_URL` /
 
 ## 4. Tasks (do in order; each is a small, separately-committable unit)
 
-- [ ] **G1. Extraction function.** In `packages/shopify` (e.g.
+- [x] **G1. Extraction function.** In `packages/shopify` (e.g.
       `packages/shopify/src/reality-extract.ts`): a pure function
       `extractCapacityClaims(snapshot: ShopifySnapshot, merchantId: string): RawClaimInput[]`
       that turns each `ShopifyCapacityItem` into one `RawClaimInput` with
@@ -153,39 +153,45 @@ test build`, and for anything touching Postgres, the `TEST_DATABASE_URL` /
       merchant-submitted note), `extractionConfidence: 1`,
       `evidenceText: "<title> tracked inventory = <quantity>"`. Accept: unit tests using
       `MockShopifyAdapter.getSnapshot("stitchworks-...")` fixtures, no network.
-- [ ] **G2. Role → merchantId mapping + skip-unknown helper.** Reuse `MERCHANT_IDS` and
+- [x] **G2. Role → merchantId mapping + skip-unknown helper.** Reuse `MERCHANT_IDS` and
       `roleForStore` from `@molecule/test-fixtures`. A small helper that, given a store
       handle, returns the mapped `merchantId` or `undefined` if unmapped (e.g.
       `printpress`). Accept: unit test asserts `printpress-*` → `undefined`,
       `stitchworks-*` → `"stitch-works"`.
-- [ ] **G3. Batch ingestion wired into the orchestrator.** In
-      `services/orchestrator/src/durableRuntime.ts`, near line 95: for each configured
-      store with a mapped merchant, get a snapshot (mock or real, mirroring how `commerce`
-      is already constructed by `SHOPIFY_MODE`), run G1's extraction, call `ingestClaim`
-      for each claim with a per-run `traceId`. Accept: integration test against a disposable
-      Postgres (`TEST_DATABASE_URL`, matching the pattern in `docs/RELEASE.md`) — seed
-      produces expected `accepted`/`quarantined` counts, an unmapped store is skipped not
-      thrown, and running the batch twice produces the same claim IDs (checksum idempotency).
-- [ ] **G4. Mount the webhook HTTP route.** Prerequisite gap, not previously scoped
-      anywhere: add an actual Fastify route (in `services/orchestrator`, alongside wherever
-      `index.ts`'s `app` is otherwise configured) that reads the **raw request body**
-      (required for HMAC — verify before any JSON-parsing middleware runs) and calls
-      `handleShopifyWebhook({ secret, allowedDomains, repository, maxBodyBytes }, { rawBody,
+- [~] **G3. Batch ingestion wired into the orchestrator.** Implemented with a
+  database-gated integration test; awaiting execution against `TEST_DATABASE_URL`.
+  In
+  `services/orchestrator/src/durableRuntime.ts`, near line 95: for each configured
+  store with a mapped merchant, get a snapshot (mock or real, mirroring how `commerce`
+  is already constructed by `SHOPIFY_MODE`), run G1's extraction, call `ingestClaim`
+  for each claim with a per-run `traceId`. Accept: integration test against a disposable
+  Postgres (`TEST_DATABASE_URL`, matching the pattern in `docs/RELEASE.md`) — seed
+  produces expected `accepted`/`quarantined` counts, an unmapped store is skipped not
+  thrown, and running the batch twice produces the same claim IDs (checksum idempotency).
+- [~] **G4. Mount the webhook HTTP route.** Implemented with raw-body HMAC
+  verification and a database-gated integration test; awaiting execution against
+  `TEST_DATABASE_URL`. Prerequisite gap, not previously scoped
+  anywhere: add an actual Fastify route (in `services/orchestrator`, alongside wherever
+  `index.ts`'s `app` is otherwise configured) that reads the **raw request body**
+  (required for HMAC — verify before any JSON-parsing middleware runs) and calls
+  `handleShopifyWebhook({ secret, allowedDomains, repository, maxBodyBytes }, { rawBody,
 headers })`. Map its result/thrown `ShopifyError` codes to HTTP status per
-      `docs/SHOPIFY_RELEASE.md`'s "Webhooks" section (401/413/400/503/200). Accept: an
-      integration test posts a signed `inventory_levels/update` payload to the running
-      route and asserts 200 + the event lands in `molecule_shopify_events`.
-- [ ] **G5. Reactive re-ingestion.** After G4's route accepts a webhook (status
-      `"accepted"` or `"duplicate"` both fine — duplicate just means checksum will no-op),
-      extract the affected item from the webhook payload
-      (`inventory_item_id`/`available`/`location_id` — already parsed and persisted, see
-      `packages/shopify/src/webhooks.ts:60-71`) and call `ingestClaim` for just that one
-      claim, using the webhook's own event/delivery ID as part of the `traceId`. Accept: an
-      end-to-end test simulates a webhook dropping a known capacity item to 0, then calls
-      `resolveMerchant` (or `GET /api/reality/merchants`) and asserts the resolved
-      `capacity_per_day` fact is now `0` with a `source.kind === "shopify"` contributing
-      claim — i.e. the self-heal chain moves without a human re-running anything by hand.
-- [ ] **G6 (stretch, only if P0-P1 done with time to spare).** Surface a
+  `docs/SHOPIFY_RELEASE.md`'s "Webhooks" section (401/413/400/503/200). Accept: an
+  integration test posts a signed `inventory_levels/update` payload to the running
+  route and asserts 200 + the event lands in `molecule_shopify_events`.
+- [~] **G5. Reactive re-ingestion.** Implemented with source-observation ordering
+  and a database-gated end-to-end test; awaiting execution against
+  `TEST_DATABASE_URL`. After G4's route accepts a webhook (status
+  `"accepted"` or `"duplicate"` both fine — duplicate just means checksum will no-op),
+  extract the affected item from the webhook payload
+  (`inventory_item_id`/`available`/`location_id` — already parsed and persisted, see
+  `packages/shopify/src/webhooks.ts:60-71`) and call `ingestClaim` for just that one
+  claim, using the webhook's own event/delivery ID as part of the `traceId`. Accept: an
+  end-to-end test simulates a webhook dropping a known capacity item to 0, then calls
+  `resolveMerchant` (or `GET /api/reality/merchants`) and asserts the resolved
+  `capacity_per_day` fact is now `0` with a `source.kind === "shopify"` contributing
+  claim — i.e. the self-heal chain moves without a human re-running anything by hand.
+- [x] **G6 (stretch, only if P0-P1 done with time to spare).** Surface a
       "Tiger last synced with Shopify at HH:MM:SS" signal (an event or a marketplace field)
       so the demo narrator/judge can see freshness live.
 
