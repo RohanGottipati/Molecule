@@ -1,0 +1,27 @@
+{
+  "name": "@molecule/merchant-agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@molecule/backboard": "workspace:*",
+    "@molecule/contracts": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "tsx": "4.23.13",
+    "vitest": "5.0.1"
+  }
+}
