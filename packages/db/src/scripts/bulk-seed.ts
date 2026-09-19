@@ -1,18 +1,14 @@
-// Generates high-volume synthetic time-series data directly in Postgres, spread across EVERY real merchant/capability currently in the catalog (pulled live from the merchants/capabilities tables -- run generate-catalog first) instead of 4 hardcoded demo capabilities.
-// Inserts in batches so you get progress output instead of one giant silent INSERT. Safe to run more than once -- it only adds rows.
-// Run: pnpm --filter @molecule/db bulk-seed
-// Default is 3,000,000 rows split across the three hypertables. Pass a number to change the total, e.g. pnpm --filter @molecule/db bulk-seed -- 5000000
 import pg from "pg";
 const { Client } = pg;
 const BATCH_SIZE = 200_000;
 async function insertFulfillmentBatch(client, merchantIds, capabilityIds, rows, pairCount, offset) {
-  await client.query(`insert into fulfillment_samples (ts, merchant_id, capability_id, promised_hours, actual_hours, success) select now() - (random() * interval '90 days') - ((gs + $5) * interval '1 microsecond'), ($1::text[])[idx], ($2::text[])[idx], promised, promised * (0.6 + random() * 0.8), random() > 0.06 from generate_series(1, $3) gs, lateral (select floor(random() * $4 + 1)::int as idx, (4 + random() * 68) as promised) i on conflict (ts, merchant_id, capability_id) do nothing;`, [merchantIds, capabilityIds, rows, pairCount, offset]);
+  await client.query(`insert into fulfillment_samples (ts, merchant_id, capability_id, promised_hours, actual_hours, success) select now() - (random() * interval '90 days') - ((gs + $5) * interval '1 microsecond'), ($1::text[])[idx], ($2::text[])[idx], promised, promised * (0.6 + random() * 0.8), random() > 0.06 from generate_series(1, $3) gs, lateral (select gs as _forced, floor(random() * $4 + 1)::int as idx, (4 + random() * 68) as promised) i on conflict (ts, merchant_id, capability_id) do nothing;`, [merchantIds, capabilityIds, rows, pairCount, offset]);
 }
 async function insertMarketBatch(client, merchantIds, capabilityIds, rows, pairCount, offset) {
-  await client.query(`insert into market_metrics (ts, merchant_id, capability_id, metric, value) select now() - (random() * interval '90 days') - ((gs + $5) * interval '1 microsecond'), ($1::text[])[idx], ($2::text[])[idx], (array['capacity', 'inventory', 'price'])[floor(random() * 3 + 1)], round((random() * 500)::numeric, 2) from generate_series(1, $3) gs, lateral (select floor(random() * $4 + 1)::int as idx) i;`, [merchantIds, capabilityIds, rows, pairCount, offset]);
+  await client.query(`insert into market_metrics (ts, merchant_id, capability_id, metric, value) select now() - (random() * interval '90 days') - ((gs + $5) * interval '1 microsecond'), ($1::text[])[idx], ($2::text[])[idx], (array['capacity', 'inventory', 'price'])[floor(random() * 3 + 1)], round((random() * 500)::numeric, 2) from generate_series(1, $3) gs, lateral (select gs as _forced, floor(random() * $4 + 1)::int as idx) i;`, [merchantIds, capabilityIds, rows, pairCount, offset]);
 }
 async function insertNetworkBatch(client, distinctMerchants, rows, offset) {
-  await client.query(`insert into network_events (ts, trace_id, merchant_id, event_type, source, severity, numeric_value, unit) select now() - (random() * interval '90 days') - ((gs + $4) * interval '1 microsecond'), gen_random_uuid()::text, ($1::text[])[idx], (array['claim.ingested', 'claim.resolved', 'claim.conflict', 'reservation.created', 'reservation.released', 'plan.validated'])[floor(random() * 6 + 1)], (array['shopify', 'document', 'note', 'manual', 'api'])[floor(random() * 5 + 1)], (array['INFO', 'WARN', 'ERROR'])[floor(random() * 3 + 1)], round((random() * 200)::numeric, 2), 'units' from generate_series(1, $2) gs, lateral (select floor(random() * $3 + 1)::int as idx) i;`, [distinctMerchants, rows, distinctMerchants.length, offset]);
+  await client.query(`insert into network_events (ts, trace_id, merchant_id, event_type, source, severity, numeric_value, unit) select now() - (random() * interval '90 days') - ((gs + $4) * interval '1 microsecond'), gen_random_uuid()::text, ($1::text[])[idx], (array['claim.ingested', 'claim.resolved', 'claim.conflict', 'reservation.created', 'reservation.released', 'plan.validated'])[floor(random() * 6 + 1)], (array['shopify', 'document', 'note', 'manual', 'api'])[floor(random() * 5 + 1)], (array['INFO', 'WARN', 'ERROR'])[floor(random() * 3 + 1)], round((random() * 200)::numeric, 2), 'units' from generate_series(1, $2) gs, lateral (select gs as _forced, floor(random() * $3 + 1)::int as idx) i;`, [distinctMerchants, rows, distinctMerchants.length, offset]);
 }
 async function runBatched(label, totalRows, runBatch) {
   process.stdout.write(`Generating ${totalRows.toLocaleString()} ${label} rows in batches of ${BATCH_SIZE.toLocaleString()}...\n`);
@@ -57,6 +53,8 @@ async function main() {
     for (const row of counts.rows) { process.stdout.write(`  ${row.table}: ${Number(row.count).toLocaleString()} total rows\n`); }
     const spread = await client.query(`select count(distinct capability_id) as distinct_caps, count(distinct merchant_id) as distinct_merchants from fulfillment_samples;`);
     process.stdout.write(`  fulfillment_samples spans ${spread.rows[0].distinct_caps} distinct capabilities across ${spread.rows[0].distinct_merchants} distinct merchants\n`);
+    const marketSpread = await client.query(`select count(distinct capability_id) as distinct_caps, count(distinct merchant_id) as distinct_merchants from market_metrics;`);
+    process.stdout.write(`  market_metrics spans ${marketSpread.rows[0].distinct_caps} distinct capabilities across ${marketSpread.rows[0].distinct_merchants} distinct merchants\n`);
   } finally {
     await client.end();
   }
