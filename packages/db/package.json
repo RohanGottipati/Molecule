@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "tsx src/scripts/migrate.ts",
     "seed": "tsx src/scripts/migrate.ts --seed-only",
+    "bulk-seed": "tsx src/scripts/bulk-seed.ts",
     "reset": "tsx src/scripts/reset.ts"
   },
   "dependencies": {
