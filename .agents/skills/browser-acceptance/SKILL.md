@@ -6,9 +6,11 @@ description: Safely exercise Molecule's browser kit flow with populated provenan
 # PostgreSQL browser acceptance
 
 ## Devin Secrets Needed
+
 None for synthetic demo providers. Use only authorized local PostgreSQL credentials; never enable paid commerce for this workflow.
 
 ## Setup
+
 - Read AGENTS.md, docs/RELEASE.md and the current environment blueprint.
 - Use a new isolated disposable PostgreSQL database, not another acceptance run's database. If psql is absent, the installed `pg` package in packages/db can create it.
 - Run `pnpm db:migrate` and `pnpm db:seed` with DATABASE_URL pointing to that database.
@@ -19,6 +21,7 @@ None for synthetic demo providers. Use only authorized local PostgreSQL credenti
 - Local-storage catalogs may not contain claims or merchant memory. Use the seeded PostgreSQL mode when testing populated evidence.
 
 ## Browser flow and evidence
+
 - Submit the exact user-specified canonical text, without paraphrasing compiler failures away.
 - Check seven production nodes and six dependencies; record concrete cost, deadline and hard constraints.
 - Correct with `No polyester.` and check intent-version replacement in a second tab before approval.

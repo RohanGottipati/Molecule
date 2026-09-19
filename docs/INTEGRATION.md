@@ -1,5 +1,8 @@
 # Integrated release ledger
 
+Current branch disposition and validation: [final merge verification](MERGE_VERIFICATION.md).
+The tables below retain the earlier integration baseline.
+
 ## Branch inventory and disposition
 
 The integration started from pushed `origin/Backboard` (`cc93122`), because the user's only uncommitted file was generated TypeScript metadata. No secret environment file was committed.

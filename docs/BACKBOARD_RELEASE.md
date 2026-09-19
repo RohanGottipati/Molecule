@@ -383,3 +383,12 @@ mocks), and `verify:secrets`. Changed files pass Prettier. Root `pnpm format`
 reports 16 unchanged baseline files at integration commit `11e822e` (including
 shared documentation/lockfile, Reality, DB and two existing Backboard files);
 the worker leaves these existing formatting differences to the parent.
+
+## Live catalog verification (2026-09-19 integration)
+
+A credentialed read-only `listModels` check returned HTTP 200 with
+`supports_json_output: null` on some models. The adapter accepts this documented
+wire observation and advertises JSON support only for explicit `true`; unknown
+support never makes a model eligible for JSON-required routing. Regression tests
+cover true, false, null, and malformed strings. No merchant operational facts
+are inferred from this provider capability metadata.

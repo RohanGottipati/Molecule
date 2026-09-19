@@ -11,6 +11,57 @@ const identity = {
 const timestamp = "2026-09-19T00:00:00.000Z";
 
 describe("real Backboard provider wire boundary", () => {
+  it("does not advertise JSON output when the live catalog reports unknown support", async () => {
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async () =>
+        Response.json({
+          models: [true, false, null].map((supports_json_output, index) => ({
+            name: `model-${index}`,
+            provider: "provider",
+            context_limit: 32000,
+            supports_tools: true,
+            supports_thinking: false,
+            supports_json_output,
+          })),
+          total: 3,
+        }),
+    });
+    const models = await adapter.listModels();
+    expect(models.map((model) => model.supportsJsonOutput)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(
+      models.every(
+        (model) => model.supportsTools && model.contextWindow === 32000,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects malformed model capability values", async () => {
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async () =>
+        Response.json({
+          models: [
+            {
+              name: "model",
+              provider: "provider",
+              context_limit: 32000,
+              supports_tools: true,
+              supports_thinking: false,
+              supports_json_output: "yes",
+            },
+          ],
+        }),
+    });
+    await expect(adapter.listModels()).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
   it("sends JSON schema tools, validates identity and submits documented tool-output payload", async () => {
     const calls: { url: string; body: Record<string, unknown> }[] = [];
     const fetchImpl: typeof fetch = async (url, init) => {

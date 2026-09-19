@@ -291,3 +291,11 @@ On a Mac with account-supported OpenAI models and the missing real provider inte
 10. Open Command Center and confirm the URL and project match. Test a one-frame screen share separately, including denied permission.
 
 The full physical microphone and live-provider acceptance flow remains open beyond the recorded checks above. Live OpenAI was exercised with a temporary server-side credential, but the compiler/candidate/solver contract mismatch prevented a valid plan. Real Shopify/Backboard/Tiger behavior requires integration work absent from the chosen base. A passing mock API/UI test is not a claim that those external systems were exercised.
+
+## Integration packaging runtime (2026-09-19)
+
+Use Node 22 for `pnpm --filter @molecule/desktop package:mac:local`, matching
+CI. On this integration host, Node 26.5.1 exited with an unsettled top-level
+await in Electron Packager; Node 22.23.1 produced the ad-hoc signed arm64 bundle
+and `codesign --verify --deep --strict` passed. This is local packaging evidence,
+not production distribution signing or notarization.

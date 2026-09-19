@@ -279,7 +279,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
             context_limit: z.number().positive(),
             supports_tools: z.boolean(),
             supports_thinking: z.boolean(),
-            supports_json_output: z.boolean(),
+            supports_json_output: z.boolean().nullable(),
             supports_vision: z.boolean().optional(),
           }),
         ),
@@ -293,7 +293,8 @@ export class RealBackboardAdapter implements BackboardAdapter {
       provider: model.provider,
       supportsTools: model.supports_tools,
       supportsThinking: model.supports_thinking,
-      supportsJsonOutput: model.supports_json_output,
+      // The provider reports null when support is unknown; never advertise it.
+      supportsJsonOutput: model.supports_json_output === true,
       supportsVision: model.supports_vision ?? false,
       contextWindow: model.context_limit,
     }));
