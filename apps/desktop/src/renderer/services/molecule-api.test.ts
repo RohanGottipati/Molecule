@@ -3,8 +3,26 @@ import { MoleculeApi, validateContext } from "./molecule-api.js";
 import { projectResult } from "./test-fixtures.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 describe("desktop commands", () => {
+  it("calls browser fetch with its Window receiver", async () => {
+    const transport = vi.fn(function (this: unknown) {
+      expect(this).toBe(globalThis);
+      return Promise.resolve(
+        Response.json({
+          demoMode: true,
+          mockProviders: {},
+          maxContextBytes: 10_485_760,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", transport);
+    await new MoleculeApi("http://localhost:3001").config();
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
   it("retries a lost HTTP response with an identical action ID and request body", async () => {
     vi.useFakeTimers();
     const transport = vi

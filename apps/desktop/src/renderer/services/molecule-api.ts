@@ -26,7 +26,8 @@ export const DesktopConfigSchema = z.object({
 export class MoleculeApi {
   constructor(
     readonly base: string,
-    private readonly transport: typeof fetch = fetch,
+    private readonly transport: typeof fetch = (...args) =>
+      globalThis.fetch(...args),
   ) {}
   private async request(path: string, init: RequestInit = {}) {
     for (let attempt = 0; ; attempt += 1) {
