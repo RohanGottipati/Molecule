@@ -20,7 +20,10 @@
     "typecheck": "turbo run typecheck",
     "verify:openai": "node --import tsx scripts/verify-openai.ts",
     "verify:desktop": "node --import tsx scripts/verify-desktop.mjs",
-    "verify:secrets": "node scripts/verify-no-client-secrets.mjs"
+    "verify:secrets": "node scripts/verify-no-client-secrets.mjs",
+    "db:migrate": "pnpm --filter @molecule/db migrate",
+    "db:seed": "pnpm --filter @molecule/db seed",
+    "db:reset": "pnpm --filter @molecule/db reset"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
