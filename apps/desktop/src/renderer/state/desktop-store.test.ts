@@ -34,6 +34,79 @@ async function fixture() {
   return { store, bridge, notify };
 }
 describe("authoritative desktop state", () => {
+  it("stages removable context without sending or losing it on events and collapse", async () => {
+    const { store } = await fixture();
+    const result = projectResult();
+    vi.spyOn(store.api, "getProject").mockResolvedValue(result);
+    const upload = vi.spyOn(store.api, "uploadContext");
+    await store.openProject(result.project.orderId);
+    const file = new File(["reference"], "brief.txt", { type: "text/plain" });
+    store.stage([file]);
+    const id = store.getSnapshot().staged[0]!.id;
+    store.receive(backendEvent("execution.approval.requested"), true);
+    await store.mode("compact");
+    expect(store.getSnapshot().staged).toEqual([{ id, file }]);
+    expect(upload).not.toHaveBeenCalled();
+    store.removeStaged(id);
+    expect(store.getSnapshot().staged).toEqual([]);
+    expect(() => store.stage([new File(["x"], "script.exe")])).toThrow();
+    expect(store.getSnapshot().staged).toEqual([]);
+    store.dispose();
+  });
+  it("retains failed staged context and retries with the same upload and attach identity", async () => {
+    const { store } = await fixture();
+    const result = projectResult();
+    vi.spyOn(store.api, "createProject").mockResolvedValue(result);
+    const upload = vi.spyOn(store.api, "uploadContext").mockResolvedValue({
+      contextId: "reference",
+      asset: { assetId: "reference", checksum: "a".repeat(64) },
+    });
+    const attach = vi
+      .spyOn(store.api, "command")
+      .mockRejectedValueOnce(new Error("Attachment failed"))
+      .mockResolvedValue(result);
+    store.stage([new File(["reference"], "brief.txt")]);
+    const first = store.flushContext();
+    expect(store.flushContext()).toBe(first);
+    await expect(first).rejects.toThrow("Attachment failed");
+    expect(store.getSnapshot().staged).toHaveLength(1);
+    await store.flushContext();
+    expect(store.getSnapshot().staged).toEqual([]);
+    expect(upload.mock.calls[0]?.[2]).toBe(upload.mock.calls[1]?.[2]);
+    expect(attach.mock.calls[0]?.[2]).toBe(attach.mock.calls[1]?.[2]);
+    store.dispose();
+  });
+  it("discards staged context on project change and never attaches a late upload", async () => {
+    const { store } = await fixture();
+    const result = projectResult();
+    vi.spyOn(store.api, "createProject").mockResolvedValue(result);
+    let finish!: (value: {
+      contextId: string;
+      asset: { assetId: string; checksum: string };
+    }) => void;
+    const upload = vi.spyOn(store.api, "uploadContext").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const attach = vi.spyOn(store.api, "command");
+    store.stage([new File(["reference"], "brief.txt")]);
+    const operation = store.flushContext();
+    const rejected = expect(operation).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    await store.newProject();
+    finish({
+      contextId: "old",
+      asset: { assetId: "old", checksum: "a".repeat(64) },
+    });
+    await rejected;
+    expect(attach).not.toHaveBeenCalled();
+    expect(store.getSnapshot().staged).toEqual([]);
+    store.dispose();
+  });
   it("cancels pending capture on hide without uploading a late frame", async () => {
     const { store } = await fixture();
     let finish!: (files: File[]) => void;

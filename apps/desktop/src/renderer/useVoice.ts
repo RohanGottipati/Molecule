@@ -40,7 +40,7 @@ export function useVoice(store: DesktopStore) {
     await voice.start();
   };
   useEffect(() => {
-    store.onProjectChanging = () => voice.stop();
+    store.onProjectChanging = () => voice.clearConversation();
     const unsubscribe = store.bridge.onSignal((signal) => {
       if (
         (signal.type === "visibility" && !signal.visible) ||
