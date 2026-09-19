@@ -13,7 +13,10 @@
     "format:write": "prettier --write .",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "db:migrate": "pnpm --filter @molecule/db migrate",
+    "db:seed": "pnpm --filter @molecule/db seed",
+    "db:reset": "pnpm --filter @molecule/db reset"
   },
   "devDependencies": {
     "prettier": "3.9.8",

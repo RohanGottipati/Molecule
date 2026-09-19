@@ -1,0 +1,30 @@
+{
+  "name": "@molecule/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "seed": "tsx src/scripts/migrate.ts --seed-only",
+    "reset": "tsx src/scripts/reset.ts"
+  },
+  "dependencies": {
+    "@molecule/contracts": "workspace:*",
+    "pg": "8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.10",
+    "tsx": "4.19.2",
+    "vitest": "5.0.1"
+  }
+}
