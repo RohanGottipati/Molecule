@@ -1,6 +1,8 @@
 import {
   OrderSessionSnapshotSchema,
+  ProjectListQuerySchema,
   type MoleculeEvent,
+  type ProjectListQuery,
 } from "@molecule/contracts";
 import {
   getPool,
@@ -26,10 +28,42 @@ import {
   type SessionRepository,
 } from "./repositories.js";
 import type { OrderSession } from "./session/OrderSession.js";
+import {
+  projectCursor,
+  projectPage,
+  projectSummary,
+} from "./projectDiscovery.js";
 
 export class PostgresStore
   implements SessionRepository, EventStore, ContextStore
 {
+  async listProjects(input: ProjectListQuery) {
+    const query = ProjectListQuerySchema.parse(input);
+    const cursor = projectCursor(query.cursor);
+    const result = await getPool().query<{ session_json: unknown }>(
+      `select session_json from order_sessions
+       where ($1::text is null or session_json->>'createdAt' < $1
+         or (session_json->>'createdAt' = $1 and order_id collate "C" > $2))
+       and strpos(lower(order_id || ' ' || coalesce(
+         nullif((select string_agg(output->>'name', ', ' order by ordinal)
+           from jsonb_array_elements(coalesce(nullif(session_json->'intent','null'::jsonb)->'desiredOutputs','[]'::jsonb))
+           with ordinality as outputs(output,ordinal)), ''), 'Untitled production project')), lower($3)) > 0
+       order by session_json->>'createdAt' desc, order_id collate "C" asc limit $4`,
+      [
+        cursor?.createdAt ?? null,
+        cursor?.orderId ?? null,
+        query.search,
+        query.limit + 1,
+      ],
+    );
+    return projectPage(
+      result.rows.map(({ session_json }) =>
+        projectSummary(OrderSessionSnapshotSchema.parse(session_json)),
+      ),
+      query.limit,
+    );
+  }
+
   async create(session: OrderSession) {
     const parsed = OrderSessionSnapshotSchema.parse(session);
     const result = await getPool().query(

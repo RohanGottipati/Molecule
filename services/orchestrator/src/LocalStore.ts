@@ -5,6 +5,7 @@ import {
   MoleculeEventSchema,
   OrderSessionSnapshotSchema,
   type MoleculeEvent,
+  type ProjectListQuery,
 } from "@molecule/contracts";
 import { z } from "zod";
 import {
@@ -23,6 +24,7 @@ import {
 } from "./repositories.js";
 import type { OrderSession } from "./session/OrderSession.js";
 import { Serial } from "./serial.js";
+import { listProjectSnapshots } from "./projectDiscovery.js";
 
 export const StoredContextSchema = z.object({
   orderId: z.string(),
@@ -87,6 +89,16 @@ export class LocalStore implements SessionRepository, EventStore, ReceiptStore {
     return structuredClone(
       this.state.sessions.find((item) => item.orderId === orderId) ?? null,
     );
+  }
+  async listProjects(query: ProjectListQuery) {
+    return listProjectSnapshots(this.state.sessions, query);
+  }
+  async claimReceipt(receipt: ActionReceipt) {
+    return this.change((state) => {
+      if (state.receipts.some((item) => item.key === receipt.key)) return false;
+      state.receipts.push(structuredClone(receipt));
+      return true;
+    });
   }
   async create(session: OrderSession) {
     await this.change((state) => {

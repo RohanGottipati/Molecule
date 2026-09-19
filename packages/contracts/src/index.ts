@@ -691,6 +691,103 @@ export const MarketplaceSnapshotSchema = z.object({
 export type MarketplaceSnapshot = z.infer<typeof MarketplaceSnapshotSchema>;
 
 export const ActionIdSchema = z.string().min(1).max(160);
+export const MessageSubmissionSchema = CompileIntentRequestSchema.pick({
+  text: true,
+  correction: true,
+})
+  .extend({
+    locale: z.string().default("en-CA"),
+    timeZone: z.string().default("UTC"),
+    assets: z.array(AssetRefSchema).default([]),
+    expectedRevision: z.number().int().nonnegative().optional(),
+  })
+  .strip();
+export type MessageSubmission = z.infer<typeof MessageSubmissionSchema>;
+export const ProjectListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().max(100).default(""),
+  cursor: z.string().min(1).max(512).optional(),
+});
+export type ProjectListQuery = z.infer<typeof ProjectListQuerySchema>;
+export const ProjectSummarySchema = z.strictObject({
+  orderId: z.string().min(1),
+  title: z.string(),
+  state: OrderSessionStateSchema,
+  revision: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+export const ProjectListSchema = z.strictObject({
+  projects: z.array(ProjectSummarySchema),
+  nextCursor: z.string().nullable(),
+});
+export type ProjectList = z.infer<typeof ProjectListSchema>;
+
+export const ProductionMessageSchema = z.strictObject({
+  messageId: ActionIdSchema,
+  orderId: z.string().min(1),
+  source: z.enum(["web", "desktop", "unknown"]),
+  text: z.string().min(1),
+  assets: z.array(AssetRefSchema),
+  correction: CompileIntentRequestSchema.shape.correction.optional(),
+  acceptedAt: z.iso.datetime(),
+  acceptedRevision: z.number().int().nonnegative(),
+  planGeneration: z.number().int().nonnegative(),
+});
+export type ProductionMessage = z.infer<typeof ProductionMessageSchema>;
+export const MessageOutcomeSchema = z.strictObject({
+  messageId: ActionIdSchema,
+  status: z.enum(["pending", "succeeded", "failed", "superseded", "cancelled"]),
+  resultRevision: z.number().int().nonnegative().nullable(),
+  reason: z.string().nullable(),
+});
+export const MessageHistoryQuerySchema = z.object({
+  afterCursor: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export const MessageHistorySchema = z.strictObject({
+  messages: z.array(
+    ProductionMessageSchema.extend({
+      cursor: z.number().int().positive(),
+      outcome: MessageOutcomeSchema,
+    }),
+  ),
+  nextCursor: z.number().int().nonnegative().nullable(),
+});
+export type MessageHistory = z.infer<typeof MessageHistorySchema>;
+
+export const ActionStatusQuerySchema = z.object({
+  key: ActionIdSchema,
+  kind: z.enum(["message", "desktop", "approve", "upload"]).default("message"),
+});
+export type ActionStatusQuery = z.infer<typeof ActionStatusQuerySchema>;
+export const ActionStatusSchema = z.strictObject({
+  orderId: z.string().min(1),
+  key: ActionIdSchema,
+  kind: ActionStatusQuerySchema.shape.kind,
+  status: z.enum(["unknown", "pending", "succeeded", "failed", "superseded"]),
+  resultRevision: z.number().int().nonnegative().nullable(),
+  resultState: OrderSessionStateSchema.nullable(),
+  error: ApiErrorSchema.nullable(),
+  automaticRetryAllowed: z.literal(false),
+});
+export type ActionStatus = z.infer<typeof ActionStatusSchema>;
+
+export const ProjectCapabilitiesSchema = z.strictObject({
+  canSubmitMessage: z.boolean(),
+  canCancelPlanning: z.boolean(),
+  canApprove: z.boolean(),
+  requiresOperator: z.boolean(),
+  reason: z.string().nullable(),
+});
+export type ProjectCapabilities = z.infer<typeof ProjectCapabilitiesSchema>;
+export const ProjectCapabilitiesEnvelopeSchema = z.strictObject({
+  orderId: z.string(),
+  revision: z.number().int().nonnegative(),
+  capabilities: ProjectCapabilitiesSchema,
+});
+
 export const DesktopConstraintSchema = ConstraintSchema.omit({
   constraintId: true,
 }).extend({
@@ -735,6 +832,8 @@ export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 export const DesktopActionSchema = z.object({
   actionId: ActionIdSchema,
   command: DesktopCommandSchema,
+  originalText: z.string().min(1).max(20_000).optional(),
+  expectedRevision: z.number().int().nonnegative().optional(),
   locale: z.string().default("en-CA"),
   timeZone: z.string().default("UTC"),
 });
@@ -765,3 +864,5 @@ export const ContextReceiptSchema = z.object({
   asset: AssetRefSchema,
 });
 export type ContextReceipt = z.infer<typeof ContextReceiptSchema>;
+
+export { deriveProjectCapabilities, isPlanningState } from "./capabilities.js";
