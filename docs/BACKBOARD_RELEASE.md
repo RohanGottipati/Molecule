@@ -257,6 +257,25 @@ live-to-demo fallback. Abort signals reach live fetch requests. Canonical tool
 promises are bounded even when an injected client ignores cancellation; late
 results cannot persist a completed quote.
 
+Canonical grounding, pooled assistant/memory reads, model selection and provider
+quote/tool calls run outside the quote write transaction. The completed response
+and buffered model-selection/quote events are persisted together in a short
+transaction; only that transaction checks out its database client. Merchant
+transactions acquire Tiger's global event cursor lock `73481203` before resource
+advisory locks or row/FK locks, matching `@molecule/db.transaction` and the event
+cursor trigger. Do not call injected canonical clients or provider quote APIs
+from a transaction callback: Reality reads may acquire their own connection and
+transaction.
+
+Explicit quote `actionKey` retries return the stored response without invoking
+canonical/provider calls. Concurrent retries publish one quote and one event set;
+reuse with a different parsed request (including identity, intent version, or
+trace ID) or mode fails. The first committed response is immutable. Use a new
+action key for a fresh quote after canonical facts change. Requests without an
+explicit key retain the request/response-derived key and freshly ground facts.
+Cancellation is rechecked after lock acquisition and before commit, so a quote
+cancelled while waiting to persist cannot create a completion record or event.
+
 Official references audited before any provider mutations:
 
 - [Create assistant](https://backboard-docs.docsalot.dev/api-reference/assistants/create.md)
@@ -350,6 +369,13 @@ provenance, canonical conflicts, 100/50/20 history versus verified backup,
 constraint aliases, intent version, non-reservation, idempotent/concurrent
 capacity and jobs, and rejection of live model mutation/identity-switch tools.
 Browser UI acceptance belongs to the parent session.
+
+The concurrency regression mirrors Tiger's event cursor trigger and canonical
+read lock order. Eight simultaneous quotes complete on a two-connection pool.
+Separate regressions cover global-before-resource locking, immutable concurrent
+quote retries/collisions, cancellation during the persistence lock wait, and no
+checked-out connection or global lock during live quote provider calls. The
+pool/lock-order/retry regressions fail on worker commit `a054de8`.
 
 Release worker checks also passed root build/lint/typecheck/tests, solver
 lint/typecheck and nine solver tests, `verify:desktop` (real CP-SAT with provider
