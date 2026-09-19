@@ -133,6 +133,48 @@ describe("MockOpenAIAdapter", () => {
     }
   });
 
+  it("retains the budget and attached context when a correction mentions budget followed by punctuation", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const initial = await adapter.compileIntent({
+      ...base,
+      text: "Make 200 black hoodies by 2026-10-01 under $7,000 CAD, no leather",
+    });
+    expect(initial.status).toBe("READY");
+    if (initial.status !== "READY") return;
+
+    const assets = [
+      {
+        assetId: "brand-context",
+        name: "brand-context.txt",
+        mimeType: "text/plain",
+        checksum: "sha256:context",
+      },
+    ];
+    const text =
+      "Use the attached brand-context.txt for the hoodie logo. Keep the current 200 kits, deadline, CAD 7,000 budget, no leather and no polyester requirements.";
+    const corrected = await adapter.compileIntent({
+      ...base,
+      assets,
+      text,
+      correction: { kind: "other", text },
+      previousIntent: initial.intent,
+    });
+    expect(corrected.status).not.toBe("UNSUPPORTED");
+    if (corrected.status === "UNSUPPORTED") return;
+    const intent =
+      corrected.status === "READY" ? corrected.intent : corrected.draft;
+    expect(intent.budgetMax).toBe(7000);
+    expect(intent.quantity).toBe(200);
+    expect(intent.deadline).toBe(initial.intent.deadline);
+    expect(intent.assets).toEqual(assets);
+    expect(intent.hardConstraints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "material", value: "leather" }),
+        expect.objectContaining({ field: "material", value: "polyester" }),
+      ]),
+    );
+  });
+
   it("validates five correction fixtures without losing known facts", async () => {
     const adapter = new MockOpenAIAdapter();
     const initial = await adapter.compileIntent({
