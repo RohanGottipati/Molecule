@@ -28,6 +28,29 @@ const products = [
 ] as const;
 
 const sentenceBoundary = /[!?;\r\n]+|\.(?!\d)/;
+const colors = ["black", "white", "red", "blue", "green"] as const;
+const materials = [
+  "cotton",
+  "polyester",
+  "leather",
+  "stainless steel",
+  "glass",
+] as const;
+const wearables = ["hoodie", "shirt", "jacket", "hat"];
+
+function clausesOf(text: string, separators: RegExp): string[] {
+  return text
+    .split(sentenceBoundary)
+    .flatMap((sentence) => sentence.split(separators))
+    .map((clause) => clause.trim().replace(/[.!?;]+$/, ""))
+    .filter(Boolean);
+}
+
+function mentioned(clause: string): string[] {
+  return products
+    .filter(([, , pattern]) => new RegExp(`\\b${pattern}\\b`).test(clause))
+    .map(([product]) => product);
+}
 
 function numericMatch(text: string, pattern: RegExp): number | null {
   const value = pattern.exec(text)?.[1];
@@ -37,6 +60,8 @@ function numericMatch(text: string, pattern: RegExp): number | null {
 function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const previous = input.previousIntent;
   const text = `${input.text}\n${input.correction?.text ?? ""}`.toLowerCase();
+  const clauses = clausesOf(text, /\s+(?:and|with|including)\s+|,\s+/);
+  const segments = clausesOf(text, /,|\band\b/);
   const ambiguityFlags: IntentExtraction["ambiguityFlags"] = [];
   const softPreferences: IntentExtraction["softPreferences"] = [];
   const explicitQuantity = numericMatch(
@@ -192,7 +217,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       .at(-1);
     if (
       prefix &&
-      !/^(?:\d[\d,]*|a|an|the|some|make|need|want|of|with|include|including|black|white|red|blue|green|cotton|polyester|leather|steel|glass|vegan|premium|embroidered|engraved|printed|named)$/.test(
+      !/^(?:\d[\d,]*|a|an|the|some|make|need|want|of|with|on|onto|for|to|per|include|including|black|white|red|blue|green|cotton|polyester|leather|steel|glass|vegan|premium|embroidered|engraved|printed|named)$/.test(
         prefix,
       )
     ) {
@@ -228,11 +253,8 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     );
     if (componentQuantity !== null) output.quantity = componentQuantity;
     for (const [field, values] of [
-      ["color", ["black", "white", "red", "blue", "green"]],
-      [
-        "material",
-        ["cotton", "polyester", "leather", "stainless steel", "glass"],
-      ],
+      ["color", colors],
+      ["material", materials],
       ["diet", ["vegan"]],
     ] as const) {
       const value = values.find((value) =>
@@ -277,16 +299,26 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       attributes: [{ name: "product", value: "kit" }],
     });
   }
+  const kitColor = hasKit
+    ? colors.find(
+        (value) =>
+          new RegExp(`\\b${value}\\b(?:\\s+[\\w-]+){0,3}\\s+kits?\\b`).test(
+            text,
+          ) || clauses.includes(value),
+      )
+    : undefined;
+  const wearable = desiredOutputs.find((output) =>
+    wearables.includes(output.key),
+  );
   if (
-    hasKit &&
-    /\bblack\b/.test(text) &&
-    desiredOutputs.some((o) => o.name === "Hoodie")
+    kitColor &&
+    wearable &&
+    !new RegExp(`\\b(?:no|without)\\s+${kitColor}\\b`).test(text)
   ) {
-    addRule("hoodie.color", "black");
-    const hoodie = desiredOutputs.find((o) => o.name === "Hoodie")!;
-    hoodie.attributes = [
-      ...hoodie.attributes.filter((a) => a.name !== "color"),
-      { name: "color", value: "black" },
+    addRule(`${wearable.key}.color`, kitColor);
+    wearable.attributes = [
+      ...wearable.attributes.filter((a) => a.name !== "color"),
+      { name: "color", value: kitColor },
     ];
   }
   for (const material of ["leather", "polyester"]) {
@@ -302,21 +334,18 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     inputKeys: t.inputRefs,
     outputKeys: t.outputRefs,
   }));
-  for (const [word, kind, result] of [
-    ["embroider", "embroidery", "embroidered"],
-    ["engrav", "engraving", "engraved"],
-    ["print", "printing", "printed"],
+  for (const [trigger, kind, result] of [
+    [/\b(?:embroider\w*|logo)\b/, "embroidery", "embroidered"],
+    [/\bengrav\w*\b/, "engraving", "engraved"],
+    [/\bprint\w*\b/, "printing", "printed"],
   ] as const) {
-    if (!text.includes(word)) continue;
-    const matched = products.filter(([, , pattern]) =>
-      new RegExp(
-        `(?:\\b${pattern}\\s+(?:(?:logo|with|name|named|individual|supplied|artwork|the)\\s+){0,3}${word}\\w*\\b|\\b${word}\\w*\\s+(?:(?:logo|with|name|named|individual|supplied|artwork|the)\\s+){0,3}${pattern}\\b)`,
-      ).test(text),
-    );
+    if (!trigger.test(text)) continue;
+    const matched = segments.flatMap((segment) => {
+      const components = mentioned(segment);
+      return trigger.test(segment) && components.length === 1 ? components : [];
+    });
     const targets = matched.length
-      ? desiredOutputs.filter((o) =>
-          matched.some(([, name]) => o.name === name),
-        )
+      ? desiredOutputs.filter((output) => matched.includes(output.key))
       : desiredOutputs.length === 1
         ? desiredOutputs
         : [];
@@ -404,18 +433,15 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   ] as const) {
     if (missing) ambiguityFlags.push({ field, reason: "missing", question });
   }
-  const clauses = text
-    .split(sentenceBoundary)
-    .flatMap((sentence) => sentence.split(/\s+(?:and|with|including)\s+|,\s+/))
-    .map((clause) => clause.trim())
-    .filter(Boolean);
-  for (const [index, rawClause] of clauses.entries()) {
+  for (const [index, clause] of clauses.entries()) {
     if (index === 0) continue;
-    const clause = rawClause.trim().replace(/[.!?;]+$/, "");
     if (
       products.some(([, , pattern]) =>
         new RegExp(`\\b${pattern}\\b`).test(clause),
       ) ||
+      new RegExp(
+        `^(?:${[...colors, ...materials, "vegan", "premium"].join("|")})$`,
+      ).test(clause) ||
       /^(?:embroider(?:y|ed|ing)?|engrav(?:e|ed|ing)|print(?:ed|ing)?)\s+(?:the\s+)?(?:supplied\s+)?(?:logo|artwork|names?)$/.test(
         clause,
       ) ||
