@@ -191,6 +191,7 @@ Controls are keyboard accessible, statuses include text, and animation respects 
 - Microphone: **“Microphone access is off. Enable it in System Settings.”**
 - Screen: **“Screen context requires Screen Recording permission.”**
 - File: **“That file type isn’t supported yet.”**
+- Clarification: unresolved customer details remain `NEEDS_CLARIFICATION` after constraint changes or recompile requests. The backend persists the questions and intent version without searching merchants or solving. The dock and voice expose those questions; supplying the details through `start_project` lets the compiler resolve them. Direct solver requests with ambiguity flags return the missing-detail explanations and no budget, deadline, or quantity relaxations.
 - UNSAT: **“No valid company can satisfy all current requirements.”** Public solver explanations follow.
 - Cancellation only stops planning before execution. It does not undo completed commerce.
 

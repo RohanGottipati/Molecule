@@ -248,11 +248,19 @@ export class Orchestrator {
         ...session.intent,
         budgetMax: session.intent?.budgetMax ?? undefined,
       });
-      if (!complete.success)
+      if (!complete.success || complete.data.ambiguityFlags.length > 0)
         return this.move(
           session,
           "NEEDS_CLARIFICATION",
           "intent.clarification.required",
+          "orchestrator",
+          {
+            questions:
+              session.intent?.ambiguityFlags.map(
+                ({ question, reason }) => question ?? reason,
+              ) ?? [],
+            intentVersion: session.intentVersion,
+          },
         );
       session = await this.move(session, "INTENT_COMPILED", "intent.compiled");
       return this.plan(session);

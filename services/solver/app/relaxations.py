@@ -5,6 +5,8 @@ from .models import ConstraintRelaxation, ProductIntent
 
 
 def candidate_relaxations(intent: ProductIntent) -> list[ConstraintRelaxation]:
+    if intent.ambiguity_flags:
+        return []
     relaxations: list[ConstraintRelaxation] = []
     if intent.budget_max is not None and isfinite(intent.budget_max * 1.25):
         relaxations.append(

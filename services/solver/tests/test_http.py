@@ -14,6 +14,43 @@ def test_quantity_must_be_a_json_number(quantity: bool | str) -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("budget", [2000, 1])
+def test_missing_customer_details_require_answers_not_relaxations(budget: float) -> None:
+    value = payload(budget=budget)
+    value["intent"]["ambiguityFlags"] = [
+        {
+            "field": "artwork",
+            "reason": "Missing logo",
+            "question": "Please supply the logo artwork.",
+        },
+        {
+            "field": "names",
+            "reason": "Missing names",
+            "question": "What names should be personalized?",
+        },
+        {"field": "shipping", "reason": "Please supply the fulfillment destinations."},
+    ]
+    with TestClient(app) as client:
+        response = client.post("/solve", json=value)
+        assert response.status_code == 200
+        plan = response.json()
+        assert plan["status"] == "UNSAT"
+        assert plan["nodes"] == []
+        assert plan["unsatRelaxations"] == []
+        explanation = plan["constraintResults"][0]["explanation"]
+        for flag in value["intent"]["ambiguityFlags"]:
+            assert (flag.get("question") or flag["reason"]) in explanation
+
+        value["intent"]["ambiguityFlags"] = []
+        resolved = client.post("/solve", json=value)
+        assert resolved.status_code == 200
+        if budget == 1:
+            assert resolved.json()["status"] == "UNSAT"
+            assert resolved.json()["unsatRelaxations"]
+        else:
+            assert resolved.json()["status"] == "VALID"
+
+
 @pytest.mark.parametrize("field", ["budget", "price", "duration", "inventory", "constraint"])
 def test_unrepresentable_solver_numbers_fail_closed(field: str) -> None:
     value = payload()
