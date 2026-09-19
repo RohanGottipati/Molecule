@@ -1,0 +1,3064 @@
+{
+  "materials": [
+    {
+      "material": "Cotton t-shirt blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-001",
+          "merchantName": "Coastal & Co.",
+          "unitPrice": 20.09,
+          "leadMin": 14,
+          "leadMax": 54,
+          "capacity": 539
+        },
+        {
+          "merchantId": "m-catalog-002",
+          "merchantName": "Union & Co.",
+          "unitPrice": 16.35,
+          "leadMin": 22,
+          "leadMax": 68,
+          "capacity": 197
+        },
+        {
+          "merchantId": "m-catalog-003",
+          "merchantName": "Maple & Co.",
+          "unitPrice": 27.04,
+          "leadMin": 21,
+          "leadMax": 30,
+          "capacity": 365
+        },
+        {
+          "merchantId": "m-catalog-004",
+          "merchantName": "Harbor & Co.",
+          "unitPrice": 19.28,
+          "leadMin": 13,
+          "leadMax": 58,
+          "capacity": 944
+        }
+      ]
+    },
+    {
+      "material": "Cotton hoodie blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-005",
+          "merchantName": "Apliiq",
+          "unitPrice": 11.95,
+          "leadMin": 13,
+          "leadMax": 61,
+          "capacity": 324
+        },
+        {
+          "merchantId": "m-catalog-006",
+          "merchantName": "Thistle & Co.",
+          "unitPrice": 12.8,
+          "leadMin": 20,
+          "leadMax": 53,
+          "capacity": 613
+        },
+        {
+          "merchantId": "m-catalog-007",
+          "merchantName": "Cedar & Co.",
+          "unitPrice": 22.77,
+          "leadMin": 24,
+          "leadMax": 51,
+          "capacity": 238
+        },
+        {
+          "merchantId": "m-catalog-008",
+          "merchantName": "Ironwood & Co.",
+          "unitPrice": 26.83,
+          "leadMin": 16,
+          "leadMax": 35,
+          "capacity": 987
+        }
+      ]
+    },
+    {
+      "material": "Denim jacket blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-009",
+          "merchantName": "Bramble & Co.",
+          "unitPrice": 29.8,
+          "leadMin": 19,
+          "leadMax": 43,
+          "capacity": 176
+        },
+        {
+          "merchantId": "m-catalog-010",
+          "merchantName": "Summit & Co.",
+          "unitPrice": 31.34,
+          "leadMin": 18,
+          "leadMax": 65,
+          "capacity": 435
+        },
+        {
+          "merchantId": "m-catalog-011",
+          "merchantName": "Alder & Co.",
+          "unitPrice": 31.21,
+          "leadMin": 10,
+          "leadMax": 45,
+          "capacity": 694
+        },
+        {
+          "merchantId": "m-catalog-012",
+          "merchantName": "Birchwood & Co.",
+          "unitPrice": 30.11,
+          "leadMin": 9,
+          "leadMax": 52,
+          "capacity": 435
+        }
+      ]
+    },
+    {
+      "material": "Canvas tote bag blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-013",
+          "merchantName": "Lantern & Co.",
+          "unitPrice": 5.36,
+          "leadMin": 11,
+          "leadMax": 45,
+          "capacity": 881
+        },
+        {
+          "merchantId": "m-catalog-014",
+          "merchantName": "Anchor & Co.",
+          "unitPrice": 31.45,
+          "leadMin": 4,
+          "leadMax": 39,
+          "capacity": 526
+        },
+        {
+          "merchantId": "m-catalog-015",
+          "merchantName": "Meridian & Co.",
+          "unitPrice": 31.12,
+          "leadMin": 3,
+          "leadMax": 28,
+          "capacity": 367
+        },
+        {
+          "merchantId": "m-catalog-016",
+          "merchantName": "Hollow & Co.",
+          "unitPrice": 10.22,
+          "leadMin": 5,
+          "leadMax": 13,
+          "capacity": 618
+        }
+      ]
+    },
+    {
+      "material": "Pet bandana blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-017",
+          "merchantName": "Quarry & Co.",
+          "unitPrice": 9.33,
+          "leadMin": 9,
+          "leadMax": 49,
+          "capacity": 481
+        },
+        {
+          "merchantId": "m-catalog-018",
+          "merchantName": "Stonegate & Co.",
+          "unitPrice": 5.03,
+          "leadMin": 17,
+          "leadMax": 51,
+          "capacity": 880
+        },
+        {
+          "merchantId": "m-catalog-019",
+          "merchantName": "Willow & Co.",
+          "unitPrice": 3.59,
+          "leadMin": 17,
+          "leadMax": 44,
+          "capacity": 591
+        },
+        {
+          "merchantId": "m-catalog-020",
+          "merchantName": "North Supply Co.",
+          "unitPrice": 6.47,
+          "leadMin": 14,
+          "leadMax": 36,
+          "capacity": 176
+        },
+        {
+          "merchantId": "m-catalog-021",
+          "merchantName": "Coastal Supply Co.",
+          "unitPrice": 7.03,
+          "leadMin": 4,
+          "leadMax": 38,
+          "capacity": 676
+        }
+      ]
+    },
+    {
+      "material": "Baby onesie blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-022",
+          "merchantName": "Union Supply Co.",
+          "unitPrice": 10.72,
+          "leadMin": 15,
+          "leadMax": 21,
+          "capacity": 969
+        },
+        {
+          "merchantId": "m-catalog-023",
+          "merchantName": "Maple Supply Co.",
+          "unitPrice": 10.59,
+          "leadMin": 16,
+          "leadMax": 26,
+          "capacity": 138
+        },
+        {
+          "merchantId": "m-catalog-024",
+          "merchantName": "Harbor Supply Co.",
+          "unitPrice": 15.74,
+          "leadMin": 12,
+          "leadMax": 40,
+          "capacity": 799
+        },
+        {
+          "merchantId": "m-catalog-025",
+          "merchantName": "Foundry Supply Co.",
+          "unitPrice": 16.1,
+          "leadMin": 4,
+          "leadMax": 33,
+          "capacity": 234
+        },
+        {
+          "merchantId": "m-catalog-026",
+          "merchantName": "Thistle Supply Co.",
+          "unitPrice": 13.6,
+          "leadMin": 11,
+          "leadMax": 44,
+          "capacity": 290
+        },
+        {
+          "merchantId": "m-catalog-027",
+          "merchantName": "Cedar Supply Co.",
+          "unitPrice": 14.88,
+          "leadMin": 24,
+          "leadMax": 31,
+          "capacity": 185
+        }
+      ]
+    },
+    {
+      "material": "Paper poster blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-028",
+          "merchantName": "Ironwood Supply Co.",
+          "unitPrice": 2.88,
+          "leadMin": 24,
+          "leadMax": 59,
+          "capacity": 272
+        },
+        {
+          "merchantId": "m-catalog-029",
+          "merchantName": "Bramble Supply Co.",
+          "unitPrice": 1.26,
+          "leadMin": 7,
+          "leadMax": 34,
+          "capacity": 304
+        },
+        {
+          "merchantId": "m-catalog-030",
+          "merchantName": "Summit Supply Co.",
+          "unitPrice": 1.77,
+          "leadMin": 22,
+          "leadMax": 41,
+          "capacity": 369
+        },
+        {
+          "merchantId": "m-catalog-031",
+          "merchantName": "Alder Supply Co.",
+          "unitPrice": 1.79,
+          "leadMin": 3,
+          "leadMax": 21,
+          "capacity": 354
+        },
+        {
+          "merchantId": "m-catalog-032",
+          "merchantName": "Birchwood Supply Co.",
+          "unitPrice": 2.39,
+          "leadMin": 15,
+          "leadMax": 61,
+          "capacity": 174
+        }
+      ]
+    },
+    {
+      "material": "Yoga mat blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-033",
+          "merchantName": "Lantern Supply Co.",
+          "unitPrice": 11.84,
+          "leadMin": 3,
+          "leadMax": 18,
+          "capacity": 509
+        },
+        {
+          "merchantId": "m-catalog-034",
+          "merchantName": "Anchor Supply Co.",
+          "unitPrice": 21.31,
+          "leadMin": 14,
+          "leadMax": 33,
+          "capacity": 386
+        },
+        {
+          "merchantId": "m-catalog-035",
+          "merchantName": "Meridian Supply Co.",
+          "unitPrice": 14.57,
+          "leadMin": 10,
+          "leadMax": 56,
+          "capacity": 77
+        },
+        {
+          "merchantId": "m-catalog-036",
+          "merchantName": "Hollow Supply Co.",
+          "unitPrice": 22.03,
+          "leadMin": 13,
+          "leadMax": 21,
+          "capacity": 414
+        },
+        {
+          "merchantId": "m-catalog-037",
+          "merchantName": "Quarry Supply Co.",
+          "unitPrice": 24.48,
+          "leadMin": 9,
+          "leadMax": 39,
+          "capacity": 199
+        }
+      ]
+    },
+    {
+      "material": "Leather wallet blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-038",
+          "merchantName": "Stonegate Supply Co.",
+          "unitPrice": 4.06,
+          "leadMin": 6,
+          "leadMax": 41,
+          "capacity": 170
+        },
+        {
+          "merchantId": "m-catalog-039",
+          "merchantName": "Willow Supply Co.",
+          "unitPrice": 10.66,
+          "leadMin": 9,
+          "leadMax": 19,
+          "capacity": 945
+        }
+      ]
+    },
+    {
+      "material": "Leather belt blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-040",
+          "merchantName": "North Goods",
+          "unitPrice": 6.73,
+          "leadMin": 3,
+          "leadMax": 28,
+          "capacity": 278
+        },
+        {
+          "merchantId": "m-catalog-041",
+          "merchantName": "Coastal Goods",
+          "unitPrice": 18.85,
+          "leadMin": 12,
+          "leadMax": 31,
+          "capacity": 742
+        },
+        {
+          "merchantId": "m-catalog-042",
+          "merchantName": "Union Goods",
+          "unitPrice": 16.75,
+          "leadMin": 2,
+          "leadMax": 20,
+          "capacity": 707
+        },
+        {
+          "merchantId": "m-catalog-043",
+          "merchantName": "Maple Goods",
+          "unitPrice": 7.07,
+          "leadMin": 10,
+          "leadMax": 21,
+          "capacity": 677
+        }
+      ]
+    },
+    {
+      "material": "Wood cutting board blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-044",
+          "merchantName": "Harbor Goods",
+          "unitPrice": 5.11,
+          "leadMin": 10,
+          "leadMax": 18,
+          "capacity": 610
+        },
+        {
+          "merchantId": "m-catalog-045",
+          "merchantName": "Foundry Goods",
+          "unitPrice": 13.39,
+          "leadMin": 2,
+          "leadMax": 40,
+          "capacity": 529
+        },
+        {
+          "merchantId": "m-catalog-046",
+          "merchantName": "Thistle Goods",
+          "unitPrice": 22.12,
+          "leadMin": 21,
+          "leadMax": 57,
+          "capacity": 390
+        },
+        {
+          "merchantId": "m-catalog-047",
+          "merchantName": "Cedar Goods",
+          "unitPrice": 46.8,
+          "leadMin": 3,
+          "leadMax": 25,
+          "capacity": 355
+        },
+        {
+          "merchantId": "m-catalog-048",
+          "merchantName": "Ironwood Goods",
+          "unitPrice": 78.67,
+          "leadMin": 19,
+          "leadMax": 28,
+          "capacity": 309
+        },
+        {
+          "merchantId": "m-catalog-049",
+          "merchantName": "Bramble Goods",
+          "unitPrice": 32.12,
+          "leadMin": 17,
+          "leadMax": 56,
+          "capacity": 281
+        }
+      ]
+    },
+    {
+      "material": "Metal water bottle blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-050",
+          "merchantName": "Merchology",
+          "unitPrice": 6.15,
+          "leadMin": 21,
+          "leadMax": 37,
+          "capacity": 282
+        },
+        {
+          "merchantId": "m-catalog-051",
+          "merchantName": "Corporate Gear",
+          "unitPrice": 9.82,
+          "leadMin": 15,
+          "leadMax": 41,
+          "capacity": 609
+        }
+      ]
+    },
+    {
+      "material": "Acrylic keychain blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-052",
+          "merchantName": "Birchwood Goods",
+          "unitPrice": 4.35,
+          "leadMin": 14,
+          "leadMax": 51,
+          "capacity": 244
+        },
+        {
+          "merchantId": "m-catalog-053",
+          "merchantName": "Lantern Goods",
+          "unitPrice": 2.88,
+          "leadMin": 2,
+          "leadMax": 26,
+          "capacity": 832
+        },
+        {
+          "merchantId": "m-catalog-054",
+          "merchantName": "Anchor Goods",
+          "unitPrice": 3.59,
+          "leadMin": 22,
+          "leadMax": 56,
+          "capacity": 200
+        }
+      ]
+    },
+    {
+      "material": "Ceramic mug blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-055",
+          "merchantName": "Meridian Goods",
+          "unitPrice": 3.5,
+          "leadMin": 19,
+          "leadMax": 28,
+          "capacity": 233
+        },
+        {
+          "merchantId": "m-catalog-056",
+          "merchantName": "Hollow Goods",
+          "unitPrice": 2.89,
+          "leadMin": 24,
+          "leadMax": 54,
+          "capacity": 255
+        },
+        {
+          "merchantId": "m-catalog-057",
+          "merchantName": "Quarry Goods",
+          "unitPrice": 3.26,
+          "leadMin": 16,
+          "leadMax": 58,
+          "capacity": 287
+        }
+      ]
+    },
+    {
+      "material": "Silicone phone case blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-058",
+          "merchantName": "Stonegate Goods",
+          "unitPrice": 2.88,
+          "leadMin": 4,
+          "leadMax": 14,
+          "capacity": 387
+        },
+        {
+          "merchantId": "m-catalog-059",
+          "merchantName": "Willow Goods",
+          "unitPrice": 4.68,
+          "leadMin": 18,
+          "leadMax": 49,
+          "capacity": 295
+        },
+        {
+          "merchantId": "m-catalog-060",
+          "merchantName": "North Works",
+          "unitPrice": 4.77,
+          "leadMin": 14,
+          "leadMax": 32,
+          "capacity": 980
+        },
+        {
+          "merchantId": "m-catalog-061",
+          "merchantName": "Coastal Works",
+          "unitPrice": 2.24,
+          "leadMin": 22,
+          "leadMax": 58,
+          "capacity": 935
+        },
+        {
+          "merchantId": "m-catalog-062",
+          "merchantName": "Union Works",
+          "unitPrice": 4.11,
+          "leadMin": 21,
+          "leadMax": 27,
+          "capacity": 768
+        }
+      ]
+    },
+    {
+      "material": "Glass ornament blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-063",
+          "merchantName": "Maple Works",
+          "unitPrice": 2.53,
+          "leadMin": 7,
+          "leadMax": 46,
+          "capacity": 930
+        },
+        {
+          "merchantId": "m-catalog-064",
+          "merchantName": "Harbor Works",
+          "unitPrice": 3.96,
+          "leadMin": 18,
+          "leadMax": 31,
+          "capacity": 893
+        },
+        {
+          "merchantId": "m-catalog-065",
+          "merchantName": "Foundry Works",
+          "unitPrice": 2.54,
+          "leadMin": 9,
+          "leadMax": 26,
+          "capacity": 570
+        },
+        {
+          "merchantId": "m-catalog-066",
+          "merchantName": "Thistle Works",
+          "unitPrice": 6.19,
+          "leadMin": 5,
+          "leadMax": 21,
+          "capacity": 246
+        },
+        {
+          "merchantId": "m-catalog-067",
+          "merchantName": "Cedar Works",
+          "unitPrice": 7.78,
+          "leadMin": 9,
+          "leadMax": 25,
+          "capacity": 626
+        },
+        {
+          "merchantId": "m-catalog-068",
+          "merchantName": "Ironwood Works",
+          "unitPrice": 2.04,
+          "leadMin": 9,
+          "leadMax": 53,
+          "capacity": 952
+        }
+      ]
+    },
+    {
+      "material": "Vinyl sticker sheet blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-069",
+          "merchantName": "Bramble Works",
+          "unitPrice": 1.23,
+          "leadMin": 24,
+          "leadMax": 47,
+          "capacity": 537
+        },
+        {
+          "merchantId": "m-catalog-070",
+          "merchantName": "Summit Works",
+          "unitPrice": 1.84,
+          "leadMin": 20,
+          "leadMax": 55,
+          "capacity": 409
+        },
+        {
+          "merchantId": "m-catalog-071",
+          "merchantName": "Alder Works",
+          "unitPrice": 1.23,
+          "leadMin": 12,
+          "leadMax": 41,
+          "capacity": 797
+        }
+      ]
+    },
+    {
+      "material": "Candle wax blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-072",
+          "merchantName": "Birchwood Works",
+          "unitPrice": 5.81,
+          "leadMin": 21,
+          "leadMax": 37,
+          "capacity": 898
+        },
+        {
+          "merchantId": "m-catalog-073",
+          "merchantName": "Lantern Works",
+          "unitPrice": 9.76,
+          "leadMin": 5,
+          "leadMax": 22,
+          "capacity": 856
+        },
+        {
+          "merchantId": "m-catalog-074",
+          "merchantName": "Anchor Works",
+          "unitPrice": 7.25,
+          "leadMin": 15,
+          "leadMax": 39,
+          "capacity": 694
+        },
+        {
+          "merchantId": "m-catalog-075",
+          "merchantName": "Meridian Works",
+          "unitPrice": 6.3,
+          "leadMin": 3,
+          "leadMax": 27,
+          "capacity": 243
+        },
+        {
+          "merchantId": "m-catalog-076",
+          "merchantName": "Hollow Works",
+          "unitPrice": 5.83,
+          "leadMin": 6,
+          "leadMax": 30,
+          "capacity": 292
+        }
+      ]
+    },
+    {
+      "material": "Glass lamp shade blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-077",
+          "merchantName": "Quarry Works",
+          "unitPrice": 23.56,
+          "leadMin": 2,
+          "leadMax": 10,
+          "capacity": 499
+        },
+        {
+          "merchantId": "m-catalog-078",
+          "merchantName": "Stonegate Works",
+          "unitPrice": 28.64,
+          "leadMin": 20,
+          "leadMax": 54,
+          "capacity": 824
+        },
+        {
+          "merchantId": "m-catalog-079",
+          "merchantName": "Willow Works",
+          "unitPrice": 24.82,
+          "leadMin": 15,
+          "leadMax": 46,
+          "capacity": 981
+        },
+        {
+          "merchantId": "m-catalog-080",
+          "merchantName": "North Studio",
+          "unitPrice": 14.08,
+          "leadMin": 18,
+          "leadMax": 58,
+          "capacity": 660
+        },
+        {
+          "merchantId": "m-catalog-081",
+          "merchantName": "Coastal Studio",
+          "unitPrice": 13.31,
+          "leadMin": 2,
+          "leadMax": 30,
+          "capacity": 369
+        },
+        {
+          "merchantId": "m-catalog-082",
+          "merchantName": "Union Studio",
+          "unitPrice": 30.33,
+          "leadMin": 18,
+          "leadMax": 53,
+          "capacity": 739
+        }
+      ]
+    },
+    {
+      "material": "Wood table top blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-083",
+          "merchantName": "Maple Studio",
+          "unitPrice": 124.69,
+          "leadMin": 17,
+          "leadMax": 45,
+          "capacity": 631
+        },
+        {
+          "merchantId": "m-catalog-084",
+          "merchantName": "Harbor Studio",
+          "unitPrice": 104.96,
+          "leadMin": 12,
+          "leadMax": 49,
+          "capacity": 616
+        },
+        {
+          "merchantId": "m-catalog-085",
+          "merchantName": "Foundry Studio",
+          "unitPrice": 147.41,
+          "leadMin": 15,
+          "leadMax": 46,
+          "capacity": 184
+        }
+      ]
+    },
+    {
+      "material": "Metal chair frame blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-086",
+          "merchantName": "Thistle Studio",
+          "unitPrice": 23.11,
+          "leadMin": 3,
+          "leadMax": 8,
+          "capacity": 891
+        },
+        {
+          "merchantId": "m-catalog-087",
+          "merchantName": "Cedar Studio",
+          "unitPrice": 95.84,
+          "leadMin": 14,
+          "leadMax": 28,
+          "capacity": 853
+        },
+        {
+          "merchantId": "m-catalog-088",
+          "merchantName": "Ironwood Studio",
+          "unitPrice": 147.08,
+          "leadMin": 19,
+          "leadMax": 31,
+          "capacity": 380
+        },
+        {
+          "merchantId": "m-catalog-089",
+          "merchantName": "Bramble Studio",
+          "unitPrice": 112.24,
+          "leadMin": 24,
+          "leadMax": 64,
+          "capacity": 955
+        },
+        {
+          "merchantId": "m-catalog-090",
+          "merchantName": "Summit Studio",
+          "unitPrice": 20.63,
+          "leadMin": 23,
+          "leadMax": 64,
+          "capacity": 861
+        },
+        {
+          "merchantId": "m-catalog-091",
+          "merchantName": "Alder Studio",
+          "unitPrice": 128.1,
+          "leadMin": 2,
+          "leadMax": 20,
+          "capacity": 951
+        }
+      ]
+    },
+    {
+      "material": "Steel shelf bracket blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-092",
+          "merchantName": "Birchwood Studio",
+          "unitPrice": 134.99,
+          "leadMin": 21,
+          "leadMax": 52,
+          "capacity": 929
+        },
+        {
+          "merchantId": "m-catalog-093",
+          "merchantName": "Lantern Studio",
+          "unitPrice": 123.4,
+          "leadMin": 19,
+          "leadMax": 38,
+          "capacity": 552
+        },
+        {
+          "merchantId": "m-catalog-094",
+          "merchantName": "Anchor Studio",
+          "unitPrice": 128.67,
+          "leadMin": 12,
+          "leadMax": 28,
+          "capacity": 813
+        },
+        {
+          "merchantId": "m-catalog-095",
+          "merchantName": "Meridian Studio",
+          "unitPrice": 62.72,
+          "leadMin": 2,
+          "leadMax": 32,
+          "capacity": 371
+        }
+      ]
+    },
+    {
+      "material": "Bike frame blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-096",
+          "merchantName": "Hollow Studio",
+          "unitPrice": 95.01,
+          "leadMin": 14,
+          "leadMax": 42,
+          "capacity": 122
+        },
+        {
+          "merchantId": "m-catalog-097",
+          "merchantName": "Quarry Studio",
+          "unitPrice": 58.65,
+          "leadMin": 10,
+          "leadMax": 28,
+          "capacity": 718
+        },
+        {
+          "merchantId": "m-catalog-098",
+          "merchantName": "Stonegate Studio",
+          "unitPrice": 68.71,
+          "leadMin": 7,
+          "leadMax": 18,
+          "capacity": 616
+        },
+        {
+          "merchantId": "m-catalog-099",
+          "merchantName": "Willow Studio",
+          "unitPrice": 97.92,
+          "leadMin": 13,
+          "leadMax": 61,
+          "capacity": 518
+        }
+      ]
+    },
+    {
+      "material": "Speaker casing blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-100",
+          "merchantName": "North Collective",
+          "unitPrice": 22.28,
+          "leadMin": 19,
+          "leadMax": 25,
+          "capacity": 929
+        },
+        {
+          "merchantId": "m-catalog-101",
+          "merchantName": "Coastal Collective",
+          "unitPrice": 14.41,
+          "leadMin": 4,
+          "leadMax": 23,
+          "capacity": 302
+        },
+        {
+          "merchantId": "m-catalog-102",
+          "merchantName": "Union Collective",
+          "unitPrice": 11.21,
+          "leadMin": 3,
+          "leadMax": 7,
+          "capacity": 454
+        },
+        {
+          "merchantId": "m-catalog-103",
+          "merchantName": "Maple Collective",
+          "unitPrice": 11.84,
+          "leadMin": 21,
+          "leadMax": 63,
+          "capacity": 945
+        },
+        {
+          "merchantId": "m-catalog-104",
+          "merchantName": "Harbor Collective",
+          "unitPrice": 14.17,
+          "leadMin": 22,
+          "leadMax": 34,
+          "capacity": 500
+        }
+      ]
+    },
+    {
+      "material": "Mini fridge shell blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-105",
+          "merchantName": "Foundry Collective",
+          "unitPrice": 114.23,
+          "leadMin": 17,
+          "leadMax": 31,
+          "capacity": 962
+        },
+        {
+          "merchantId": "m-catalog-106",
+          "merchantName": "Thistle Collective",
+          "unitPrice": 83.13,
+          "leadMin": 11,
+          "leadMax": 18,
+          "capacity": 654
+        },
+        {
+          "merchantId": "m-catalog-107",
+          "merchantName": "Cedar Collective",
+          "unitPrice": 65.78,
+          "leadMin": 9,
+          "leadMax": 40,
+          "capacity": 868
+        },
+        {
+          "merchantId": "m-catalog-108",
+          "merchantName": "Ironwood Collective",
+          "unitPrice": 99.47,
+          "leadMin": 9,
+          "leadMax": 28,
+          "capacity": 757
+        },
+        {
+          "merchantId": "m-catalog-109",
+          "merchantName": "Bramble Collective",
+          "unitPrice": 32.13,
+          "leadMin": 14,
+          "leadMax": 41,
+          "capacity": 541
+        }
+      ]
+    },
+    {
+      "material": "Garden planter blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-110",
+          "merchantName": "Summit Collective",
+          "unitPrice": 55.63,
+          "leadMin": 19,
+          "leadMax": 59,
+          "capacity": 511
+        },
+        {
+          "merchantId": "m-catalog-111",
+          "merchantName": "Alder Collective",
+          "unitPrice": 45.36,
+          "leadMin": 6,
+          "leadMax": 25,
+          "capacity": 846
+        }
+      ]
+    },
+    {
+      "material": "Soap bar blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-112",
+          "merchantName": "Birchwood Collective",
+          "unitPrice": 4.12,
+          "leadMin": 21,
+          "leadMax": 32,
+          "capacity": 244
+        },
+        {
+          "merchantId": "m-catalog-113",
+          "merchantName": "Lantern Collective",
+          "unitPrice": 2.81,
+          "leadMin": 2,
+          "leadMax": 32,
+          "capacity": 188
+        },
+        {
+          "merchantId": "m-catalog-114",
+          "merchantName": "Anchor Collective",
+          "unitPrice": 5.66,
+          "leadMin": 5,
+          "leadMax": 45,
+          "capacity": 373
+        },
+        {
+          "merchantId": "m-catalog-115",
+          "merchantName": "Meridian Collective",
+          "unitPrice": 6.18,
+          "leadMin": 7,
+          "leadMax": 50,
+          "capacity": 707
+        },
+        {
+          "merchantId": "m-catalog-116",
+          "merchantName": "Hollow Collective",
+          "unitPrice": 2.91,
+          "leadMin": 2,
+          "leadMax": 36,
+          "capacity": 814
+        },
+        {
+          "merchantId": "m-catalog-117",
+          "merchantName": "Quarry Collective",
+          "unitPrice": 2.91,
+          "leadMin": 18,
+          "leadMax": 33,
+          "capacity": 648
+        }
+      ]
+    },
+    {
+      "material": "Notebook cover blank",
+      "providers": [
+        {
+          "merchantId": "m-catalog-118",
+          "merchantName": "Stonegate Collective",
+          "unitPrice": 3.72,
+          "leadMin": 23,
+          "leadMax": 46,
+          "capacity": 217
+        },
+        {
+          "merchantId": "m-catalog-119",
+          "merchantName": "Willow Collective",
+          "unitPrice": 4.36,
+          "leadMin": 12,
+          "leadMax": 19,
+          "capacity": 709
+        },
+        {
+          "merchantId": "m-catalog-120",
+          "merchantName": "North Trading Co.",
+          "unitPrice": 4.96,
+          "leadMin": 3,
+          "leadMax": 24,
+          "capacity": 357
+        },
+        {
+          "merchantId": "m-catalog-121",
+          "merchantName": "Coastal Trading Co.",
+          "unitPrice": 6.16,
+          "leadMin": 8,
+          "leadMax": 39,
+          "capacity": 439
+        },
+        {
+          "merchantId": "m-catalog-122",
+          "merchantName": "Union Trading Co.",
+          "unitPrice": 7.15,
+          "leadMin": 14,
+          "leadMax": 54,
+          "capacity": 137
+        },
+        {
+          "merchantId": "m-catalog-123",
+          "merchantName": "Maple Trading Co.",
+          "unitPrice": 7.3,
+          "leadMin": 15,
+          "leadMax": 53,
+          "capacity": 590
+        }
+      ]
+    },
+    {
+      "material": "Vegan snack pack",
+      "providers": [
+        {
+          "merchantId": "m-catalog-124",
+          "merchantName": "Packed with Purpose",
+          "unitPrice": 10.91,
+          "leadMin": 16,
+          "leadMax": 23,
+          "capacity": 669
+        },
+        {
+          "merchantId": "m-catalog-125",
+          "merchantName": "Emmy's Organics",
+          "unitPrice": 14.44,
+          "leadMin": 16,
+          "leadMax": 20,
+          "capacity": 642
+        },
+        {
+          "merchantId": "m-catalog-126",
+          "merchantName": "Thistle Trading Co.",
+          "unitPrice": 9.86,
+          "leadMin": 19,
+          "leadMax": 24,
+          "capacity": 801
+        },
+        {
+          "merchantId": "m-catalog-127",
+          "merchantName": "Cedar Trading Co.",
+          "unitPrice": 11.25,
+          "leadMin": 22,
+          "leadMax": 53,
+          "capacity": 464
+        },
+        {
+          "merchantId": "m-catalog-128",
+          "merchantName": "Ironwood Trading Co.",
+          "unitPrice": 8.28,
+          "leadMin": 23,
+          "leadMax": 55,
+          "capacity": 308
+        }
+      ]
+    },
+    {
+      "material": "Custom branded packaging box",
+      "providers": [
+        {
+          "merchantId": "m-catalog-129",
+          "merchantName": "Brandable Box",
+          "unitPrice": 5.26,
+          "leadMin": 9,
+          "leadMax": 20,
+          "capacity": 882
+        },
+        {
+          "merchantId": "m-catalog-130",
+          "merchantName": "G10 Fulfillment",
+          "unitPrice": 4.08,
+          "leadMin": 18,
+          "leadMax": 39,
+          "capacity": 689
+        },
+        {
+          "merchantId": "m-catalog-131",
+          "merchantName": "Alder Trading Co.",
+          "unitPrice": 4.59,
+          "leadMin": 10,
+          "leadMax": 31,
+          "capacity": 711
+        }
+      ]
+    }
+  ],
+  "transforms": [
+    {
+      "transform": "Embroidery",
+      "providers": [
+        {
+          "merchantId": "m-catalog-132",
+          "merchantName": "Birchwood Trading Co.",
+          "unitPrice": 6.26,
+          "leadMin": 5,
+          "leadMax": 30,
+          "capacity": 160
+        },
+        {
+          "merchantId": "m-catalog-133",
+          "merchantName": "Printful",
+          "unitPrice": 10.25,
+          "leadMin": 11,
+          "leadMax": 69,
+          "capacity": 71
+        },
+        {
+          "merchantId": "m-catalog-134",
+          "merchantName": "Anchor Trading Co.",
+          "unitPrice": 9.46,
+          "leadMin": 9,
+          "leadMax": 58,
+          "capacity": 165
+        },
+        {
+          "merchantId": "m-catalog-135",
+          "merchantName": "Meridian Trading Co.",
+          "unitPrice": 8.77,
+          "leadMin": 9,
+          "leadMax": 80,
+          "capacity": 175
+        },
+        {
+          "merchantId": "m-catalog-136",
+          "merchantName": "Hollow Trading Co.",
+          "unitPrice": 8.56,
+          "leadMin": 6,
+          "leadMax": 29,
+          "capacity": 128
+        },
+        {
+          "merchantId": "m-catalog-137",
+          "merchantName": "Quarry Trading Co.",
+          "unitPrice": 7.61,
+          "leadMin": 24,
+          "leadMax": 92,
+          "capacity": 128
+        }
+      ]
+    },
+    {
+      "transform": "Screen printing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-138",
+          "merchantName": "Stonegate Trading Co.",
+          "unitPrice": 6.67,
+          "leadMin": 15,
+          "leadMax": 24,
+          "capacity": 113
+        },
+        {
+          "merchantId": "m-catalog-139",
+          "merchantName": "Willow Trading Co.",
+          "unitPrice": 14.63,
+          "leadMin": 17,
+          "leadMax": 45,
+          "capacity": 58
+        },
+        {
+          "merchantId": "m-catalog-140",
+          "merchantName": "North Provisions",
+          "unitPrice": 3.21,
+          "leadMin": 9,
+          "leadMax": 37,
+          "capacity": 178
+        },
+        {
+          "merchantId": "m-catalog-141",
+          "merchantName": "Coastal Provisions",
+          "unitPrice": 8.81,
+          "leadMin": 7,
+          "leadMax": 43,
+          "capacity": 57
+        },
+        {
+          "merchantId": "m-catalog-142",
+          "merchantName": "Union Provisions",
+          "unitPrice": 7.39,
+          "leadMin": 12,
+          "leadMax": 74,
+          "capacity": 15
+        }
+      ]
+    },
+    {
+      "transform": "Engraving",
+      "providers": [
+        {
+          "merchantId": "m-catalog-143",
+          "merchantName": "Crystal Imagery",
+          "unitPrice": 2.32,
+          "leadMin": 14,
+          "leadMax": 61,
+          "capacity": 191
+        },
+        {
+          "merchantId": "m-catalog-144",
+          "merchantName": "Harbor Provisions",
+          "unitPrice": 5.62,
+          "leadMin": 18,
+          "leadMax": 35,
+          "capacity": 99
+        },
+        {
+          "merchantId": "m-catalog-145",
+          "merchantName": "Foundry Provisions",
+          "unitPrice": 2.54,
+          "leadMin": 21,
+          "leadMax": 58,
+          "capacity": 186
+        }
+      ]
+    },
+    {
+      "transform": "Laser cutting",
+      "providers": [
+        {
+          "merchantId": "m-catalog-146",
+          "merchantName": "Thistle Provisions",
+          "unitPrice": 3.57,
+          "leadMin": 14,
+          "leadMax": 33,
+          "capacity": 93
+        },
+        {
+          "merchantId": "m-catalog-147",
+          "merchantName": "Cedar Provisions",
+          "unitPrice": 7.5,
+          "leadMin": 9,
+          "leadMax": 61,
+          "capacity": 24
+        },
+        {
+          "merchantId": "m-catalog-148",
+          "merchantName": "Ironwood Provisions",
+          "unitPrice": 4.67,
+          "leadMin": 6,
+          "leadMax": 47,
+          "capacity": 36
+        },
+        {
+          "merchantId": "m-catalog-149",
+          "merchantName": "Bramble Provisions",
+          "unitPrice": 7.55,
+          "leadMin": 19,
+          "leadMax": 84,
+          "capacity": 34
+        },
+        {
+          "merchantId": "m-catalog-150",
+          "merchantName": "Summit Provisions",
+          "unitPrice": 7.92,
+          "leadMin": 5,
+          "leadMax": 17,
+          "capacity": 91
+        }
+      ]
+    },
+    {
+      "transform": "Dyeing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-151",
+          "merchantName": "Alder Provisions",
+          "unitPrice": 4.59,
+          "leadMin": 22,
+          "leadMax": 45,
+          "capacity": 10
+        },
+        {
+          "merchantId": "m-catalog-152",
+          "merchantName": "Birchwood Provisions",
+          "unitPrice": 10.02,
+          "leadMin": 11,
+          "leadMax": 59,
+          "capacity": 135
+        }
+      ]
+    },
+    {
+      "transform": "UV printing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-153",
+          "merchantName": "Lantern Provisions",
+          "unitPrice": 6.1,
+          "leadMin": 24,
+          "leadMax": 68,
+          "capacity": 31
+        },
+        {
+          "merchantId": "m-catalog-154",
+          "merchantName": "Anchor Provisions",
+          "unitPrice": 4.49,
+          "leadMin": 12,
+          "leadMax": 31,
+          "capacity": 79
+        },
+        {
+          "merchantId": "m-catalog-155",
+          "merchantName": "Meridian Provisions",
+          "unitPrice": 3.67,
+          "leadMin": 10,
+          "leadMax": 81,
+          "capacity": 68
+        },
+        {
+          "merchantId": "m-catalog-156",
+          "merchantName": "Hollow Provisions",
+          "unitPrice": 2.21,
+          "leadMin": 11,
+          "leadMax": 47,
+          "capacity": 22
+        },
+        {
+          "merchantId": "m-catalog-157",
+          "merchantName": "Quarry Provisions",
+          "unitPrice": 5.98,
+          "leadMin": 20,
+          "leadMax": 50,
+          "capacity": 69
+        }
+      ]
+    },
+    {
+      "transform": "Vinyl cutting",
+      "providers": [
+        {
+          "merchantId": "m-catalog-158",
+          "merchantName": "Stonegate Provisions",
+          "unitPrice": 3.23,
+          "leadMin": 20,
+          "leadMax": 36,
+          "capacity": 56
+        },
+        {
+          "merchantId": "m-catalog-159",
+          "merchantName": "Willow Provisions",
+          "unitPrice": 3.75,
+          "leadMin": 21,
+          "leadMax": 64,
+          "capacity": 71
+        },
+        {
+          "merchantId": "m-catalog-160",
+          "merchantName": "North Makers",
+          "unitPrice": 2.52,
+          "leadMin": 12,
+          "leadMax": 74,
+          "capacity": 98
+        },
+        {
+          "merchantId": "m-catalog-161",
+          "merchantName": "Coastal Makers",
+          "unitPrice": 2.52,
+          "leadMin": 13,
+          "leadMax": 45,
+          "capacity": 63
+        },
+        {
+          "merchantId": "m-catalog-162",
+          "merchantName": "Union Makers",
+          "unitPrice": 1.77,
+          "leadMin": 7,
+          "leadMax": 19,
+          "capacity": 193
+        }
+      ]
+    },
+    {
+      "transform": "Hand painting",
+      "providers": [
+        {
+          "merchantId": "m-catalog-163",
+          "merchantName": "Maple Makers",
+          "unitPrice": 8.98,
+          "leadMin": 13,
+          "leadMax": 64,
+          "capacity": 86
+        },
+        {
+          "merchantId": "m-catalog-164",
+          "merchantName": "Harbor Makers",
+          "unitPrice": 18.58,
+          "leadMin": 19,
+          "leadMax": 60,
+          "capacity": 101
+        }
+      ]
+    },
+    {
+      "transform": "Heat pressing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-165",
+          "merchantName": "Foundry Makers",
+          "unitPrice": 3.79,
+          "leadMin": 22,
+          "leadMax": 61,
+          "capacity": 18
+        },
+        {
+          "merchantId": "m-catalog-166",
+          "merchantName": "Thistle Makers",
+          "unitPrice": 5.34,
+          "leadMin": 14,
+          "leadMax": 65,
+          "capacity": 138
+        },
+        {
+          "merchantId": "m-catalog-167",
+          "merchantName": "Cedar Makers",
+          "unitPrice": 7.53,
+          "leadMin": 10,
+          "leadMax": 61,
+          "capacity": 175
+        },
+        {
+          "merchantId": "m-catalog-168",
+          "merchantName": "Ironwood Makers",
+          "unitPrice": 6.5,
+          "leadMin": 24,
+          "leadMax": 66,
+          "capacity": 169
+        }
+      ]
+    },
+    {
+      "transform": "Leather stamping",
+      "providers": [
+        {
+          "merchantId": "m-catalog-169",
+          "merchantName": "Bramble Makers",
+          "unitPrice": 8.37,
+          "leadMin": 4,
+          "leadMax": 52,
+          "capacity": 138
+        },
+        {
+          "merchantId": "m-catalog-170",
+          "merchantName": "Summit Makers",
+          "unitPrice": 5.38,
+          "leadMin": 17,
+          "leadMax": 30,
+          "capacity": 24
+        },
+        {
+          "merchantId": "m-catalog-171",
+          "merchantName": "Alder Makers",
+          "unitPrice": 8.93,
+          "leadMin": 13,
+          "leadMax": 49,
+          "capacity": 42
+        },
+        {
+          "merchantId": "m-catalog-172",
+          "merchantName": "Birchwood Makers",
+          "unitPrice": 7.94,
+          "leadMin": 11,
+          "leadMax": 30,
+          "capacity": 121
+        }
+      ]
+    },
+    {
+      "transform": "Varnishing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-173",
+          "merchantName": "Lantern Makers",
+          "unitPrice": 6.28,
+          "leadMin": 23,
+          "leadMax": 47,
+          "capacity": 74
+        },
+        {
+          "merchantId": "m-catalog-174",
+          "merchantName": "Anchor Makers",
+          "unitPrice": 8.89,
+          "leadMin": 18,
+          "leadMax": 90,
+          "capacity": 66
+        },
+        {
+          "merchantId": "m-catalog-175",
+          "merchantName": "Meridian Makers",
+          "unitPrice": 10.16,
+          "leadMin": 7,
+          "leadMax": 37,
+          "capacity": 197
+        },
+        {
+          "merchantId": "m-catalog-176",
+          "merchantName": "Hollow Makers",
+          "unitPrice": 12.07,
+          "leadMin": 18,
+          "leadMax": 59,
+          "capacity": 57
+        }
+      ]
+    },
+    {
+      "transform": "Powder coating",
+      "providers": [
+        {
+          "merchantId": "m-catalog-177",
+          "merchantName": "Quarry Makers",
+          "unitPrice": 8.73,
+          "leadMin": 9,
+          "leadMax": 71,
+          "capacity": 141
+        },
+        {
+          "merchantId": "m-catalog-178",
+          "merchantName": "Stonegate Makers",
+          "unitPrice": 10.78,
+          "leadMin": 9,
+          "leadMax": 18,
+          "capacity": 63
+        },
+        {
+          "merchantId": "m-catalog-179",
+          "merchantName": "Willow Makers",
+          "unitPrice": 17.19,
+          "leadMin": 14,
+          "leadMax": 66,
+          "capacity": 179
+        },
+        {
+          "merchantId": "m-catalog-180",
+          "merchantName": "North Workshop",
+          "unitPrice": 18,
+          "leadMin": 7,
+          "leadMax": 49,
+          "capacity": 36
+        },
+        {
+          "merchantId": "m-catalog-181",
+          "merchantName": "Coastal Workshop",
+          "unitPrice": 10.86,
+          "leadMin": 16,
+          "leadMax": 62,
+          "capacity": 150
+        },
+        {
+          "merchantId": "m-catalog-182",
+          "merchantName": "Union Workshop",
+          "unitPrice": 8.06,
+          "leadMin": 16,
+          "leadMax": 75,
+          "capacity": 125
+        }
+      ]
+    },
+    {
+      "transform": "Upholstering",
+      "providers": [
+        {
+          "merchantId": "m-catalog-183",
+          "merchantName": "Maple Workshop",
+          "unitPrice": 55.23,
+          "leadMin": 22,
+          "leadMax": 49,
+          "capacity": 61
+        },
+        {
+          "merchantId": "m-catalog-184",
+          "merchantName": "Harbor Workshop",
+          "unitPrice": 100.5,
+          "leadMin": 7,
+          "leadMax": 59,
+          "capacity": 176
+        },
+        {
+          "merchantId": "m-catalog-185",
+          "merchantName": "Foundry Workshop",
+          "unitPrice": 59.93,
+          "leadMin": 9,
+          "leadMax": 17,
+          "capacity": 91
+        },
+        {
+          "merchantId": "m-catalog-186",
+          "merchantName": "Thistle Workshop",
+          "unitPrice": 92.24,
+          "leadMin": 4,
+          "leadMax": 16,
+          "capacity": 129
+        },
+        {
+          "merchantId": "m-catalog-187",
+          "merchantName": "Cedar Workshop",
+          "unitPrice": 51.63,
+          "leadMin": 16,
+          "leadMax": 45,
+          "capacity": 144
+        }
+      ]
+    },
+    {
+      "transform": "Electronics assembly",
+      "providers": [
+        {
+          "merchantId": "m-catalog-188",
+          "merchantName": "Ironwood Workshop",
+          "unitPrice": 14.4,
+          "leadMin": 18,
+          "leadMax": 71,
+          "capacity": 173
+        },
+        {
+          "merchantId": "m-catalog-189",
+          "merchantName": "Bramble Workshop",
+          "unitPrice": 5.67,
+          "leadMin": 14,
+          "leadMax": 65,
+          "capacity": 49
+        }
+      ]
+    },
+    {
+      "transform": "Anodizing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-190",
+          "merchantName": "Summit Workshop",
+          "unitPrice": 5.83,
+          "leadMin": 19,
+          "leadMax": 53,
+          "capacity": 105
+        },
+        {
+          "merchantId": "m-catalog-191",
+          "merchantName": "Alder Workshop",
+          "unitPrice": 10.04,
+          "leadMin": 6,
+          "leadMax": 67,
+          "capacity": 113
+        },
+        {
+          "merchantId": "m-catalog-192",
+          "merchantName": "Birchwood Workshop",
+          "unitPrice": 13.85,
+          "leadMin": 16,
+          "leadMax": 81,
+          "capacity": 97
+        },
+        {
+          "merchantId": "m-catalog-193",
+          "merchantName": "Lantern Workshop",
+          "unitPrice": 12.99,
+          "leadMin": 5,
+          "leadMax": 38,
+          "capacity": 160
+        },
+        {
+          "merchantId": "m-catalog-194",
+          "merchantName": "Anchor Workshop",
+          "unitPrice": 16.38,
+          "leadMin": 19,
+          "leadMax": 74,
+          "capacity": 59
+        }
+      ]
+    },
+    {
+      "transform": "Soap molding and scenting",
+      "providers": [
+        {
+          "merchantId": "m-catalog-195",
+          "merchantName": "Meridian Workshop",
+          "unitPrice": 4.54,
+          "leadMin": 5,
+          "leadMax": 59,
+          "capacity": 158
+        },
+        {
+          "merchantId": "m-catalog-196",
+          "merchantName": "Hollow Workshop",
+          "unitPrice": 4.4,
+          "leadMin": 10,
+          "leadMax": 49,
+          "capacity": 25
+        },
+        {
+          "merchantId": "m-catalog-197",
+          "merchantName": "Quarry Workshop",
+          "unitPrice": 5.06,
+          "leadMin": 23,
+          "leadMax": 83,
+          "capacity": 165
+        },
+        {
+          "merchantId": "m-catalog-198",
+          "merchantName": "Stonegate Workshop",
+          "unitPrice": 4.49,
+          "leadMin": 4,
+          "leadMax": 29,
+          "capacity": 34
+        },
+        {
+          "merchantId": "m-catalog-199",
+          "merchantName": "Willow Workshop",
+          "unitPrice": 3.14,
+          "leadMin": 20,
+          "leadMax": 92,
+          "capacity": 164
+        }
+      ]
+    },
+    {
+      "transform": "Debossing",
+      "providers": [
+        {
+          "merchantId": "m-catalog-200",
+          "merchantName": "North Partners",
+          "unitPrice": 3.26,
+          "leadMin": 22,
+          "leadMax": 64,
+          "capacity": 164
+        },
+        {
+          "merchantId": "m-catalog-201",
+          "merchantName": "Coastal Partners",
+          "unitPrice": 2.16,
+          "leadMin": 4,
+          "leadMax": 60,
+          "capacity": 63
+        },
+        {
+          "merchantId": "m-catalog-202",
+          "merchantName": "Union Partners",
+          "unitPrice": 4.45,
+          "leadMin": 10,
+          "leadMax": 71,
+          "capacity": 181
+        }
+      ]
+    }
+  ],
+  "fulfillment": [
+    {
+      "fulfillment": "Assembly and packaging",
+      "providers": [
+        {
+          "merchantId": "m-catalog-203",
+          "merchantName": "Maple Partners",
+          "unitPrice": 4.33,
+          "leadMin": 12,
+          "leadMax": 35,
+          "capacity": 538
+        },
+        {
+          "merchantId": "m-catalog-204",
+          "merchantName": "Harbor Partners",
+          "unitPrice": 2.3,
+          "leadMin": 7,
+          "leadMax": 23,
+          "capacity": 676
+        },
+        {
+          "merchantId": "m-catalog-205",
+          "merchantName": "Foundry Partners",
+          "unitPrice": 4,
+          "leadMin": 5,
+          "leadMax": 29,
+          "capacity": 819
+        },
+        {
+          "merchantId": "m-catalog-206",
+          "merchantName": "Thistle Partners",
+          "unitPrice": 4.47,
+          "leadMin": 5,
+          "leadMax": 16,
+          "capacity": 1258
+        },
+        {
+          "merchantId": "m-catalog-207",
+          "merchantName": "Cedar Partners",
+          "unitPrice": 3,
+          "leadMin": 11,
+          "leadMax": 28,
+          "capacity": 627
+        },
+        {
+          "merchantId": "m-catalog-208",
+          "merchantName": "Ironwood Partners",
+          "unitPrice": 5.09,
+          "leadMin": 2,
+          "leadMax": 10,
+          "capacity": 850
+        },
+        {
+          "merchantId": "m-catalog-209",
+          "merchantName": "Bramble Partners",
+          "unitPrice": 2.18,
+          "leadMin": 10,
+          "leadMax": 23,
+          "capacity": 274
+        },
+        {
+          "merchantId": "m-catalog-210",
+          "merchantName": "Summit Partners",
+          "unitPrice": 5.4,
+          "leadMin": 11,
+          "leadMax": 29,
+          "capacity": 1949
+        },
+        {
+          "merchantId": "m-catalog-211",
+          "merchantName": "Alder Partners",
+          "unitPrice": 2.5,
+          "leadMin": 12,
+          "leadMax": 16,
+          "capacity": 283
+        },
+        {
+          "merchantId": "m-catalog-212",
+          "merchantName": "Birchwood Partners",
+          "unitPrice": 5.88,
+          "leadMin": 9,
+          "leadMax": 32,
+          "capacity": 1878
+        },
+        {
+          "merchantId": "m-catalog-213",
+          "merchantName": "Lantern Partners",
+          "unitPrice": 2.75,
+          "leadMin": 12,
+          "leadMax": 16,
+          "capacity": 1797
+        },
+        {
+          "merchantId": "m-catalog-214",
+          "merchantName": "Anchor Partners",
+          "unitPrice": 2.74,
+          "leadMin": 10,
+          "leadMax": 31,
+          "capacity": 447
+        }
+      ]
+    }
+  ],
+  "products": [
+    {
+      "name": "Embroidery Cotton t-shirt",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Embroidery Cotton hoodie",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Embroidery Denim jacket",
+      "steps": [
+        {
+          "supply": "denim_jacket"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Embroidery Canvas tote bag",
+      "steps": [
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Embroidery Pet bandana",
+      "steps": [
+        {
+          "supply": "pet_bandana_blank"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Embroidery Baby onesie",
+      "steps": [
+        {
+          "supply": "baby_onesie_blank"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Screen printing Cotton t-shirt",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "screen_printing"
+        }
+      ]
+    },
+    {
+      "name": "Screen printing Cotton hoodie",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "screen_printing"
+        }
+      ]
+    },
+    {
+      "name": "Screen printing Canvas tote bag",
+      "steps": [
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "screen_printing"
+        }
+      ]
+    },
+    {
+      "name": "Screen printing Paper poster",
+      "steps": [
+        {
+          "supply": "paper_poster_blank"
+        },
+        {
+          "transform": "screen_printing"
+        }
+      ]
+    },
+    {
+      "name": "Screen printing Yoga mat",
+      "steps": [
+        {
+          "supply": "yoga_mat_blank"
+        },
+        {
+          "transform": "screen_printing"
+        }
+      ]
+    },
+    {
+      "name": "Engraving Leather wallet",
+      "steps": [
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Engraving Leather belt",
+      "steps": [
+        {
+          "supply": "leather_belt_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Engraving Wood cutting board",
+      "steps": [
+        {
+          "supply": "wood_cutting_board_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Engraving Metal water bottle",
+      "steps": [
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Engraving Acrylic keychain",
+      "steps": [
+        {
+          "supply": "acrylic_keychain_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Laser cutting Acrylic keychain",
+      "steps": [
+        {
+          "supply": "acrylic_keychain_blank"
+        },
+        {
+          "transform": "laser_cutting"
+        }
+      ]
+    },
+    {
+      "name": "Laser cutting Wood cutting board",
+      "steps": [
+        {
+          "supply": "wood_cutting_board_blank"
+        },
+        {
+          "transform": "laser_cutting"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing Denim jacket",
+      "steps": [
+        {
+          "supply": "denim_jacket"
+        },
+        {
+          "transform": "dyeing"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing Canvas tote bag",
+      "steps": [
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "dyeing"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing Cotton t-shirt",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "dyeing"
+        }
+      ]
+    },
+    {
+      "name": "UV printing Ceramic mug",
+      "steps": [
+        {
+          "supply": "ceramic_mug_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "UV printing Metal water bottle",
+      "steps": [
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "UV printing Silicone phone case",
+      "steps": [
+        {
+          "supply": "silicone_phone_case_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "UV printing Glass ornament",
+      "steps": [
+        {
+          "supply": "glass_ornament_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Vinyl cutting Vinyl sticker sheet",
+      "steps": [
+        {
+          "supply": "vinyl_sticker_sheet_blank"
+        },
+        {
+          "transform": "vinyl_cutting"
+        }
+      ]
+    },
+    {
+      "name": "Hand painting Ceramic mug",
+      "steps": [
+        {
+          "supply": "ceramic_mug_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Hand painting Glass ornament",
+      "steps": [
+        {
+          "supply": "glass_ornament_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Hand painting Candle wax",
+      "steps": [
+        {
+          "supply": "candle_wax_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Hand painting Glass lamp shade",
+      "steps": [
+        {
+          "supply": "glass_lamp_shade_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Heat pressing Cotton t-shirt",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "heat_pressing"
+        }
+      ]
+    },
+    {
+      "name": "Heat pressing Cotton hoodie",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "heat_pressing"
+        }
+      ]
+    },
+    {
+      "name": "Heat pressing Silicone phone case",
+      "steps": [
+        {
+          "supply": "silicone_phone_case_blank"
+        },
+        {
+          "transform": "heat_pressing"
+        }
+      ]
+    },
+    {
+      "name": "Leather stamping Leather wallet",
+      "steps": [
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "leather_stamping"
+        }
+      ]
+    },
+    {
+      "name": "Leather stamping Leather belt",
+      "steps": [
+        {
+          "supply": "leather_belt_blank"
+        },
+        {
+          "transform": "leather_stamping"
+        }
+      ]
+    },
+    {
+      "name": "Varnishing Wood table top",
+      "steps": [
+        {
+          "supply": "wood_table_top_blank"
+        },
+        {
+          "transform": "varnishing"
+        }
+      ]
+    },
+    {
+      "name": "Varnishing Wood cutting board",
+      "steps": [
+        {
+          "supply": "wood_cutting_board_blank"
+        },
+        {
+          "transform": "varnishing"
+        }
+      ]
+    },
+    {
+      "name": "Powder coating Metal chair frame",
+      "steps": [
+        {
+          "supply": "metal_chair_frame_blank"
+        },
+        {
+          "transform": "powder_coating"
+        }
+      ]
+    },
+    {
+      "name": "Powder coating Steel shelf bracket",
+      "steps": [
+        {
+          "supply": "steel_shelf_bracket_blank"
+        },
+        {
+          "transform": "powder_coating"
+        }
+      ]
+    },
+    {
+      "name": "Powder coating Bike frame",
+      "steps": [
+        {
+          "supply": "bike_frame_blank"
+        },
+        {
+          "transform": "powder_coating"
+        }
+      ]
+    },
+    {
+      "name": "Upholstering Metal chair frame",
+      "steps": [
+        {
+          "supply": "metal_chair_frame_blank"
+        },
+        {
+          "transform": "upholstering"
+        }
+      ]
+    },
+    {
+      "name": "Electronics assembly Speaker casing",
+      "steps": [
+        {
+          "supply": "speaker_casing_blank"
+        },
+        {
+          "transform": "assembly_electronics"
+        }
+      ]
+    },
+    {
+      "name": "Electronics assembly Mini fridge shell",
+      "steps": [
+        {
+          "supply": "mini_fridge_shell_blank"
+        },
+        {
+          "transform": "assembly_electronics"
+        }
+      ]
+    },
+    {
+      "name": "Anodizing Bike frame",
+      "steps": [
+        {
+          "supply": "bike_frame_blank"
+        },
+        {
+          "transform": "anodizing"
+        }
+      ]
+    },
+    {
+      "name": "Anodizing Metal water bottle",
+      "steps": [
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "anodizing"
+        }
+      ]
+    },
+    {
+      "name": "Anodizing Garden planter",
+      "steps": [
+        {
+          "supply": "garden_planter_blank"
+        },
+        {
+          "transform": "anodizing"
+        }
+      ]
+    },
+    {
+      "name": "Soap molding and scenting Soap bar",
+      "steps": [
+        {
+          "supply": "soap_bar_blank"
+        },
+        {
+          "transform": "soap_molding"
+        }
+      ]
+    },
+    {
+      "name": "Debossing Notebook cover",
+      "steps": [
+        {
+          "supply": "notebook_cover_blank"
+        },
+        {
+          "transform": "debossing"
+        }
+      ]
+    },
+    {
+      "name": "Debossing Leather wallet",
+      "steps": [
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "debossing"
+        }
+      ]
+    },
+    {
+      "name": "Debossing Leather belt",
+      "steps": [
+        {
+          "supply": "leather_belt_blank"
+        },
+        {
+          "transform": "debossing"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing + Embroidery Cotton hoodie",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "dyeing"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing + Screen printing Cotton t-shirt",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "dyeing"
+        },
+        {
+          "transform": "screen_printing"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing + Embroidery Canvas tote bag",
+      "steps": [
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "dyeing"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Dyeing + Embroidery Denim jacket",
+      "steps": [
+        {
+          "supply": "denim_jacket"
+        },
+        {
+          "transform": "dyeing"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Screen printing + Heat pressing Cotton hoodie",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "screen_printing"
+        },
+        {
+          "transform": "heat_pressing"
+        }
+      ]
+    },
+    {
+      "name": "Hand painting + UV printing Ceramic mug",
+      "steps": [
+        {
+          "supply": "ceramic_mug_blank"
+        },
+        {
+          "transform": "hand_painting"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Leather stamping + Engraving Leather wallet",
+      "steps": [
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "leather_stamping"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Engraving + UV printing Metal water bottle",
+      "steps": [
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "engraving"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Laser cutting + UV printing Acrylic keychain",
+      "steps": [
+        {
+          "supply": "acrylic_keychain_blank"
+        },
+        {
+          "transform": "laser_cutting"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Mug + candle gift set",
+      "steps": [
+        {
+          "supply": "ceramic_mug_blank"
+        },
+        {
+          "transform": "uv_printing"
+        },
+        {
+          "supply": "candle_wax_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Wallet + belt leather set",
+      "steps": [
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "engraving"
+        },
+        {
+          "supply": "leather_belt_blank"
+        },
+        {
+          "transform": "leather_stamping"
+        }
+      ]
+    },
+    {
+      "name": "Keychain + tote bundle",
+      "steps": [
+        {
+          "supply": "acrylic_keychain_blank"
+        },
+        {
+          "transform": "laser_cutting"
+        },
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Shirt + sticker pack",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "screen_printing"
+        },
+        {
+          "supply": "vinyl_sticker_sheet_blank"
+        },
+        {
+          "transform": "vinyl_cutting"
+        }
+      ]
+    },
+    {
+      "name": "Bottle + phone case set",
+      "steps": [
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "uv_printing"
+        },
+        {
+          "supply": "silicone_phone_case_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Shirt + tote combo",
+      "steps": [
+        {
+          "supply": "cotton_tshirt"
+        },
+        {
+          "transform": "screen_printing"
+        },
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "embroidery"
+        }
+      ]
+    },
+    {
+      "name": "Jacket + wallet gift set",
+      "steps": [
+        {
+          "supply": "denim_jacket"
+        },
+        {
+          "transform": "embroidery"
+        },
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Board + mug kitchen set",
+      "steps": [
+        {
+          "supply": "wood_cutting_board_blank"
+        },
+        {
+          "transform": "engraving"
+        },
+        {
+          "supply": "ceramic_mug_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Ornament + candle holiday set",
+      "steps": [
+        {
+          "supply": "glass_ornament_blank"
+        },
+        {
+          "transform": "hand_painting"
+        },
+        {
+          "supply": "candle_wax_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Poster + sticker pack",
+      "steps": [
+        {
+          "supply": "paper_poster_blank"
+        },
+        {
+          "transform": "screen_printing"
+        },
+        {
+          "supply": "vinyl_sticker_sheet_blank"
+        },
+        {
+          "transform": "vinyl_cutting"
+        }
+      ]
+    },
+    {
+      "name": "Dining table + chair set",
+      "steps": [
+        {
+          "supply": "metal_chair_frame_blank"
+        },
+        {
+          "transform": "upholstering"
+        },
+        {
+          "supply": "wood_table_top_blank"
+        },
+        {
+          "transform": "varnishing"
+        }
+      ]
+    },
+    {
+      "name": "Mini fridge + shelf bracket kit",
+      "steps": [
+        {
+          "supply": "mini_fridge_shell_blank"
+        },
+        {
+          "transform": "assembly_electronics"
+        },
+        {
+          "supply": "steel_shelf_bracket_blank"
+        },
+        {
+          "transform": "powder_coating"
+        }
+      ]
+    },
+    {
+      "name": "Speaker + bike accessory bundle",
+      "steps": [
+        {
+          "supply": "speaker_casing_blank"
+        },
+        {
+          "transform": "assembly_electronics"
+        },
+        {
+          "supply": "bike_frame_blank"
+        },
+        {
+          "transform": "anodizing"
+        }
+      ]
+    },
+    {
+      "name": "Planter + lamp shade patio set",
+      "steps": [
+        {
+          "supply": "garden_planter_blank"
+        },
+        {
+          "transform": "anodizing"
+        },
+        {
+          "supply": "glass_lamp_shade_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Board + shelf bracket kitchen kit",
+      "steps": [
+        {
+          "supply": "wood_cutting_board_blank"
+        },
+        {
+          "transform": "varnishing"
+        },
+        {
+          "supply": "steel_shelf_bracket_blank"
+        },
+        {
+          "transform": "powder_coating"
+        }
+      ]
+    },
+    {
+      "name": "Spa gift set (soap + candle)",
+      "steps": [
+        {
+          "supply": "soap_bar_blank"
+        },
+        {
+          "transform": "soap_molding"
+        },
+        {
+          "supply": "candle_wax_blank"
+        },
+        {
+          "transform": "hand_painting"
+        }
+      ]
+    },
+    {
+      "name": "Pet parent bundle (bandana + mug)",
+      "steps": [
+        {
+          "supply": "pet_bandana_blank"
+        },
+        {
+          "transform": "embroidery"
+        },
+        {
+          "supply": "ceramic_mug_blank"
+        },
+        {
+          "transform": "uv_printing"
+        }
+      ]
+    },
+    {
+      "name": "Executive desk set (notebook + wallet)",
+      "steps": [
+        {
+          "supply": "notebook_cover_blank"
+        },
+        {
+          "transform": "debossing"
+        },
+        {
+          "supply": "leather_wallet_blank"
+        },
+        {
+          "transform": "leather_stamping"
+        }
+      ]
+    },
+    {
+      "name": "Wellness kit (yoga mat + bottle)",
+      "steps": [
+        {
+          "supply": "yoga_mat_blank"
+        },
+        {
+          "transform": "screen_printing"
+        },
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "New parent gift set (onesie + keepsake board)",
+      "steps": [
+        {
+          "supply": "baby_onesie_blank"
+        },
+        {
+          "transform": "embroidery"
+        },
+        {
+          "supply": "wood_cutting_board_blank"
+        },
+        {
+          "transform": "engraving"
+        }
+      ]
+    },
+    {
+      "name": "Corporate onboarding kit (embroidered hoodie + engraved bottle + vegan snacks + custom packaging)",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "embroidery"
+        },
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "engraving"
+        },
+        {
+          "supply": "vegan_snack_pack"
+        },
+        {
+          "supply": "custom_packaging_blank"
+        }
+      ]
+    },
+    {
+      "name": "Self-care and snack gift box (soap + snacks + custom packaging)",
+      "steps": [
+        {
+          "supply": "soap_bar_blank"
+        },
+        {
+          "transform": "soap_molding"
+        },
+        {
+          "supply": "vegan_snack_pack"
+        },
+        {
+          "supply": "custom_packaging_blank"
+        }
+      ]
+    },
+    {
+      "name": "New hire swag box (hoodie + notebook + water bottle + packaging)",
+      "steps": [
+        {
+          "supply": "cotton_hoodie"
+        },
+        {
+          "transform": "screen_printing"
+        },
+        {
+          "supply": "notebook_cover_blank"
+        },
+        {
+          "transform": "debossing"
+        },
+        {
+          "supply": "metal_water_bottle_blank"
+        },
+        {
+          "transform": "engraving"
+        },
+        {
+          "supply": "custom_packaging_blank"
+        }
+      ]
+    },
+    {
+      "name": "Pet + human matching gift set (bandana + tote + snacks)",
+      "steps": [
+        {
+          "supply": "pet_bandana_blank"
+        },
+        {
+          "transform": "embroidery"
+        },
+        {
+          "supply": "canvas_tote_bag"
+        },
+        {
+          "transform": "embroidery"
+        },
+        {
+          "supply": "vegan_snack_pack"
+        }
+      ]
+    }
+  ]
+}

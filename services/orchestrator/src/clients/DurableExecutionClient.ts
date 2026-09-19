@@ -2,6 +2,7 @@ import type { ExecutionReceipt, ProductionPlan } from "@molecule/contracts";
 import { getPool, releaseReservation, reserveCapacity, reserveCatalogPlan, releaseCatalogPlan } from "@molecule/db";
 import type { MerchantRuntime } from "@molecule/merchant-agents";
 import type { ShopifyClient } from "@molecule/shopify";
+import { ExecutionInterruptedError } from "./ExecutionInterruptedError.js";
 
 export class DurableExecutionClient implements ShopifyClient {
   constructor(
@@ -51,21 +52,25 @@ export class DurableExecutionClient implements ShopifyClient {
       )
     )
       return receipt;
-    for (const node of plan.nodes) {
-      await this.merchants.jobs.acceptJob({
-        merchantId: node.merchantId,
-        orderId: plan.orderId,
-        nodeId: node.nodeId,
-        eta: node.completesAt,
-        traceId,
-        actionKey: `execution:${plan.planId}:${node.nodeId}:accept`,
-      });
-      await this.merchants.recordMemory({
-        merchantId: node.merchantId,
-        orderId: plan.orderId,
-        traceId,
-        note: `${this.merchants.mode === "demo" ? "Synthetic: " : ""}Accepted ${node.quantity} units of ${node.capabilityId} for order ${plan.orderId}; plan ${plan.planId}.`,
-      });
+    try {
+      for (const node of plan.nodes) {
+        await this.merchants.jobs.acceptJob({
+          merchantId: node.merchantId,
+          orderId: plan.orderId,
+          nodeId: node.nodeId,
+          eta: node.completesAt,
+          traceId,
+          actionKey: `execution:${plan.planId}:${node.nodeId}:accept`,
+        });
+        await this.merchants.recordMemory({
+          merchantId: node.merchantId,
+          orderId: plan.orderId,
+          traceId,
+          note: `${this.merchants.mode === "demo" ? "Synthetic: " : ""}Accepted ${node.quantity} units of ${node.capabilityId} for order ${plan.orderId}; plan ${plan.planId}.`,
+        });
+      }
+    } catch {
+      throw new ExecutionInterruptedError(receipt);
     }
     return receipt;
   }
@@ -79,10 +84,12 @@ export class DurableExecutionClient implements ShopifyClient {
         ({ status }) => !["SUCCEEDED", "COMPENSATED"].includes(status),
       )
     )
-      throw new Error(
-        "Supplier jobs require reconciliation before replacement",
-      );
-    await this.release(orderId, planId, traceId);
+      throw new ExecutionInterruptedError(receipt);
+    try {
+      await this.release(orderId, planId, traceId);
+    } catch {
+      throw new ExecutionInterruptedError(receipt);
+    }
     return receipt;
   }
 }

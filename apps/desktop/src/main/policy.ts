@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DashboardViewSchema, type DashboardView } from "../shared/bridge.js";
 
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -74,12 +75,21 @@ export function allowsMediaRequest(
   return mediaTypes.length === 1 && mediaTypes[0] === "audio";
 }
 
-export function dashboardUrl(base: string, projectId?: string): string {
+export function dashboardUrl(
+  base: string,
+  projectId?: string,
+  view?: DashboardView,
+): string {
   const url = new URL(serviceOrigin(base));
   if (projectId && !z.uuid().safeParse(projectId).success)
     throw new Error("Invalid project");
   url.pathname = projectId ? `/projects/${encodeURIComponent(projectId)}` : "/";
   url.search = "";
+  if (view !== undefined) {
+    if (!projectId)
+      throw new Error("A project is required for a workspace view");
+    url.searchParams.set("view", DashboardViewSchema.parse(view));
+  }
   url.hash = "";
   return url.href;
 }

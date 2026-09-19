@@ -81,6 +81,7 @@ export class RealtimeClient {
   private stableTimer?: ReturnType<typeof setTimeout>;
   private readonly interrupted = new Set<string>();
   private readonly answered = new Set<string>();
+  private toolScope = "";
   constructor(private readonly deps: RealtimeDependencies) {}
   getSnapshot = () => this.snapshot;
   getLevel = () => this.level;
@@ -461,7 +462,7 @@ export class RealtimeClient {
           );
           try {
             output = await this.deps.tools.run(
-              event.call_id,
+              `${this.toolScope}${event.call_id}`,
               event.name,
               event.arguments,
             );
@@ -609,5 +610,13 @@ export class RealtimeClient {
     this.release();
     this.patch({ state: "idle", error: null });
     console.info(JSON.stringify({ scope: "voice", event: "stopped" }));
+  }
+  resetProject() {
+    this.clearConversation();
+    this.toolScope = `${crypto.randomUUID()}:`;
+    this.interrupted.clear();
+    this.answered.clear();
+    this.staleInputs.clear();
+    this.inputItem = undefined;
   }
 }

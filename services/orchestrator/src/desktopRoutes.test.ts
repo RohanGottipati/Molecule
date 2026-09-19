@@ -50,6 +50,7 @@ async function fixture(directory?: string) {
   const orchestrator = new Orchestrator({
     sessions: store,
     events: store,
+    contexts: store,
     openai,
     solver,
     reality: new MockRealityClient(),

@@ -51,6 +51,51 @@ function incoming(path: string, init: RequestInit = {}) {
 }
 
 describe("same-origin proxy with a real local upstream", () => {
+  it("forwards only validated durable read query fields", async () => {
+    for (const [path, query, expected] of [
+      [
+        "projects",
+        "search=hoodies%20%26%20bottles&cursor=opaque%2B%2F%3D&limit=10&secret=omit",
+        "/api/projects?limit=10&search=hoodies+%26+bottles&cursor=opaque%2B%2F%3D",
+      ],
+      [
+        "orders/project/messages",
+        "afterCursor=8&limit=30",
+        "/api/orders/project/messages?afterCursor=8&limit=30",
+      ],
+      [
+        "orders/project/actions",
+        "key=message%3Aone&kind=message",
+        "/api/orders/project/actions?key=message%3Aone&kind=message",
+      ],
+      ["orders/project/capabilities", "", "/api/orders/project/capabilities"],
+    ] as const) {
+      const response = await proxyRequest(
+        incoming(`${path}?${query}`),
+        path.split("/"),
+        backend,
+      );
+      expect(response.status).toBe(200);
+      expect(requests.at(-1)?.path).toBe(expected);
+    }
+    const count = requests.length;
+    for (const [path, query] of [
+      ["projects", "limit=1000"],
+      ["orders/project/messages", "afterCursor=-1"],
+      ["orders/project/actions", "key=one&kind=chaos"],
+    ] as const) {
+      expect(
+        (
+          await proxyRequest(
+            incoming(`${path}?${query}`),
+            path.split("/"),
+            backend,
+          )
+        ).status,
+      ).toBe(400);
+    }
+    expect(requests).toHaveLength(count);
+  });
   it("forwards safe action metadata but no browser credentials or provider cookies", async () => {
     const response = await proxyRequest(
       incoming("orders", {
