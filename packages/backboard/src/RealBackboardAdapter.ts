@@ -10,7 +10,6 @@ import type {
   CreateOrderThreadInput,
   MerchantAssistant,
   MerchantDocument,
-  MerchantDocumentCategory,
   MerchantIdentity,
   MerchantMemoryEntry,
   OrderThread,
@@ -28,91 +27,93 @@ export interface RealBackboardAdapterConfig {
   apiKey: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
-  pollIntervalMs?: number;
+  /**
+   * Backboard has no per-assistant model: `POST /threads/messages` takes
+   * `llm_provider`/`model_name` per call. This is only the value recorded on
+   * MerchantAssistant.model and used when sendWithTools/createModelRouter
+   * don't supply a per-run override.
+   */
+  defaultModel?: string;
+  defaultProvider?: string;
 }
 
-const DEFAULT_BASE_URL = "https://api.backboard.io";
-const DEFAULT_POLL_INTERVAL_MS = 200;
+// Confirmed 2026-09-19 against https://backboard-docs.docsalot.dev (the
+// published Backboard API reference). Backboard has no OpenAI-Assistants-style
+// run object: POST /threads/messages returns the completion (or a
+// REQUIRES_ACTION tool-call request) synchronously in one call, so there is
+// no polling loop here.
+const DEFAULT_BASE_URL = "https://app.backboard.io/api";
+const DEFAULT_MODEL_NAME = "gpt-4o";
+const DEFAULT_LLM_PROVIDER = "openai";
 
-// Wire shapes are best-effort against the playbook's own run vocabulary
-// (queued/in_progress/requires_action/completed) and B2's retrieval-depth
-// language. Confirm field names, including the document search endpoint,
-// against Backboard's published API reference before removing this note.
 interface ModelWire {
-  id: string;
+  name: string;
   provider: string;
+  model_type: string;
+  context_limit: number;
   supports_tools: boolean;
   supports_thinking: boolean;
   supports_json_output: boolean;
   supports_vision?: boolean;
-  context_window: number;
 }
 
 interface AssistantWire {
-  id: string;
-  model: string;
-}
-
-interface DocumentWire {
-  id: string;
+  assistant_id: string;
+  name: string;
+  system_prompt: string | null;
   created_at: string;
 }
 
-interface DocumentChunkWire {
-  document_id: string;
-  file_name: string;
-  category: MerchantDocumentCategory;
-  version: number;
-  source_timestamp: string;
-  stale: boolean;
-  snippet: string;
-  score: number;
-}
-
 interface ThreadWire {
-  id: string;
+  thread_id: string;
+  created_at: string;
 }
 
 interface ToolCallWire {
   id: string;
+  type: string;
   function: { name: string; arguments: string };
 }
 
-interface RunWire {
-  id: string;
-  status:
-    | "queued"
-    | "in_progress"
-    | "requires_action"
-    | "completed"
-    | "failed"
-    | "expired"
-    | "cancelled";
-  required_action?: { submit_tool_outputs?: { tool_calls: ToolCallWire[] } };
+interface MessageResponseWire {
+  message: string;
+  thread_id: string;
+  content: string | null;
+  status: "COMPLETED" | "REQUIRES_ACTION" | string;
+  tool_calls: ToolCallWire[] | null;
 }
 
-interface MessageWire {
-  content: { text?: { value: string } }[];
-}
-
-interface MemoryWire {
-  id: string;
-  note: string;
-  source_thread_id?: string;
+interface DocumentWire {
+  document_id: string;
+  filename: string;
+  status: string;
   created_at: string;
 }
 
-function toToolSpec(tool: ToolDefinition) {
-  return { name: tool.name, description: tool.description };
+interface MemoryWire {
+  id?: string;
+  memory_id?: string;
+  content: string;
+  metadata?: { source?: string } | null;
+  created_at: string;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// OpenAI-style function-tool wire shape Backboard expects in `tools`.
+// Parameters are validated locally by runBoundedToolLoop against each
+// ToolDefinition's zod schema; the wire spec only needs to name the tool so
+// the model knows it exists and how to describe a call for it.
+function toToolSpec(tool: ToolDefinition) {
+  return {
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: { type: "object" },
+    },
+  };
 }
 
 class RealConversationClient implements ConversationClient {
-  private runId: string | undefined;
-
   constructor(
     private readonly request: <T>(
       path: string,
@@ -121,72 +122,15 @@ class RealConversationClient implements ConversationClient {
     private readonly assistantId: string,
     private readonly threadId: string,
     private readonly tools: ToolDefinition[],
-    private readonly pollIntervalMs: number,
-    // B6 item 76: a per-run model override from the model router. Never
-    // changes assistantId/threadId — those still come from the merchant
-    // twin lifecycle, so switching lanes never loses merchant/order identity.
-    private readonly model?: string,
+    private readonly model: string,
+    private readonly provider: string,
   ) {}
 
-  async start(input: { message: string }): Promise<ConverseTurn> {
-    await this.request(`/v1/threads/${this.threadId}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ role: "user", content: input.message }),
-    });
-    const run = await this.request<RunWire>(
-      `/v1/threads/${this.threadId}/runs`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          assistant_id: this.assistantId,
-          model: this.model,
-          tools: this.tools.map(toToolSpec),
-        }),
-      },
-    );
-    return this.poll(run);
-  }
-
-  async submitToolOutputs(input: {
-    toolOutputs: { toolCallId: string; output: string }[];
-  }): Promise<ConverseTurn> {
-    if (!this.runId) {
-      throw new BackboardApiError(
-        "submitToolOutputs called before a run started",
-        0,
-      );
-    }
-    const run = await this.request<RunWire>(
-      `/v1/threads/${this.threadId}/runs/${this.runId}/submit_tool_outputs`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          tool_outputs: input.toolOutputs.map((output) => ({
-            tool_call_id: output.toolCallId,
-            output: output.output,
-          })),
-        }),
-      },
-    );
-    return this.poll(run);
-  }
-
-  private async poll(initialRun: RunWire): Promise<ConverseTurn> {
-    let run = initialRun;
-    this.runId = run.id;
-    while (run.status === "queued" || run.status === "in_progress") {
-      await sleep(this.pollIntervalMs);
-      run = await this.request<RunWire>(
-        `/v1/threads/${this.threadId}/runs/${run.id}`,
-      );
-      this.runId = run.id;
-    }
-
-    if (run.status === "requires_action") {
-      const calls = run.required_action?.submit_tool_outputs?.tool_calls ?? [];
+  private toConverseTurn(data: MessageResponseWire): ConverseTurn {
+    if (data.status === "REQUIRES_ACTION") {
       return {
         status: "requires_action",
-        toolCalls: calls.map((call) => ({
+        toolCalls: (data.tool_calls ?? []).map((call) => ({
           id: call.id,
           name: call.function.name,
           args: JSON.parse(call.function.arguments || "{}") as Record<
@@ -196,26 +140,61 @@ class RealConversationClient implements ConversationClient {
         })),
       };
     }
-
-    if (run.status === "completed") {
-      const messages = await this.request<{ data: MessageWire[] }>(
-        `/v1/threads/${this.threadId}/messages?limit=1&order=desc`,
-      );
-      const text = messages.data[0]?.content?.[0]?.text?.value ?? "";
-      return { status: "completed", text };
+    if (data.status === "COMPLETED") {
+      return { status: "completed", text: data.content ?? data.message ?? "" };
     }
-
     throw new BackboardApiError(
-      `Backboard run ended with status ${run.status}`,
+      `Backboard message ended with status ${data.status}`,
       0,
     );
+  }
+
+  async start(input: { message: string }): Promise<ConverseTurn> {
+    const data = await this.request<MessageResponseWire>(
+      "/threads/messages",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: input.message,
+          thread_id: this.threadId,
+          assistant_id: this.assistantId,
+          llm_provider: this.provider,
+          model_name: this.model,
+          tools: this.tools.map(toToolSpec),
+          memory: "Auto",
+          stream: false,
+        }),
+      },
+    );
+    return this.toConverseTurn(data);
+  }
+
+  async submitToolOutputs(input: {
+    toolOutputs: { toolCallId: string; output: string }[];
+  }): Promise<ConverseTurn> {
+    const data = await this.request<MessageResponseWire>(
+      "/threads/tool-outputs",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          thread_id: this.threadId,
+          tool_outputs: input.toolOutputs.map((output) => ({
+            tool_call_id: output.toolCallId,
+            output: output.output,
+          })),
+          stream: false,
+        }),
+      },
+    );
+    return this.toConverseTurn(data);
   }
 }
 
 export class RealBackboardAdapter implements BackboardAdapter {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
-  private readonly pollIntervalMs: number;
+  private readonly defaultModel: string;
+  private readonly defaultProvider: string;
 
   constructor(private readonly config: RealBackboardAdapterConfig) {
     if (!config.apiKey) {
@@ -223,7 +202,8 @@ export class RealBackboardAdapter implements BackboardAdapter {
     }
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.fetchImpl = config.fetchImpl ?? fetch;
-    this.pollIntervalMs = config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    this.defaultModel = config.defaultModel ?? DEFAULT_MODEL_NAME;
+    this.defaultProvider = config.defaultProvider ?? DEFAULT_LLM_PROVIDER;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -231,7 +211,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
       ...init,
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${this.config.apiKey}`,
+        "x-api-key": this.config.apiKey,
         ...init?.headers,
       },
     });
@@ -245,15 +225,17 @@ export class RealBackboardAdapter implements BackboardAdapter {
   }
 
   async listModels(): Promise<BackboardModel[]> {
-    const data = await this.request<{ models: ModelWire[] }>("/v1/models");
+    const data = await this.request<{ models: ModelWire[] }>(
+      "/models?model_type=llm&limit=200",
+    );
     return data.models.map((model) => ({
-      modelId: model.id,
+      modelId: model.name,
       provider: model.provider,
       supportsTools: model.supports_tools,
       supportsThinking: model.supports_thinking,
       supportsJsonOutput: model.supports_json_output,
       supportsVision: model.supports_vision ?? false,
-      contextWindow: model.context_window,
+      contextWindow: model.context_limit,
     }));
   }
 
@@ -261,44 +243,53 @@ export class RealBackboardAdapter implements BackboardAdapter {
     identity: MerchantIdentity,
   ): Promise<MerchantAssistant> {
     const systemPrompt = buildMerchantSystemPrompt(identity);
-    const data = await this.request<AssistantWire>("/v1/assistants", {
+    const data = await this.request<AssistantWire>("/assistants", {
       method: "POST",
       body: JSON.stringify({
         name: identity.displayName,
-        instructions: systemPrompt,
-        metadata: { merchantId: identity.merchantId },
+        system_prompt: systemPrompt,
       }),
     });
     return {
       merchantId: identity.merchantId,
-      assistantId: data.id,
-      model: data.model,
+      assistantId: data.assistant_id,
+      model: this.defaultModel,
       systemPrompt,
-      createdAt: new Date().toISOString(),
+      createdAt: data.created_at,
     };
   }
 
   async uploadMerchantDocument(
     input: UploadMerchantDocumentInput,
   ): Promise<MerchantDocument> {
-    const data = await this.request<DocumentWire>(
-      `/v1/assistants/${input.assistantId}/documents`,
+    // Backboard's upload endpoint only accepts a multipart `file` field — no
+    // custom metadata. category/version/sourceTimestamp/stale are Molecule's
+    // own bookkeeping (see MerchantDocument), echoed from the input rather
+    // than round-tripped through the provider.
+    const form = new FormData();
+    form.append(
+      "file",
+      new Blob([input.content], { type: input.mimeType }),
+      input.fileName,
+    );
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/assistants/${input.assistantId}/documents`,
       {
         method: "POST",
-        body: JSON.stringify({
-          file_name: input.fileName,
-          mime_type: input.mimeType,
-          content: input.content,
-          category: input.category,
-          version: input.version,
-          source_timestamp: input.sourceTimestamp,
-          stale: input.stale ?? false,
-        }),
+        headers: { "x-api-key": this.config.apiKey },
+        body: form,
       },
     );
+    if (!response.ok) {
+      throw new BackboardApiError(
+        `Backboard API /assistants/${input.assistantId}/documents failed with ${response.status}`,
+        response.status,
+      );
+    }
+    const data = (await response.json()) as DocumentWire;
     return {
       merchantId: input.merchantId,
-      documentId: data.id,
+      documentId: data.document_id,
       fileName: input.fileName,
       mimeType: input.mimeType,
       category: input.category,
@@ -310,41 +301,36 @@ export class RealBackboardAdapter implements BackboardAdapter {
   }
 
   async retrieveMerchantDocuments(
-    input: RetrieveMerchantDocumentsInput,
+    _input: RetrieveMerchantDocumentsInput,
   ): Promise<RetrievedDocumentChunk[]> {
-    const data = await this.request<{ chunks: DocumentChunkWire[] }>(
-      `/v1/assistants/${input.assistantId}/documents/search`,
-      {
-        method: "POST",
-        body: JSON.stringify({ query: input.query, depth: input.depth }),
-      },
+    // Backboard has no standalone document-search endpoint (confirmed
+    // against the published API reference 2026-09-19): retrieval only
+    // happens as the assistant's own internal search_documents tool during
+    // POST /threads/messages, and that tool's results surface as
+    // retrieved_files (filenames only — no chunk/score/category/version) on
+    // the message response, not as a queryable RetrievedDocumentChunk[].
+    // This is a real gap between BackboardAdapter's B2 contract and the
+    // provider, not a wiring bug — needs a design decision (drop standalone
+    // retrieval and read retrieved_files off sendWithTools instead, or keep
+    // this unsupported on the real adapter) before this can return real data.
+    throw new BackboardApiError(
+      "Backboard has no standalone document-search endpoint; retrieveMerchantDocuments is unsupported on RealBackboardAdapter. See the comment on this method.",
+      501,
     );
-    return data.chunks.map((chunk) => ({
-      documentId: chunk.document_id,
-      fileName: chunk.file_name,
-      category: chunk.category,
-      version: chunk.version,
-      sourceTimestamp: chunk.source_timestamp,
-      stale: chunk.stale,
-      snippet: chunk.snippet,
-      score: chunk.score,
-    }));
   }
 
   async createOrReuseOrderThread(
     input: CreateOrderThreadInput,
   ): Promise<OrderThread> {
-    const data = await this.request<ThreadWire>("/v1/threads", {
-      method: "POST",
-      body: JSON.stringify({
-        metadata: { merchantId: input.merchantId, orderId: input.orderId },
-      }),
-    });
+    const data = await this.request<ThreadWire>(
+      `/assistants/${input.assistantId}/threads`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
     return {
       merchantId: input.merchantId,
       orderId: input.orderId,
-      threadId: data.id,
-      createdAt: new Date().toISOString(),
+      threadId: data.thread_id,
+      createdAt: data.created_at,
     };
   }
 
@@ -356,8 +342,8 @@ export class RealBackboardAdapter implements BackboardAdapter {
       input.assistantId,
       input.threadId,
       input.tools,
-      this.pollIntervalMs,
-      input.model,
+      input.model ?? this.defaultModel,
+      this.defaultProvider,
     );
     return runBoundedToolLoop<T>({
       client,
@@ -379,19 +365,21 @@ export class RealBackboardAdapter implements BackboardAdapter {
     input: RecordMerchantMemoryInput,
   ): Promise<MerchantMemoryEntry> {
     const data = await this.request<MemoryWire>(
-      `/v1/assistants/${input.assistantId}/memory`,
+      `/assistants/${input.assistantId}/memories`,
       {
         method: "POST",
         body: JSON.stringify({
-          note: input.note,
-          source_thread_id: input.sourceThreadId,
+          content: input.note,
+          metadata: input.sourceThreadId
+            ? { source: input.sourceThreadId }
+            : undefined,
         }),
       },
     );
     return {
       assistantId: input.assistantId,
       merchantId: input.merchantId,
-      memoryId: data.id,
+      memoryId: data.memory_id ?? data.id ?? "",
       note: input.note,
       sourceThreadId: input.sourceThreadId,
       recordedAt: data.created_at,
@@ -402,14 +390,14 @@ export class RealBackboardAdapter implements BackboardAdapter {
     input: RecallMerchantMemoryInput,
   ): Promise<MerchantMemoryEntry[]> {
     const data = await this.request<{ memories: MemoryWire[] }>(
-      `/v1/assistants/${input.assistantId}/memory`,
+      `/assistants/${input.assistantId}/memories?page_size=100`,
     );
     return data.memories.map((memory) => ({
       assistantId: input.assistantId,
       merchantId: input.merchantId,
-      memoryId: memory.id,
-      note: memory.note,
-      sourceThreadId: memory.source_thread_id,
+      memoryId: memory.id ?? memory.memory_id ?? "",
+      note: memory.content,
+      sourceThreadId: memory.metadata?.source,
       recordedAt: memory.created_at,
     }));
   }
