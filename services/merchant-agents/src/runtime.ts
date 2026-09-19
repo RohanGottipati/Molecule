@@ -398,173 +398,204 @@ export function createMerchantRuntime(
     ]);
     const run = async () => {
       combined.throwIfAborted();
-      const thread = await ensureOrderThread(request);
-      combined.throwIfAborted();
-      return transaction(
-        getPool(),
-        `quote:${mode}:${thread.threadId}`,
-        async (client) => {
-          combined.throwIfAborted();
-          const events: MoleculeEvent[] = [];
-          const assistant = await repository.getAssistant(request.merchantId);
-          if (!assistant) throw new Error("Merchant must be initialized");
-          const memory = await repository.listMemory(request.merchantId);
-          const context = {
-            merchantId: request.merchantId,
-            orderId: request.orderId,
-            traceId: request.traceId,
-            threadId: thread.threadId,
-          };
-          const tools = createMerchantAgentTools({
-            canonicalData: options.canonicalData,
-            capacity,
-            jobs,
-          })
-            .filter((tool) => tool.risk === "read")
-            .map((tool) => ({
-              ...tool,
-              handler: async (args: Record<string, unknown>) => {
-                combined.throwIfAborted();
-                if (
-                  args.capabilityId !== undefined &&
-                  args.capabilityId !== request.capabilityId
-                )
-                  throw new Error("Tool capability switch rejected");
-                return abortable(tool.handler(args, context), combined);
-              },
-            }));
-          const grounded = await groundQuote(
-            request,
-            tools,
-            context,
-            options.now?.() ?? new Date(),
-            combined,
-          );
-          let response = grounded.quote;
-          if (mode === "live") {
-            const live = provider(combined);
-            const router = createModelRouter(live);
-            const { selection, event: selectionEvent } =
-              await router.selectModel({
-                task: {
-                  kind: request.deadline
-                    ? "deadline_guarantee"
-                    : "low_stakes_inventory",
-                },
-                ...context,
-              });
-            events.push(
-              await persistMerchantEvent(client, {
-                traceId: request.traceId,
-                merchantId: request.merchantId,
-                orderId: request.orderId,
-                eventType: selectionEvent.eventType,
-                payload: selectionEvent.payload,
-              }),
-            );
-            let candidate: QuoteResponse | undefined;
-            for (let attempt = 0; attempt < 2; attempt++) {
-              const result = await live.sendWithTools({
-                ...context,
-                assistantId: assistant.assistantId,
-                model: selection.modelId,
-                signal: combined,
-                tools,
-                responseSchema: QuoteResponseSchema,
-                message: JSON.stringify({
-                  instruction:
-                    "Return only a QuoteResponse JSON object. This is advisory: never reserve or accept a job. Canonical facts override memories. No hidden reasoning.",
-                  request: { ...request, hold: false },
-                  canonicalQuote: grounded.quote,
-                  memory: memory.map(({ note, recordedAt }) => ({
-                    note,
-                    recordedAt,
-                  })),
-                  repair: attempt > 0,
-                }),
-              });
-              if (result.outcome === "FALLBACK") {
-                if (result.reason === "MALFORMED_OUTPUT") continue;
-                throw new MerchantQuoteUnavailableError(
-                  request.merchantId,
-                  result.reason,
-                );
-              }
-              candidate = result.data;
-              if (
-                candidate?.status === "COUNTEROFFER" &&
-                candidate.requiredChanges.length === 0
-              )
-                candidate = undefined;
-              if (candidate) break;
-            }
-            if (
-              !candidate ||
-              candidate.merchantId !== request.merchantId ||
-              candidate.capabilityId !== request.capabilityId
-            ) {
-              throw new QuoteProtocolError(
-                "Provider returned invalid quote identity or output",
-                request.merchantId,
-              );
-            }
-            if (candidate.status === "CAN_ACCEPT") response = grounded.quote;
-            else response = { ...candidate, reservationId: undefined };
-            if (grounded.quote.status === "DECLINE") response = grounded.quote;
-          }
-          response = QuoteResponseSchema.parse({
-            ...response,
-            reservationId: undefined,
-            explanation:
-              `${mode === "demo" ? "[Synthetic demo] " : "[Live Backboard] "}${response.explanation}`.slice(
-                0,
-                600,
-              ),
-          });
-          combined.throwIfAborted();
-          const actionKey =
-            request.actionKey ??
-            `quote:${mode}:${actionDigest([request, response])}`;
-          const stored = await client.query(
-            `insert into merchant_twin_quotes(action_key,merchant_id,order_id,intent_version,mode,request,response)
-           values($1,$2,$3,$4,$5,$6,$7) on conflict(action_key) do update set response=excluded.response
-           where merchant_twin_quotes.request=excluded.request and merchant_twin_quotes.mode=excluded.mode`,
-            [
-              actionKey,
-              request.merchantId,
-              request.orderId,
-              request.intentVersion,
-              mode,
-              request,
-              response,
-            ],
-          );
-          if (!stored.rowCount)
+      if (request.actionKey) {
+        const prior = await getPool().query<{
+          mode: MerchantProviderMode;
+          request: QuoteRequest;
+          response: unknown;
+        }>(
+          "select mode,request,response from merchant_twin_quotes where action_key=$1",
+          [request.actionKey],
+        );
+        combined.throwIfAborted();
+        if (prior.rows[0]) {
+          if (
+            prior.rows[0].mode !== mode ||
+            actionDigest(prior.rows[0].request) !== actionDigest(request)
+          )
             throw new Error(
               "Quote actionKey conflicts with an existing request",
             );
-          const event = await persistMerchantEvent(client, {
-            traceId: request.traceId,
-            merchantId: request.merchantId,
-            orderId: request.orderId,
-            eventType: "merchant.quote.completed",
-            payload: {
-              mode,
-              label,
-              intentVersion: request.intentVersion,
-              status: response.status,
-              capabilityId: request.capabilityId,
-              actionKey,
-              canonicalTools: grounded.evidence,
-              memoryIds: memory.map((entry) => entry.memoryId),
-              advisory: true,
-            },
-          });
-          combined.throwIfAborted();
-          events.push(event);
-          return { response, events };
-        },
+          return {
+            response: QuoteResponseSchema.parse(prior.rows[0].response),
+            events: [],
+          };
+        }
+      }
+      const thread = await ensureOrderThread(request);
+      combined.throwIfAborted();
+      const pendingEvents: Parameters<typeof persistMerchantEvent>[1][] = [];
+      const assistant = await repository.getAssistant(request.merchantId);
+      if (!assistant) throw new Error("Merchant must be initialized");
+      const memory = await repository.listMemory(request.merchantId);
+      const context = {
+        merchantId: request.merchantId,
+        orderId: request.orderId,
+        traceId: request.traceId,
+        threadId: thread.threadId,
+      };
+      const tools = createMerchantAgentTools({
+        canonicalData: options.canonicalData,
+        capacity,
+        jobs,
+      })
+        .filter((tool) => tool.risk === "read")
+        .map((tool) => ({
+          ...tool,
+          handler: async (args: Record<string, unknown>) => {
+            combined.throwIfAborted();
+            if (
+              args.capabilityId !== undefined &&
+              args.capabilityId !== request.capabilityId
+            )
+              throw new Error("Tool capability switch rejected");
+            return abortable(tool.handler(args, context), combined);
+          },
+        }));
+      const grounded = await groundQuote(
+        request,
+        tools,
+        context,
+        options.now?.() ?? new Date(),
+        combined,
       );
+      let response = grounded.quote;
+      if (mode === "live") {
+        const live = provider(combined);
+        const router = createModelRouter(live);
+        const { selection, event: selectionEvent } = await router.selectModel({
+          task: {
+            kind: request.deadline
+              ? "deadline_guarantee"
+              : "low_stakes_inventory",
+          },
+          ...context,
+        });
+        pendingEvents.push({
+          traceId: request.traceId,
+          merchantId: request.merchantId,
+          orderId: request.orderId,
+          eventType: selectionEvent.eventType,
+          payload: selectionEvent.payload,
+        });
+        let candidate: QuoteResponse | undefined;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const result = await live.sendWithTools({
+            ...context,
+            assistantId: assistant.assistantId,
+            model: selection.modelId,
+            signal: combined,
+            tools,
+            responseSchema: QuoteResponseSchema,
+            message: JSON.stringify({
+              instruction:
+                "Return only a QuoteResponse JSON object. This is advisory: never reserve or accept a job. Canonical facts override memories. No hidden reasoning.",
+              request: { ...request, hold: false },
+              canonicalQuote: grounded.quote,
+              memory: memory.map(({ note, recordedAt }) => ({
+                note,
+                recordedAt,
+              })),
+              repair: attempt > 0,
+            }),
+          });
+          if (result.outcome === "FALLBACK") {
+            if (result.reason === "MALFORMED_OUTPUT") continue;
+            throw new MerchantQuoteUnavailableError(
+              request.merchantId,
+              result.reason,
+            );
+          }
+          candidate = result.data;
+          if (
+            candidate?.status === "COUNTEROFFER" &&
+            candidate.requiredChanges.length === 0
+          )
+            candidate = undefined;
+          if (candidate) break;
+        }
+        if (
+          !candidate ||
+          candidate.merchantId !== request.merchantId ||
+          candidate.capabilityId !== request.capabilityId
+        ) {
+          throw new QuoteProtocolError(
+            "Provider returned invalid quote identity or output",
+            request.merchantId,
+          );
+        }
+        if (candidate.status === "CAN_ACCEPT") response = grounded.quote;
+        else response = { ...candidate, reservationId: undefined };
+        if (grounded.quote.status === "DECLINE") response = grounded.quote;
+      }
+      response = QuoteResponseSchema.parse({
+        ...response,
+        reservationId: undefined,
+        explanation:
+          `${mode === "demo" ? "[Synthetic demo] " : "[Live Backboard] "}${response.explanation}`.slice(
+            0,
+            600,
+          ),
+      });
+      combined.throwIfAborted();
+      const actionKey =
+        request.actionKey ??
+        `quote:${mode}:${actionDigest([request, response])}`;
+      return transaction(getPool(), `quote:${actionKey}`, async (client) => {
+        combined.throwIfAborted();
+        const stored = await client.query(
+          `insert into merchant_twin_quotes(action_key,merchant_id,order_id,intent_version,mode,request,response)
+           values($1,$2,$3,$4,$5,$6,$7) on conflict(action_key) do nothing`,
+          [
+            actionKey,
+            request.merchantId,
+            request.orderId,
+            request.intentVersion,
+            mode,
+            request,
+            response,
+          ],
+        );
+        if (!stored.rowCount) {
+          const prior = await client.query<{ response: unknown }>(
+            `select response from merchant_twin_quotes
+               where action_key=$1 and request=$2::jsonb and mode=$3`,
+            [actionKey, JSON.stringify(request), mode],
+          );
+          combined.throwIfAborted();
+          if (!prior.rows[0])
+            throw new Error(
+              "Quote actionKey conflicts with an existing request",
+            );
+          return {
+            response: QuoteResponseSchema.parse(prior.rows[0].response),
+            events: [],
+          };
+        }
+        const events: MoleculeEvent[] = [];
+        for (const pending of pendingEvents)
+          events.push(await persistMerchantEvent(client, pending));
+        const event = await persistMerchantEvent(client, {
+          traceId: request.traceId,
+          merchantId: request.merchantId,
+          orderId: request.orderId,
+          eventType: "merchant.quote.completed",
+          payload: {
+            mode,
+            label,
+            intentVersion: request.intentVersion,
+            status: response.status,
+            capabilityId: request.capabilityId,
+            actionKey,
+            canonicalTools: grounded.evidence,
+            memoryIds: memory.map((entry) => entry.memoryId),
+            advisory: true,
+          },
+        });
+        combined.throwIfAborted();
+        events.push(event);
+        return { response, events };
+      });
     };
     try {
       const result = await abortable(run(), combined);

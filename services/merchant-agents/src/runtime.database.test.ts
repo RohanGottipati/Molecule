@@ -70,6 +70,17 @@ describe.skipIf(!databaseUrl)(
           "utf8",
         ),
       );
+      await getPool().query(`
+        alter table molecule_events add column cursor bigserial;
+        create function molecule_event_cursor() returns trigger language plpgsql as $$
+        begin
+          perform pg_advisory_xact_lock(73481203);
+          new.cursor := nextval(pg_get_serial_sequence('molecule_events','cursor'));
+          return new;
+        end $$;
+        create trigger molecule_event_cursor before insert on molecule_events
+          for each row execute function molecule_event_cursor();
+      `);
     });
     afterAll(async () => {
       await closePool();
@@ -208,6 +219,155 @@ describe.skipIf(!databaseUrl)(
         (await runtime.repository.getThread(merchantId, "one"))?.threadId,
       ).not.toBe(
         (await runtime.repository.getThread(merchantId, "two"))?.threadId,
+      );
+    });
+
+    it("completes eight quotes with transactional canonical reads on a two-connection pool", async () => {
+      await runtime.close();
+      await closePool();
+      const pool = getPool();
+      const priorMax = pool.options.max;
+      const priorTimeout = pool.options.connectionTimeoutMillis;
+      pool.options.max = 2;
+      pool.options.connectionTimeoutMillis = 500;
+      const readCapability = canonicalData.getCapability.bind(canonicalData);
+      canonicalData.getCapability = async (merchant, id) => {
+        const client = await pool.connect();
+        try {
+          await client.query("begin");
+          await client.query("select pg_advisory_xact_lock(73481203)");
+          await client.query(
+            "select merchant_id from merchants order by merchant_id for update",
+          );
+          await client.query("commit");
+        } catch (error) {
+          await client.query("rollback");
+          throw error;
+        } finally {
+          client.release();
+        }
+        return readCapability(merchant, id);
+      };
+      runtime = createMerchantRuntime({
+        canonicalData,
+        now: () => now,
+        quoteTimeoutMs: 2500,
+      });
+      try {
+        const results = await Promise.allSettled(
+          Array.from({ length: 8 }, (_, index) =>
+            runtime.quote(request(`concurrent-${index}`)),
+          ),
+        );
+        expect(results).toEqual(
+          Array.from({ length: 8 }, () =>
+            expect.objectContaining({
+              status: "fulfilled",
+              value: expect.objectContaining({ status: "CAN_ACCEPT" }),
+            }),
+          ),
+        );
+        expect(
+          (
+            await pool.query(
+              "select * from merchant_twin_quotes where merchant_id=$1",
+              [merchantId],
+            )
+          ).rowCount,
+        ).toBe(8);
+        expect(
+          (
+            await pool.query(
+              "select * from molecule_events where merchant_id=$1 and event_type='merchant.quote.completed'",
+              [merchantId],
+            )
+          ).rowCount,
+        ).toBe(8);
+      } finally {
+        pool.options.max = priorMax;
+        pool.options.connectionTimeoutMillis = priorTimeout;
+      }
+    });
+
+    it("acquires the global event lock before capacity resource locks", async () => {
+      const client = await getPool().connect();
+      let reservation: ReturnType<DatabaseCapacityStore["reserve"]> | undefined;
+      try {
+        await client.query("begin");
+        await client.query("set local statement_timeout='500ms'");
+        await client.query("select pg_advisory_xact_lock(73481203)");
+        reservation = new DatabaseCapacityStore().reserve({
+          merchantId,
+          capabilityId: capability.capabilityId,
+          orderId: "lock-order",
+          quantity: 1,
+          traceId: "lock-order",
+          actionKey: `lock-order:${merchantId}`,
+        });
+        await vi.waitFor(async () => {
+          const waiting = await client.query(
+            "select 1 from pg_locks where locktype='advisory' and classid=0 and objid=73481203 and not granted",
+          );
+          expect(waiting.rowCount).toBeGreaterThan(0);
+        });
+        await client.query(
+          "select capability_id from capabilities where capability_id=$1 for update",
+          [capability.capabilityId],
+        );
+        await client.query("commit");
+        expect((await reservation).status).toBe("held");
+      } finally {
+        await client.query("rollback");
+        client.release();
+        await reservation?.catch(() => {});
+      }
+    });
+
+    it("persists one immutable quote for concurrent retries and rejects action-key collisions", async () => {
+      const retry = request("retry", {
+        actionKey: `quote-retry:${merchantId}`,
+      });
+      const responses = await Promise.all(
+        Array.from({ length: 8 }, () => runtime.quote(retry)),
+      );
+      expect(
+        responses.every(
+          (response) =>
+            JSON.stringify(response) === JSON.stringify(responses[0]),
+        ),
+      ).toBe(true);
+      canonicalData.getCapability = vi.fn(async () => {
+        throw new Error("canonical source offline");
+      });
+      expect(await runtime.quote(retry)).toEqual(responses[0]);
+      expect(canonicalData.getCapability).not.toHaveBeenCalled();
+      await expect(runtime.quote({ ...retry, quantity: 1 })).rejects.toThrow(
+        "Quote actionKey conflicts",
+      );
+      const rows = await getPool().query(
+        "select * from molecule_events where merchant_id=$1 and event_type='merchant.quote.completed'",
+        [merchantId],
+      );
+      expect(rows.rowCount).toBe(1);
+      const raceKey = `quote-collision:${merchantId}`;
+      canonicalData.getCapability = async () => capability;
+      const race = await Promise.allSettled([
+        runtime.quote(
+          request("collision", { actionKey: raceKey, quantity: 100 }),
+        ),
+        runtime.quote(
+          request("collision", { actionKey: raceKey, quantity: 200 }),
+        ),
+      ]);
+      expect(
+        race.filter((result) => result.status === "fulfilled"),
+      ).toHaveLength(1);
+      expect(race.find((result) => result.status === "rejected")).toMatchObject(
+        {
+          reason: new Error(
+            "Quote actionKey conflicts with an existing request",
+          ),
+        },
       );
     });
 
@@ -412,6 +572,58 @@ describe.skipIf(!databaseUrl)(
         [merchantId],
       );
       expect(rows.rowCount).toBe(0);
+    });
+
+    it("rolls back a quote cancelled while waiting to persist", async () => {
+      const quoteRequest = request("cancel-write");
+      await runtime.ensureOrderThread(quoteRequest);
+      const client = await getPool().connect();
+      const readCapability = canonicalData.getCapability.bind(canonicalData);
+      let locked = false;
+      canonicalData.getCapability = async (merchant, id) => {
+        if (!locked) {
+          await client.query("begin");
+          await client.query("select pg_advisory_xact_lock(73481203)");
+          locked = true;
+        }
+        return readCapability(merchant, id);
+      };
+      const controller = new AbortController();
+      const result = runtime.quote(quoteRequest, controller.signal);
+      try {
+        await vi.waitFor(async () => {
+          expect(locked).toBe(true);
+          const waiting = await client.query(
+            "select 1 from pg_locks where locktype='advisory' and classid=0 and objid=73481203 and not granted",
+          );
+          expect(waiting.rowCount).toBeGreaterThan(0);
+        });
+        controller.abort();
+        await expect(result).rejects.toMatchObject({ reason: "TIMEOUT" });
+      } finally {
+        await client.query("rollback");
+        client.release();
+        await result.catch(() => {});
+      }
+      await vi.waitFor(() => {
+        expect(getPool().idleCount).toBe(getPool().totalCount);
+      });
+      expect(
+        (
+          await getPool().query(
+            "select * from merchant_twin_quotes where merchant_id=$1",
+            [merchantId],
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await getPool().query(
+            "select * from molecule_events where merchant_id=$1 and event_type='merchant.quote.completed'",
+            [merchantId],
+          )
+        ).rowCount,
+      ).toBe(0);
     });
 
     it("persists idempotent reservations and serializes competing capacity", async () => {
@@ -635,6 +847,20 @@ describe.skipIf(!databaseUrl)(
       await runtime.close();
       const fetchImpl: typeof fetch = async (url) => {
         const path = new URL(String(url)).pathname;
+        if (path.endsWith("/models") || path.endsWith("/messages")) {
+          expect(getPool().idleCount).toBe(getPool().totalCount);
+          const client = await getPool().connect();
+          try {
+            await client.query("begin");
+            const lock = await client.query<{ acquired: boolean }>(
+              "select pg_try_advisory_xact_lock(73481203) as acquired",
+            );
+            expect(lock.rows[0]?.acquired).toBe(true);
+          } finally {
+            await client.query("rollback");
+            client.release();
+          }
+        }
         if (path.endsWith("/assistants"))
           return Response.json({
             assistant_id: "live",

@@ -29,6 +29,7 @@ export async function transaction<T>(
     await client.query("begin");
     await client.query("set local lock_timeout = '10s'");
     await client.query("set local statement_timeout = '15s'");
+    await client.query("select pg_advisory_xact_lock(73481203)");
     await client.query(
       "select pg_advisory_xact_lock(hashtextextended($1, 0))",
       [key],
