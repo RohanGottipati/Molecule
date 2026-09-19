@@ -8,6 +8,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("desktop commands", () => {
+  it("sends the observed project revision with a desktop correction", async () => {
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(projectResult()));
+    await new MoleculeApi("http://localhost:3001", transport).command(
+      projectResult().project.orderId,
+      { name: "start_project", args: { intent: "No polyester." } },
+      "revision-guard",
+      12,
+    );
+    expect(
+      JSON.parse(String(transport.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      actionId: "revision-guard",
+      expectedRevision: 12,
+    });
+  });
   it("sanitizes schema-invalid successful responses without replaying accepted mutations", async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({

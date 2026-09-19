@@ -43,6 +43,12 @@ interface UploadOperation {
   pending?: Promise<UploadResult>;
 }
 
+interface CommandOperation {
+  fingerprint: string;
+  expectedRevision?: number;
+  result?: Promise<DesktopResult>;
+}
+
 function failedUpload(name: string, error: string): UploadResult {
   const actionId = crypto.randomUUID();
   return {
@@ -153,10 +159,7 @@ export class DesktopStore {
   private disposed = false;
   private selection = new AbortController();
   private readonly seenEvents = new Set<string>();
-  private readonly commands = new Map<
-    string,
-    { fingerprint: string; result?: Promise<DesktopResult> }
-  >();
+  private readonly commands = new Map<string, CommandOperation>();
   private readonly automaticActions = new Map<string, string>();
   private readonly uploads = new Map<string, UploadOperation>();
   private readonly invalidatedRecoveryPlans = new Set<string>();
@@ -611,8 +614,10 @@ export class DesktopStore {
     }
     const id = actionId;
     if (automatic) this.automaticActions.set(fingerprint, id);
-    const result = this.execute(command, actionId);
-    this.commands.set(actionId, { fingerprint, result });
+    const operation = existing ?? { fingerprint };
+    this.commands.set(actionId, operation);
+    const result = this.execute(command, actionId, operation);
+    operation.result = result;
     void result
       .then(
         () => {
@@ -624,7 +629,7 @@ export class DesktopStore {
         },
         () => {
           if (this.commands.get(id)?.result === result)
-            this.commands.set(id, { fingerprint });
+            operation.result = undefined;
         },
       )
       .finally(() => {
@@ -637,6 +642,7 @@ export class DesktopStore {
   private async execute(
     command: DesktopCommand,
     actionId: string,
+    operation: CommandOperation,
   ): Promise<DesktopResult> {
     const generation = this.generation;
     this.patch({
@@ -651,7 +657,13 @@ export class DesktopStore {
     try {
       const { project } = await this.ensureProject();
       this.assertCurrent(generation);
-      const result = await this.api.command(project.orderId, command, actionId);
+      operation.expectedRevision ??= project.revision;
+      const result = await this.api.command(
+        project.orderId,
+        command,
+        actionId,
+        operation.expectedRevision,
+      );
       this.assertCurrent(generation);
       this.apply(result);
       if (command.name === "open_command_center")

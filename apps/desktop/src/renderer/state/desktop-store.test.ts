@@ -35,6 +35,32 @@ async function fixture() {
   return { store, bridge, notify };
 }
 describe("authoritative desktop state", () => {
+  it("retains the observed revision when retrying a command after another surface updates", async () => {
+    const { store } = await fixture();
+    const original = projectResult();
+    original.project.revision = 4;
+    const read = vi.spyOn(store.api, "getProject").mockResolvedValue(original);
+    await store.openProject(original.project.orderId);
+    const execute = vi
+      .spyOn(store.api, "command")
+      .mockRejectedValueOnce(new Error("Response lost"))
+      .mockResolvedValue(original);
+    const command = {
+      name: "start_project",
+      args: { intent: "No polyester." },
+    } as const;
+    await expect(store.command(command)).rejects.toThrow("Response lost");
+    read.mockResolvedValue({
+      ...original,
+      project: { ...original.project, revision: 20 },
+    });
+    await store.refresh();
+    await store.command(command);
+    expect(execute.mock.calls[0]?.[3]).toBe(4);
+    expect(execute.mock.calls[1]).toEqual(execute.mock.calls[0]);
+    expect(store.getSnapshot().project?.revision).toBe(20);
+    store.dispose();
+  });
   it("cancels pending capture on hide without uploading a late frame", async () => {
     const { store } = await fixture();
     let finish!: (files: File[]) => void;

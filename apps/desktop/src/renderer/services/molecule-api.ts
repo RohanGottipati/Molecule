@@ -170,12 +170,14 @@ export class MoleculeApi {
     id: string,
     command: DesktopCommand,
     actionId: string,
+    expectedRevision?: number,
   ): Promise<DesktopResult> {
     return this.parse(
       DesktopResultSchema,
       await this.post(`/api/projects/${encodeURIComponent(id)}/actions`, {
         actionId,
         command: DesktopCommandSchema.parse(command),
+        expectedRevision,
         locale: navigator.language || "en-CA",
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
