@@ -1552,6 +1552,9 @@ td summary {
 .receipt {
   padding: 0 20px 20px;
 }
+.receipt > p {
+  overflow-wrap: anywhere;
+}
 .receipt-heading {
   border-top: 1px solid var(--line);
   padding: 20px 0 9px;
