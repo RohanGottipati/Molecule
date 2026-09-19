@@ -35,7 +35,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install uv==0.8.17
       - run: pnpm bootstrap
-      - run: pnpm lint && pnpm typecheck && pnpm test
+      - run: pnpm format && pnpm lint && pnpm typecheck && pnpm test
       - run: pnpm build && pnpm solver:lint && pnpm solver:test
       - run: pnpm verify:secrets && pnpm verify:desktop && pnpm verify:kit
       - name: Database adapters

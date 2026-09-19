@@ -33,6 +33,7 @@ The root quality gates and both local acceptance scenarios run without paid prov
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm format
 pnpm lint
 pnpm typecheck
 pnpm test
