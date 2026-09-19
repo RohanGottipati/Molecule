@@ -1,6 +1,7 @@
 import { MAX_CONTEXT_BYTES } from "@molecule/contracts";
 
 const readPaths = [
+  /^catalog\/recipes$/,
   /^marketplace$/,
   /^desktop\/config$/,
   /^orders\/[^/]+(?:\/events)?$/,

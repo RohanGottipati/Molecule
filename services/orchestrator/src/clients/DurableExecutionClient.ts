@@ -1,5 +1,5 @@
 import type { ExecutionReceipt, ProductionPlan } from "@molecule/contracts";
-import { getPool, releaseReservation, reserveCapacity } from "@molecule/db";
+import { getPool, releaseReservation, reserveCapacity, reserveCatalogPlan, releaseCatalogPlan } from "@molecule/db";
 import type { MerchantRuntime } from "@molecule/merchant-agents";
 import type { ShopifyClient } from "@molecule/shopify";
 
@@ -10,6 +10,7 @@ export class DurableExecutionClient implements ShopifyClient {
   ) {}
 
   private async release(orderId: string, planId: string, traceId: string) {
+    await releaseCatalogPlan(planId, traceId, `release-catalog:${planId}`);
     const rows = await getPool().query<{ reservation_id: string }>(
       "select reservation_id from reservations where order_id=$1 and action_key like $2 and status='active'",
       [orderId, `execution:${planId}:%`],
@@ -22,8 +23,11 @@ export class DurableExecutionClient implements ShopifyClient {
     plan: ProductionPlan,
     traceId: string,
   ): Promise<ExecutionReceipt> {
+    if (plan.nodes.some(node => node.catalogVersion) && plan.nodes.some(node => !node.catalogVersion)) throw new Error("Expanded catalog execution requires references on every node");
     try {
-      for (const node of plan.nodes) {
+      const catalogNodes = plan.nodes.filter(node => node.catalogVersion);
+      if (catalogNodes.length) await reserveCatalogPlan({ ...plan, nodes: catalogNodes }, traceId, `execution:${plan.planId}`);
+      for (const node of plan.nodes.filter(node => !node.catalogVersion)) {
         const reserved = await reserveCapacity({
           merchantId: node.merchantId,
           capabilityId: node.capabilityId,
@@ -37,7 +41,7 @@ export class DurableExecutionClient implements ShopifyClient {
           throw new Error("Supplier capacity changed; replan before execution");
       }
     } catch (error) {
-      await this.release(plan.orderId, plan.planId, traceId);
+      if (!plan.nodes.some(node => node.catalogVersion)) await this.release(plan.orderId, plan.planId, traceId);
       throw error;
     }
     const receipt = await this.shopify.commit(plan, traceId);

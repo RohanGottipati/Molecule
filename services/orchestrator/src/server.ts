@@ -74,6 +74,7 @@ const MessageBody = z.object({
 });
 
 export interface ServerDependencies {
+  catalogGallery?: () => Promise<import("@molecule/contracts").CatalogGallery>;
   config: Config;
   sessions: SessionRepository;
   events: EventStore;
@@ -99,6 +100,7 @@ export interface ServerDependencies {
 
 export async function buildServer(deps: ServerDependencies) {
   const app = Fastify({ logger: true });
+  app.get("/api/catalog/recipes", async () => deps.catalogGallery ? deps.catalogGallery() : { catalogVersion: null, recipes: [] });
   if (deps.shopifyWebhook) {
     app.removeContentTypeParser("application/json");
     app.addContentTypeParser(

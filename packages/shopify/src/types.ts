@@ -67,6 +67,9 @@ export const EffectSchema = z.object({
   amount: z.number().nonnegative(),
   currency: z.string(),
   variantId: z.string().optional(),
+  quantity: z.number().int().positive().optional(),
+  unitAmount: z.number().nonnegative().optional(),
+  sku: z.string().optional(),
   attributes: z.record(z.string(), z.string()),
 });
 export type ShopifyEffect = z.infer<typeof EffectSchema>;

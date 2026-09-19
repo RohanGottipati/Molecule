@@ -285,6 +285,7 @@ export function OrderWorkspace({
               {view === item && <i />}
             </button>
           ))}
+          <a className="nav-item" href="/recipes">Recipe gallery</a>
         </nav>
         <div className="sidebar-project">
           <p className="nav-caption">CURRENT PROJECT</p>

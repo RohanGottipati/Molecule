@@ -319,24 +319,30 @@ export class RealShopifyEffects implements ShopifyEffects {
             allowDiscountCodesInCheckout: false,
             lineItems: [
               {
-                quantity: 1,
+                quantity: effect.quantity ?? 1,
                 ...(effect.variantId
                   ? {
                       variantId: effect.variantId,
                       priceOverride: {
-                        amount: effect.amount.toFixed(2),
+                        amount: (effect.unitAmount ?? effect.amount).toFixed(2),
                         currencyCode: effect.currency,
                       },
                     }
                   : {
                       title: effect.title,
+                      ...(effect.sku ? { sku: effect.sku } : {}),
                       originalUnitPriceWithCurrency: {
-                        amount: effect.amount.toFixed(2),
+                        amount: (effect.unitAmount ?? effect.amount).toFixed(2),
                         currencyCode: effect.currency,
                       },
                     }),
                 customAttributes: attributes,
               },
+              ...(effect.unitAmount !== undefined && Math.round(effect.amount * 100) > Math.round(effect.unitAmount * 100) * (effect.quantity ?? 1)
+                ? [{ title: "Setup / minimum order charge", quantity: 1,
+                    originalUnitPriceWithCurrency: {
+                      amount: ((Math.round(effect.amount * 100) - Math.round(effect.unitAmount * 100) * (effect.quantity ?? 1)) / 100).toFixed(2), currencyCode: effect.currency },
+                    customAttributes: attributes }] : []),
             ],
           };
     if (effect.existing) {
