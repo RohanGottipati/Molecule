@@ -46,6 +46,22 @@ export function createMerchantTwinService(
   adapter: BackboardAdapter,
   repository: MerchantAgentRepository,
 ): MerchantTwinService {
+  const pending = new Map<string, Promise<unknown>>();
+
+  async function serialize<T>(
+    merchantId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = pending.get(merchantId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(operation);
+    pending.set(merchantId, current);
+    try {
+      return await current;
+    } finally {
+      if (pending.get(merchantId) === current) pending.delete(merchantId);
+    }
+  }
+
   async function ensureAssistant(
     identity: MerchantIdentity,
   ): Promise<MerchantAssistant> {
@@ -113,6 +129,7 @@ export function createMerchantTwinService(
         ...doc,
       });
       await repository.saveDocument(uploaded);
+      existing.push(uploaded);
       results.push(uploaded);
     }
     return results;
@@ -147,14 +164,19 @@ export function createMerchantTwinService(
         sourceThreadId: input.sourceThreadId,
       });
       results.push(recorded);
+      existingNotes.add(note);
     }
     return results;
   }
 
   return {
-    ensureAssistant,
-    ensureOrderThread,
-    ensureMerchantCorpus,
-    ensureMerchantMemory,
+    ensureAssistant: (identity) =>
+      serialize(identity.merchantId, () => ensureAssistant(identity)),
+    ensureOrderThread: (input) =>
+      serialize(input.merchantId, () => ensureOrderThread(input)),
+    ensureMerchantCorpus: (input) =>
+      serialize(input.merchantId, () => ensureMerchantCorpus(input)),
+    ensureMerchantMemory: (input) =>
+      serialize(input.merchantId, () => ensureMerchantMemory(input)),
   };
 }

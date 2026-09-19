@@ -111,7 +111,10 @@ export function createModelRouter(
 
   async function discoverModels(): Promise<BackboardModel[]> {
     if (!cachedModels) {
-      cachedModels = adapter.listModels();
+      cachedModels = adapter.listModels().catch((error: unknown) => {
+        cachedModels = undefined;
+        throw error;
+      });
     }
     return cachedModels;
   }
