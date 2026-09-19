@@ -155,7 +155,7 @@ describe("same-origin proxy with a real local upstream", () => {
   it("streams SSE immediately and preserves the replay cursor", async () => {
     const controller = new AbortController();
     const response = await proxyRequest(
-      incoming("orders/project/events", {
+      incoming("orders/project/events?after=10", {
         headers: { "Last-Event-ID": "16" },
         signal: controller.signal,
       }),
@@ -172,6 +172,34 @@ describe("same-origin proxy with a real local upstream", () => {
     await reader.cancel();
     controller.abort();
   });
+  it("forwards a recreated EventSource cursor through the replay header", async () => {
+    const controller = new AbortController();
+    const response = await proxyRequest(
+      incoming("orders/project/events?after=17", {
+        signal: controller.signal,
+      }),
+      ["orders", "project", "events"],
+      backend,
+    );
+    expect(response.status).toBe(200);
+    expect(requests.at(-1)?.path).toBe("/api/orders/project/events");
+    expect(requests.at(-1)?.headers["last-event-id"]).toBe("17");
+    await response.body?.cancel();
+    controller.abort();
+  });
+  it.each(["-1", "NaN", "9007199254740992", "1.5"])(
+    "rejects invalid event replay cursor %s before contacting upstream",
+    async (cursor) => {
+      const count = requests.length;
+      const response = await proxyRequest(
+        incoming(`orders/project/events?after=${cursor}`),
+        ["orders", "project", "events"],
+        backend,
+      );
+      expect(response.status).toBe(400);
+      expect(requests).toHaveLength(count);
+    },
+  );
   it("preserves upstream failures instead of returning an empty successful read model", async () => {
     expect(
       (

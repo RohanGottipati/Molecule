@@ -20,11 +20,11 @@ import {
   triggerChaos,
   uploadContext,
 } from "./api";
+import { subscribeEvents } from "./events";
 import {
   mergeContexts,
   mergeEvents,
   mergeSnapshot,
-  parseEvent,
   parseView,
   type WorkspaceView,
 } from "./workspace";
@@ -75,6 +75,7 @@ export function useWorkspace(initialOrderId?: string) {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(Boolean(initialOrderId));
   const [error, setError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [connection, setConnection] = useState<Connection>("idle");
 
   const apply = useCallback((next: OrderSessionSnapshot) => {
@@ -119,9 +120,12 @@ export function useWorkspace(initialOrderId?: string) {
         apply(result.project);
         setContexts((current) => mergeContexts(current, result.contexts));
       }
-      if (id === activeId.current) setError(null);
+      if (id === activeId.current) {
+        setError(null);
+        setSyncError(null);
+      }
     } catch (cause) {
-      if (id === activeId.current) setError(message(cause));
+      if (id === activeId.current) setSyncError(message(cause));
     }
   }, [apply]);
 
@@ -154,6 +158,7 @@ export function useWorkspace(initialOrderId?: string) {
     setConversation([]);
     setPreviousPlan(null);
     setError(null);
+    setSyncError(null);
     setConnection(id ? "connecting" : "idle");
     setLoading(Boolean(id));
     createKey.current = null;
@@ -216,14 +221,11 @@ export function useWorkspace(initialOrderId?: string) {
         }
       })
       .catch((cause) => {
-        if (!controller.signal.aborted) setError(message(cause));
+        if (!controller.signal.aborted) setSyncError(message(cause));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
-    const source = new EventSource(
-      `/api/orders/${encodeURIComponent(id)}/events`,
-    );
     const seen = new Set<string>();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     let marketplaceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -232,49 +234,49 @@ export function useWorkspace(initialOrderId?: string) {
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         void getOrder(id, controller.signal)
-          .then(apply)
+          .then((snapshot) => {
+            if (controller.signal.aborted) return;
+            apply(snapshot);
+            setSyncError(null);
+          })
           .catch((cause) => {
-            if (!controller.signal.aborted) setError(message(cause));
+            if (!controller.signal.aborted) setSyncError(message(cause));
           });
       }, 150);
     };
-    source.addEventListener("ready", () => {
-      if (controller.signal.aborted) return;
-      streamConnected = true;
-      setConnection("connected");
-      queueRefresh();
-    });
-    source.addEventListener("molecule", (event: MessageEvent<string>) => {
-      if (controller.signal.aborted) return;
-      const validated = parseEvent(event.data, id);
-      if (!validated) {
+    const unsubscribe = subscribeEvents(id, {
+      onReady: () => {
+        streamConnected = true;
+        setConnection("connected");
+        queueRefresh();
+      },
+      onInvalid: () => {
         streamConnected = false;
         setConnection("invalid");
         queueRefresh();
-        return;
-      }
-      if (seen.has(validated.eventId)) return;
-      seen.add(validated.eventId);
-      setEvents((current) => mergeEvents(current, [validated]));
-      queueRefresh();
-      clearTimeout(marketplaceTimer);
-      marketplaceTimer = setTimeout(
-        () => void refreshMarketplace(controller.signal),
-        1_500,
-      );
-    });
-    source.onerror = () => {
-      if (!controller.signal.aborted) {
+      },
+      onEvent: (event) => {
+        if (seen.has(event.eventId)) return;
+        seen.add(event.eventId);
+        setEvents((current) => mergeEvents(current, [event]));
+        queueRefresh();
+        clearTimeout(marketplaceTimer);
+        marketplaceTimer = setTimeout(
+          () => void refreshMarketplace(controller.signal),
+          1_500,
+        );
+      },
+      onReconnect: () => {
         streamConnected = false;
         setConnection("reconnecting");
-      }
-    };
+      },
+    });
     const poll = setInterval(() => {
       if (!streamConnected) queueRefresh();
     }, 10_000);
     return () => {
       controller.abort();
-      source.close();
+      unsubscribe();
       clearInterval(poll);
       clearTimeout(refreshTimer);
       clearTimeout(marketplaceTimer);
@@ -419,7 +421,7 @@ export function useWorkspace(initialOrderId?: string) {
     configError,
     busy,
     loading,
-    error,
+    error: error ?? syncError,
     connection,
     navigate,
     newProject,

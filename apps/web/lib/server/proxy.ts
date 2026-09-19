@@ -73,6 +73,14 @@ export async function proxyRequest(
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  if (request.method === "GET" && /^orders\/[^/]+\/events$/.test(path)) {
+    const after = new URL(request.url).searchParams.get("after");
+    if (after !== null) {
+      if (!/^\d+$/.test(after) || !Number.isSafeInteger(Number(after)))
+        return failure(400, "Invalid event cursor");
+      if (!headers.has("last-event-id")) headers.set("last-event-id", after);
+    }
+  }
   const controller = new AbortController();
   const signal = AbortSignal.any([request.signal, controller.signal]);
   const timeout = setTimeout(() => controller.abort(), 125_000);
