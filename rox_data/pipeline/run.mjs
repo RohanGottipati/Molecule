@@ -32,6 +32,26 @@ const batchId = args.batch ? String(args.batch) : manifest.batchId;
 const traceId = randomUUID();
 
 const db = await connect();
+
+// A managed service can be switched to read-only (storage limit, maintenance,
+// failover). Finding that out 200 model calls into a run costs real money, so
+// check before spending anything.
+const { rows: [mode] } = await db.query(`select current_setting('default_transaction_read_only') as ro`);
+if (mode.ro === "on" && !args.dry) {
+  const { rows: [size] } = await db.query(`select pg_size_pretty(pg_database_size(current_database())) as size`);
+  console.error(
+    `\nThe database is READ-ONLY (default_transaction_read_only=on), currently ${size.size}.\n` +
+    `Nothing can be written, so this run would spend money and lose every result.\n\n` +
+    `Usually the service hit its storage allowance. To see what is using it:\n` +
+    `  select hypertable_name, pg_size_pretty(sum(pg_total_relation_size(format('%I.%I', chunk_schema, chunk_name)::regclass)))\n` +
+    `    from timescaledb_information.chunks group by 1 order by 2 desc;\n\n` +
+    `Lift read-only in the Tiger console (or raise the storage limit), then re-run.\n` +
+    `Re-run with --dry to exercise the pipeline without writing.`,
+  );
+  await db.end();
+  process.exit(2);
+}
+
 const runId = args.run
   ? String(args.run)
   : await startRun(db, { batchId, seed: manifest.seed, mode: args.dry ? "dry" : "real", models: MODELS, budget: Number(args.budget ?? BUDGET_USD) });

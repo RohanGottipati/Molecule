@@ -69,7 +69,7 @@ export async function extract(db, { runId, batchId, traceId, limit = null, dry =
     `select split_part(source_path, '/', 1) as type, count(*)::int as n
        from raw_artifacts
       where batch_id = $1 and parse_status = 'parsed'
-        and not exists (select 1 from rox_extractions x where x.artifact_id = raw_artifacts.artifact_id and x.run_id = $2)
+        and not exists (select 1 from rox_artifact_attempts a where a.artifact_id = raw_artifacts.artifact_id and a.run_id = $2)
       group by 1 order by 1`,
     [batchId, runId],
   );
@@ -81,7 +81,7 @@ export async function extract(db, { runId, batchId, traceId, limit = null, dry =
       `select artifact_id, source_path, source_kind, content_text, chaos_profile
          from raw_artifacts
         where batch_id = $1 and parse_status = 'parsed' and split_part(source_path, '/', 1) = $2
-          and not exists (select 1 from rox_extractions x where x.artifact_id = raw_artifacts.artifact_id and x.run_id = $3)
+          and not exists (select 1 from rox_artifact_attempts a where a.artifact_id = raw_artifacts.artifact_id and a.run_id = $3)
         order by artifact_id limit $4`,
       [batchId, t.type, runId, quota],
     );
@@ -140,6 +140,15 @@ export async function extract(db, { runId, batchId, traceId, limit = null, dry =
              injection, outcome, reason, MODELS.extract, EXTRACT_PROMPT_VERSION],
           );
         }
+        // Processed means processed, including "this document states nothing" -
+        // otherwise a resumed run pays the model again for every document that
+        // was right to stay silent.
+        await db.query(
+          `insert into rox_artifact_attempts (run_id, artifact_id, candidates, injection)
+           values ($1,$2,$3,$4) on conflict (run_id, artifact_id) do nothing`,
+          [runId, artifact.artifact_id, (parsed.candidates ?? []).length, injection],
+        );
+
         if (injection) {
           await db.query(
             `insert into rox_review_queue (task_id, run_id, kind, merchant_hint, detail, proposed_action)

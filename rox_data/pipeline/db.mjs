@@ -15,14 +15,53 @@ export const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 export const shortId = (...parts) => sha256(parts.join("|")).slice(0, 24);
 export const maskUrl = (u) => String(u).replace(/(:\/\/[^:]*:)[^@]*@/, "$1****@");
 
+/** Server-side disconnects and transport failures, all of them retryable. */
+const TRANSIENT = new Set(["57P01", "57P02", "57P03", "08000", "08003", "08006", "08001", "08004", "40001", "40P01"]);
+const TRANSIENT_MESSAGES = /ECONNRESET|ETIMEDOUT|EPIPE|Connection terminated|socket hang up|server closed the connection/i;
+export const isTransient = (error) =>
+  TRANSIENT.has(error?.code) || TRANSIENT_MESSAGES.test(String(error?.message ?? ""));
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * A pool, not a client: extraction runs several artifacts at once and pg
- * refuses concurrent queries on a single connection.
+ * A pool, not a client: extraction runs several artifacts at once and pg refuses
+ * concurrent queries on a single connection.
+ *
+ * A managed database restarts, fails over and reaps idle connections whenever it
+ * likes - a run over a thousand documents will meet that at least once. Two
+ * things follow: an idle client's error must never reach `process.on
+ * ('uncaughtException')`, and a query killed mid-flight must be retried rather
+ * than lost. Every stage is idempotent (deterministic ids, `on conflict do
+ * nothing`), so retrying is safe.
  */
-export async function connect({ max = 8 } = {}) {
+export async function connect({ max = 8, retries = 5 } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set (run with --env-file=../.env --env-file=../.env.local)");
-  const pool = new pg.Pool({ connectionString: url, max });
+  const pool = new pg.Pool({ connectionString: url, max, keepAlive: true, idleTimeoutMillis: 30_000 });
+
+  // Without this, a dropped idle connection is an unhandled 'error' event and
+  // the process dies holding a half-finished run.
+  pool.on("error", (error) => {
+    console.warn(`  db: idle connection dropped (${error.code ?? error.message}); the pool will reconnect`);
+  });
+
+  const query = pool.query.bind(pool);
+  pool.query = async (...queryArgs) => {
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await query(...queryArgs);
+      } catch (error) {
+        lastError = error;
+        if (!isTransient(error) || attempt === retries) throw error;
+        const wait = Math.min(8000, 250 * 2 ** attempt);
+        console.warn(`  db: ${error.code ?? error.message}, retrying in ${wait}ms (attempt ${attempt + 1}/${retries})`);
+        await sleep(wait);
+      }
+    }
+    throw lastError;
+  };
+
   await pool.query("select 1");
   return pool;
 }

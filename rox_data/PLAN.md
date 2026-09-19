@@ -163,6 +163,42 @@ Built and running against Tiger (`db-37507`):
 - [ ] Shopify write-back applied (`--apply`) and the self-heal loop demonstrated
 - [ ] Judge surface ported into `apps/web`
 
+### Blocked: the Tiger service is read-only (Sat Sep 19 2026, 20:25 UTC)
+
+The full scored run stopped part-way through extraction. The cause is not the
+pipeline: Tiger set `default_transaction_read_only = on` at the database level,
+so every write - including deletes - is refused, and even `tsdbadmin` cannot
+override it in-session.
+
+Where the space went (`timescaledb_information.chunks`, total 2,826 MB):
+
+| Table | Size | Rows | Note |
+|---|---|---|---|
+| `fulfillment_samples` | **2,009 MB** | 4,004,900 | uncompressed, ~500 B/row for a six-column table - mostly bloat |
+| `network_events` | 209 MB | 302,114 | uncompressed |
+| `market_metrics` | 144 MB | - | uncompressed |
+| `_materialized_hypertable_9` | 62 MB | - | continuous aggregate |
+| `bulk_order_lines` | 47 MB | 3,059,709 | 122 of 125 chunks compressed - this one is fine |
+
+The Rox tables are a rounding error next to these. `bulk_order_lines` shows what
+compression does: 3M rows in 47 MB.
+
+**To unblock** (needs the Tiger console - it cannot be done over SQL while
+read-only): lift read-only or raise the storage limit, then reclaim space with
+
+```sql
+alter table fulfillment_samples set (timescaledb.compress,
+  timescaledb.compress_segmentby = 'merchant_id, capability_id',
+  timescaledb.compress_orderby = 'ts desc');
+select add_compression_policy('fulfillment_samples', interval '7 days');
+select compress_chunk(c) from show_chunks('fulfillment_samples', older_than => interval '7 days') c;
+-- same for network_events and market_metrics
+```
+
+`pipeline/run.mjs` now refuses to start against a read-only database instead of
+discovering it mid-run, and `migration 016_rox_attempts.sql` is written but
+**not yet applied** for the same reason.
+
 ### Honest gaps
 
 - The judge-facing page is a generated HTML file, not a page inside `apps/web`, because `pnpm` is not installed on this machine (no `corepack`) and the Next app cannot be built or verified here. Porting it is a small job for whoever has the workspace installed.
