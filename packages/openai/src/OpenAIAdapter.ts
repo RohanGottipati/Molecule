@@ -15,5 +15,13 @@ export interface OpenAIAdapter {
   extractClaims?(input: ClaimExtractionRequest): Promise<ClaimExtractionResult>;
   mintRealtimeClientSecret?(
     safetyIdentifier: string,
+    profile?: "desktop",
   ): Promise<RealtimeClientSecret>;
+  uploadContext?(input: {
+    bytes: Uint8Array;
+    name: string;
+    mimeType: string;
+    traceId: string;
+    actionKey: string;
+  }): Promise<string>;
 }

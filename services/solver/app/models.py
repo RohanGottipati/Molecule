@@ -21,7 +21,7 @@ class ContractModel(BaseModel):
 class Constraint(ContractModel):
     constraint_id: str
     field: str
-    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "contains"]
+    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "contains", "not_contains"]
     value: Any
     unit: str | None = None
     description: str | None = None
@@ -52,6 +52,7 @@ class AssetRef(ContractModel):
     mime_type: str | None = None
     url: str | None = None
     checksum: str | None = None
+    provider_file_id: str | None = None
 
 
 class AmbiguityFlag(ContractModel):

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Molecule uses your microphone when you start a voice conversation.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Share a single screen or window image with Molecule when you choose.</string>
+  <key>CFBundleURLTypes</key><array><dict>
+    <key>CFBundleURLName</key><string>Molecule project</string>
+    <key>CFBundleURLSchemes</key><array><string>molecule</string></array>
+  </dict></array>
+</dict></plist>

@@ -50,6 +50,8 @@ def _compare(actual: object, operator: str, expected: object) -> bool:
         return actual != expected
     if operator == "contains":
         return str(expected).lower() in str(actual).lower()
+    if operator == "not_contains":
+        return str(expected).lower() not in str(actual).lower()
     if operator == "in" and isinstance(expected, list):
         return actual in expected
     if operator in {"lt", "lte", "gt", "gte"}:
@@ -90,8 +92,8 @@ def _hard_constraints_allowed(
             ]
         if not values:
             return False
-        if constraint.operator == "neq":
-            if not all(_compare(value, "neq", constraint.value) for value in values):
+        if constraint.operator in {"neq", "not_contains"}:
+            if not all(_compare(value, constraint.operator, constraint.value) for value in values):
                 return False
         elif not any(_compare(value, constraint.operator, constraint.value) for value in values):
             return False
@@ -114,7 +116,7 @@ def _preference_penalty(candidate: CandidateCapability, data: SolverInput) -> in
     for preference in data.intent.soft_preferences:
         value = str(preference.value).lower()
         satisfied = value in searchable
-        if preference.operator == "neq":
+        if preference.operator in {"neq", "not_contains"}:
             satisfied = not satisfied
         if not satisfied:
             penalty += int(round(preference.weight * 1_000))

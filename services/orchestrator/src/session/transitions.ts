@@ -76,7 +76,9 @@ export function transition(
   options: { solverPlan?: ProductionPlan } = {},
 ): OrderSession {
   if (!allowed.get(session.state)?.has(to)) {
-    throw new InvalidTransitionError(session.state, to);
+    if (to !== "CANCELLED" || !canAcceptCorrection(session.state)) {
+      throw new InvalidTransitionError(session.state, to);
+    }
   }
   if (to === "PLAN_VALIDATED" && options.solverPlan?.status !== "VALID") {
     throw new InvalidTransitionError(session.state, to);

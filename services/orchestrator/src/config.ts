@@ -9,12 +9,16 @@ export const ConfigSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_COMPILER_MODEL: z.string().default("gpt-5.6-terra"),
   OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
+  OPENAI_TRANSCRIPTION_MODEL: z.string().default("gpt-4o-mini-transcribe"),
   USE_MOCK_OPENAI: BooleanString.default(true),
   SOLVER_URL: z.url().default("http://localhost:8000"),
   DEMO_MODE: BooleanString.default(false),
   CHAOS_SECRET: z.string().min(16).optional(),
   REAL_EXECUTION_ENABLED: BooleanString.default(false),
   ALLOWED_ORIGIN: z.string().default("http://localhost:3000"),
+  DESKTOP_ORIGIN: z.string().default("http://127.0.0.1:5173"),
+  DATA_DIR: z.string().default(".molecule-data"),
+  HOST: z.string().default("127.0.0.1"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -5,6 +5,7 @@ import {
   AssetRefSchema,
   CompileIntentRequestSchema,
   SolverInputSchema,
+  OrderSessionSnapshotSchema,
 } from "@molecule/contracts";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -15,6 +16,9 @@ import { makeEvent, type EventStore } from "./events/EventStore.js";
 import type { SessionRepository } from "./repositories.js";
 import { createOrderSession, toSnapshot } from "./session/OrderSession.js";
 import { Orchestrator } from "./workflow/Orchestrator.js";
+import { registerDesktopRoutes } from "./desktopRoutes.js";
+import type { LocalStore } from "./LocalStore.js";
+import { ActionLedger } from "./ActionLedger.js";
 
 const MessageBody = z.object({
   text: z.string().min(1),
@@ -43,17 +47,29 @@ export interface ServerDependencies {
   orchestrator: Orchestrator;
   solver: SolverClient;
   openai: OpenAIClient;
+  desktopStore?: LocalStore;
 }
 
 export async function buildServer(deps: ServerDependencies) {
   const app = Fastify({ logger: true });
+  const origins = [
+    deps.config.ALLOWED_ORIGIN,
+    deps.config.DESKTOP_ORIGIN,
+    "app://molecule",
+  ];
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.headers.origin && !origins.includes(request.headers.origin))
+      return reply.code(403).send({ message: "Origin not allowed" });
+  });
   await app.register(cors, {
-    origin: deps.config.ALLOWED_ORIGIN,
+    origin: origins,
     credentials: true,
   });
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/ready", async () => ({ status: "ready" }));
+  registerDesktopRoutes(app, deps);
+  const chaosActions = new ActionLedger(deps.desktopStore);
 
   app.post("/api/intents/compile", async (request) =>
     deps.openai.compileIntent(CompileIntentRequestSchema.parse(request.body)),
@@ -100,7 +116,12 @@ export async function buildServer(deps: ServerDependencies) {
         locale: body.locale,
         timeZone: body.timeZone,
         requestedAt: new Date().toISOString(),
-        assets: body.assets,
+        assets: body.assets.length
+          ? body.assets
+          : (deps.desktopStore
+              ?.contexts(request.params.id)
+              .filter((item) => item.attached)
+              .map((item) => item.asset) ?? []),
         previousIntent: session.intent ?? undefined,
         correction: body.correction,
       });
@@ -184,23 +205,34 @@ export async function buildServer(deps: ServerDependencies) {
         scenario: z.literal("supplier_offline"),
         orderId: z.string(),
         merchantId: z.string(),
+        actionId: z.string().min(1).max(160).optional(),
       })
       .parse(request.body);
     const session = await deps.sessions.get(body.orderId);
     if (!session) return reply.code(404).send({ error: "not_found" });
-    await deps.events.append(
-      makeEvent({
-        traceId: session.traceId,
-        orderId: session.orderId,
-        merchantId: body.merchantId,
-        eventType: "demo.chaos.triggered",
-        source: "ui",
-        severity: "WARN",
-        payload: { scenario: body.scenario },
-      }),
-    );
-    return toSnapshot(
-      await deps.orchestrator.recoverSupplier(body.orderId, body.merchantId),
+    return chaosActions.run(
+      `${body.orderId}:chaos:${body.actionId ?? randomUUID()}`,
+      body,
+      OrderSessionSnapshotSchema.parse,
+      async () => {
+        await deps.events.append(
+          makeEvent({
+            traceId: session.traceId,
+            orderId: session.orderId,
+            merchantId: body.merchantId,
+            eventType: "demo.chaos.triggered",
+            source: "ui",
+            severity: "WARN",
+            payload: { scenario: body.scenario },
+          }),
+        );
+        return toSnapshot(
+          await deps.orchestrator.recoverSupplier(
+            body.orderId,
+            body.merchantId,
+          ),
+        );
+      },
     );
   });
 
@@ -208,12 +240,16 @@ export async function buildServer(deps: ServerDependencies) {
     "/api/orders/:id/events",
     async (request, reply) => {
       const after = Number(request.headers["last-event-id"] ?? 0);
+      if (!(await deps.sessions.get(request.params.id)))
+        return reply.code(404).send({ error: "not_found" });
       reply.hijack();
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
-        "Access-Control-Allow-Origin": deps.config.ALLOWED_ORIGIN,
+        "Access-Control-Allow-Origin":
+          request.headers.origin ?? deps.config.ALLOWED_ORIGIN,
+        Vary: "Origin",
       });
       const write = ({
         cursor,
@@ -223,18 +259,32 @@ export async function buildServer(deps: ServerDependencies) {
           `id: ${cursor}\nevent: molecule\ndata: ${JSON.stringify(event)}\n\n`,
         );
       };
+      let replaying = true;
+      let last = Number.isFinite(after) ? after : 0;
+      const buffered: Awaited<ReturnType<EventStore["list"]>> = [];
+      const send = (event: Awaited<ReturnType<EventStore["list"]>>[number]) => {
+        if (event.cursor <= last) return;
+        last = event.cursor;
+        write(event);
+      };
+      const unsubscribe = deps.events.subscribe(request.params.id, (event) => {
+        if (replaying) buffered.push(event);
+        else send(event);
+      });
       for (const event of await deps.events.list(
         request.params.id,
         Number.isFinite(after) ? after : 0,
       )) {
-        write(event);
+        send(event);
       }
-      const unsubscribe = deps.events.subscribe(request.params.id, write);
+      for (const event of buffered) send(event);
+      replaying = false;
+      reply.raw.write("event: ready\ndata: {}\n\n");
       const heartbeat = setInterval(
         () => reply.raw.write(": heartbeat\n\n"),
         15_000,
       );
-      request.raw.on("close", () => {
+      reply.raw.on("close", () => {
         clearInterval(heartbeat);
         unsubscribe();
       });

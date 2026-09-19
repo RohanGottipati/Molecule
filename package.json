@@ -19,6 +19,7 @@
     "test:adversary": "pnpm --filter @molecule/orchestrator test && pnpm solver:test",
     "typecheck": "turbo run typecheck",
     "verify:openai": "node --import tsx scripts/verify-openai.ts",
+    "verify:desktop": "node --import tsx scripts/verify-desktop.mjs",
     "verify:secrets": "node scripts/verify-no-client-secrets.mjs"
   },
   "devDependencies": {

@@ -13,6 +13,10 @@ const roots = [
   "apps/web/components",
   "apps/web/lib",
   "apps/web/.next/static",
+  "apps/desktop/src/renderer",
+  "apps/desktop/src/preload",
+  "apps/desktop/dist/renderer",
+  "apps/desktop/dist/preload",
 ];
 const findings = [];
 

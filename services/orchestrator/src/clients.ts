@@ -14,7 +14,15 @@ export interface OpenAIClient {
   compileIntent(input: CompileIntentRequest): Promise<CompileIntentResult>;
   mintRealtimeClientSecret?(
     safetyIdentifier: string,
+    profile?: "desktop",
   ): Promise<{ value: string; expiresAt?: number }>;
+  uploadContext?(input: {
+    bytes: Uint8Array;
+    name: string;
+    mimeType: string;
+    traceId: string;
+    actionKey: string;
+  }): Promise<string>;
 }
 
 export interface RealityClient {

@@ -7,6 +7,7 @@ import {
   API_URL,
   approvePlan,
   createOrder,
+  getOrder,
   submitMessage,
   triggerSupplierOffline,
 } from "../lib/api";
@@ -16,7 +17,11 @@ import { VoiceControl } from "./VoiceControl";
 const sample =
   "Make 50 black hoodies with embroidery by 2026-10-15 under $3,000 CAD, no polyester";
 
-export function OrderWorkspace() {
+export function OrderWorkspace({
+  initialOrderId,
+}: {
+  initialOrderId?: string;
+}) {
   const [order, setOrder] = useState<OrderSessionSnapshot | null>(null);
   const [events, setEvents] = useState<MoleculeEvent[]>([]);
   const [text, setText] = useState(sample);
@@ -38,20 +43,68 @@ export function OrderWorkspace() {
     }
   }, []);
 
-  useEffect(() => void reset(), [reset]);
+  useEffect(() => {
+    if (!initialOrderId) {
+      void reset();
+      return;
+    }
+    let cancelled = false;
+    setBusy(true);
+    void getOrder(initialOrderId)
+      .then((snapshot) => {
+        if (!cancelled) setOrder(snapshot);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load this project");
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialOrderId, reset]);
   useEffect(() => {
     if (!order?.orderId) return;
     const source = new EventSource(
       `${API_URL}/api/orders/${order.orderId}/events`,
     );
+    let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        void getOrder(order.orderId)
+          .then((snapshot) => {
+            if (cancelled) return;
+            setOrder((current) =>
+              current &&
+              current.orderId === snapshot.orderId &&
+              current.revision <= snapshot.revision
+                ? snapshot
+                : current,
+            );
+            setError(null);
+          })
+          .catch(() => {
+            if (!cancelled) setError("Could not refresh project");
+          });
+      }, 100);
+    };
+    source.addEventListener("ready", refresh);
     source.addEventListener("molecule", (message) => {
       const event = JSON.parse(
         (message as MessageEvent<string>).data,
       ) as MoleculeEvent;
       setEvents((current) => [...current.slice(-39), event]);
+      refresh();
     });
     source.onerror = () => setError("Event stream reconnecting…");
-    return () => source.close();
+    return () => {
+      cancelled = true;
+      clearTimeout(refreshTimer);
+      source.close();
+    };
   }, [order?.orderId]);
 
   async function act(action: () => Promise<OrderSessionSnapshot>) {

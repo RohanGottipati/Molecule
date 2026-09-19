@@ -27,6 +27,7 @@ export const ConstraintOperatorSchema = z.enum([
   "gte",
   "in",
   "contains",
+  "not_contains",
 ]);
 
 export const ConstraintSchema = z.object({
@@ -49,6 +50,7 @@ export const AssetRefSchema = z
     mimeType: z.string().optional(),
     url: z.url().optional(),
     checksum: z.string().optional(),
+    providerFileId: z.string().optional(),
   })
   .refine((asset) => asset.url !== undefined || asset.checksum !== undefined, {
     message: "An asset must have a URL or checksum",
@@ -479,6 +481,7 @@ export const OrderSessionStateSchema = z.enum([
   "RECOVERING",
   "NEEDS_HUMAN",
   "FAILED",
+  "CANCELLED",
 ]);
 export type OrderSessionState = z.infer<typeof OrderSessionStateSchema>;
 
@@ -546,3 +549,79 @@ export const MoleculeEventSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 export type MoleculeEvent = z.infer<typeof MoleculeEventSchema>;
+
+export const ActionIdSchema = z.string().min(1).max(160);
+export const DesktopConstraintSchema = ConstraintSchema.omit({
+  constraintId: true,
+}).extend({
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+  hard: z.boolean(),
+});
+export const DesktopCommandSchema = z.discriminatedUnion("name", [
+  z.object({
+    name: z.literal("start_project"),
+    args: z.object({ intent: z.string().min(1).max(20_000) }),
+  }),
+  z.object({
+    name: z.literal("add_constraint"),
+    args: z.object({ constraint: DesktopConstraintSchema }),
+  }),
+  z.object({
+    name: z.literal("remove_constraint"),
+    args: z.object({ constraintId: z.string().min(1) }),
+  }),
+  z.object({
+    name: z.literal("attach_context"),
+    args: z.object({ contextId: z.uuid() }),
+  }),
+  z.object({ name: z.literal("get_project_status"), args: z.object({}) }),
+  z.object({ name: z.literal("get_active_plan"), args: z.object({}) }),
+  z.object({
+    name: z.literal("explain_decision"),
+    args: z.object({ decisionId: z.string().optional() }),
+  }),
+  z.object({ name: z.literal("request_recompile"), args: z.object({}) }),
+  z.object({
+    name: z.literal("approve_action"),
+    args: z.object({
+      planId: z.string(),
+      intentVersion: z.number().int().positive(),
+    }),
+  }),
+  z.object({ name: z.literal("cancel_project"), args: z.object({}) }),
+  z.object({ name: z.literal("open_command_center"), args: z.object({}) }),
+]);
+export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
+export const DesktopActionSchema = z.object({
+  actionId: ActionIdSchema,
+  command: DesktopCommandSchema,
+  locale: z.string().default("en-CA"),
+  timeZone: z.string().default("UTC"),
+});
+export const DesktopResultSchema = z.object({
+  project: OrderSessionSnapshotSchema,
+  contexts: z.array(AssetRefSchema),
+});
+export type DesktopResult = z.infer<typeof DesktopResultSchema>;
+export const RealtimeSessionSchema = z.object({
+  value: z.string().min(1),
+  expiresAt: z.number().optional(),
+});
+export const ContextUploadSchema = z.object({
+  actionId: ActionIdSchema,
+  name: z.string().min(1).max(200),
+  mimeType: z.enum([
+    "image/png",
+    "image/jpeg",
+    "application/pdf",
+    "text/csv",
+    "text/plain",
+    "application/json",
+  ]),
+});
+export const MAX_CONTEXT_BYTES = 10 * 1024 * 1024;
+export const ContextReceiptSchema = z.object({
+  contextId: z.uuid(),
+  asset: AssetRefSchema,
+});
+export type ContextReceipt = z.infer<typeof ContextReceiptSchema>;

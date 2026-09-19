@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ConstraintOperatorSchema } from "@molecule/contracts";
 
 const NullableString = z.string().nullable();
 const ExtractionValueSchema = z.union([
@@ -17,7 +18,7 @@ const ExtractionAttributeSchema = z.object({
 const ExtractionConstraintSchema = z.object({
   key: z.string(),
   field: z.string(),
-  operator: z.enum(["eq", "neq", "lt", "lte", "gt", "gte", "in", "contains"]),
+  operator: ConstraintOperatorSchema,
   value: ExtractionValueSchema,
   unit: NullableString,
   description: NullableString,

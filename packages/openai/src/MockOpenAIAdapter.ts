@@ -108,7 +108,7 @@ function makeExtraction(
           {
             key: "material-no-polyester",
             field: "material",
-            operator: "neq" as const,
+            operator: "not_contains" as const,
             value: "polyester",
             unit: null,
             description: "Polyester is not allowed",

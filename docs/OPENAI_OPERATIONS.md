@@ -52,5 +52,5 @@ The credentialed OpenAI smoke and a physical two-barge-in microphone pass are in
 - Unknown hard facts make a candidate ineligible; they are never guessed.
 - A merchant timeout is treated as merchant unavailability, not an order-wide error.
 - Approval includes both `planId` and `intentVersion`; stale approvals are rejected.
-- Automatic supplier recovery executes only when the replacement remains valid, does not increase total cost, and still meets the customer deadline. Otherwise the session enters `NEEDS_HUMAN`.
+- Automatic supplier recovery requires a previously approved plan and a solver-certified replacement within the current budget and deadline. Increased cost without an explicit budget requires renewed approval. Unapproved projects always require approval; infeasible recovery enters `NEEDS_HUMAN`.
 - `POST /api/chaos` is available only in demo mode and requires localhost or the server-side `CHAOS_SECRET`.

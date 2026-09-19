@@ -9,7 +9,7 @@ import {
   type CompileIntentRequest,
   type CompileIntentResult,
 } from "@molecule/contracts";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { ResponseInputContent } from "openai/resources/responses/responses";
 import { ZodError } from "zod";
@@ -23,11 +23,16 @@ import {
 } from "./prompts/intentCompiler.js";
 import { IntentExtractionSchema } from "./schema/intentExtraction.js";
 import { ClaimExtractionOutputSchema } from "./schema/claimExtraction.js";
+import {
+  DESKTOP_VOICE_INSTRUCTIONS,
+  DESKTOP_VOICE_TOOLS,
+} from "./prompts/desktopVoice.js";
 
 export interface RealOpenAIAdapterOptions {
   apiKey: string;
   compilerModel?: string;
   realtimeModel?: string;
+  transcriptionModel?: string;
   timeoutMs?: number;
   client?: OpenAI;
 }
@@ -71,17 +76,21 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const assetContent: ResponseInputContent[] = [];
         for (const asset of parsedInput.assets) {
-          if (!asset.url) continue;
+          if (!asset.url && !asset.providerFileId) continue;
           if (asset.mimeType?.startsWith("image/")) {
             assetContent.push({
               type: "input_image",
-              image_url: asset.url,
+              ...(asset.providerFileId
+                ? { file_id: asset.providerFileId }
+                : { image_url: asset.url }),
               detail: "auto",
             });
           } else {
             assetContent.push({
               type: "input_file",
-              file_url: asset.url,
+              ...(asset.providerFileId
+                ? { file_id: asset.providerFileId }
+                : { file_url: asset.url }),
             });
           }
         }
@@ -200,6 +209,7 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
 
   async mintRealtimeClientSecret(
     safetyIdentifier: string,
+    profile?: "desktop",
   ): Promise<RealtimeClientSecret> {
     const response = await fetch(
       "https://api.openai.com/v1/realtime/client_secrets",
@@ -216,93 +226,114 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
             type: "realtime",
             model: this.realtimeModel,
             instructions:
-              "You are Molecule's concise voice interface. Use tools for every order fact and action. Never claim feasibility unless get_order_status reports a VALID plan.",
-            audio: { output: { voice: "marin" } },
-            tools: [
-              {
-                type: "function",
-                name: "compile_intent",
-                description: "Compile the latest customer production request.",
-                parameters: {
-                  type: "object",
-                  properties: { text: { type: "string" } },
-                  required: ["text"],
-                  additionalProperties: false,
+              profile === "desktop"
+                ? DESKTOP_VOICE_INSTRUCTIONS
+                : "You are Molecule's concise voice interface. Use tools for every order fact and action. Never claim feasibility unless get_order_status reports a VALID plan.",
+            audio: {
+              input: {
+                transcription: {
+                  model:
+                    this.options.transcriptionModel ?? "gpt-4o-mini-transcribe",
+                },
+                turn_detection: {
+                  type: "semantic_vad",
+                  eagerness: "medium",
+                  interrupt_response: true,
+                  create_response: true,
                 },
               },
-              {
-                type: "function",
-                name: "update_constraint",
-                description:
-                  "Apply a customer correction to the current intent.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    text: { type: "string" },
-                    kind: {
-                      type: "string",
-                      enum: [
-                        "constraint",
-                        "preference",
-                        "quantity",
-                        "deadline",
-                        "budget",
-                        "other",
-                      ],
+              output: { voice: "marin" },
+            },
+            tools:
+              profile === "desktop"
+                ? DESKTOP_VOICE_TOOLS
+                : [
+                    {
+                      type: "function",
+                      name: "compile_intent",
+                      description:
+                        "Compile the latest customer production request.",
+                      parameters: {
+                        type: "object",
+                        properties: { text: { type: "string" } },
+                        required: ["text"],
+                        additionalProperties: false,
+                      },
                     },
-                  },
-                  required: ["text", "kind"],
-                  additionalProperties: false,
-                },
-              },
-              {
-                type: "function",
-                name: "get_order_status",
-                description:
-                  "Get the authoritative current order state and plan summary.",
-                parameters: {
-                  type: "object",
-                  properties: {},
-                  required: [],
-                  additionalProperties: false,
-                },
-              },
-              {
-                type: "function",
-                name: "explain_current_plan",
-                description:
-                  "Get concise, structured facts for narrating the current plan.",
-                parameters: {
-                  type: "object",
-                  properties: {},
-                  required: [],
-                  additionalProperties: false,
-                },
-              },
-              {
-                type: "function",
-                name: "approve_and_execute",
-                description:
-                  "Approve and execute the currently active validated plan.",
-                parameters: {
-                  type: "object",
-                  properties: {},
-                  required: [],
-                  additionalProperties: false,
-                },
-              },
-              {
-                type: "function",
-                name: "trigger_demo_failure",
-                description: "In demo mode, mark one current supplier offline.",
-                parameters: {
-                  type: "object",
-                  properties: { merchantId: { type: "string" } },
-                  required: ["merchantId"],
-                  additionalProperties: false,
-                },
-              },
-            ],
+                    {
+                      type: "function",
+                      name: "update_constraint",
+                      description:
+                        "Apply a customer correction to the current intent.",
+                      parameters: {
+                        type: "object",
+                        properties: {
+                          text: { type: "string" },
+                          kind: {
+                            type: "string",
+                            enum: [
+                              "constraint",
+                              "preference",
+                              "quantity",
+                              "deadline",
+                              "budget",
+                              "other",
+                            ],
+                          },
+                        },
+                        required: ["text", "kind"],
+                        additionalProperties: false,
+                      },
+                    },
+                    {
+                      type: "function",
+                      name: "get_order_status",
+                      description:
+                        "Get the authoritative current order state and plan summary.",
+                      parameters: {
+                        type: "object",
+                        properties: {},
+                        required: [],
+                        additionalProperties: false,
+                      },
+                    },
+                    {
+                      type: "function",
+                      name: "explain_current_plan",
+                      description:
+                        "Get concise, structured facts for narrating the current plan.",
+                      parameters: {
+                        type: "object",
+                        properties: {},
+                        required: [],
+                        additionalProperties: false,
+                      },
+                    },
+                    {
+                      type: "function",
+                      name: "approve_and_execute",
+                      description:
+                        "Approve and execute the currently active validated plan.",
+                      parameters: {
+                        type: "object",
+                        properties: {},
+                        required: [],
+                        additionalProperties: false,
+                      },
+                    },
+                    {
+                      type: "function",
+                      name: "trigger_demo_failure",
+                      description:
+                        "In demo mode, mark one current supplier offline.",
+                      parameters: {
+                        type: "object",
+                        properties: { merchantId: { type: "string" } },
+                        required: ["merchantId"],
+                        additionalProperties: false,
+                      },
+                    },
+                  ],
           },
         }),
         signal: AbortSignal.timeout(10_000),
@@ -327,6 +358,25 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
       );
     }
     return { value: data.value, expiresAt: data.expires_at };
+  }
+
+  async uploadContext(input: {
+    bytes: Uint8Array;
+    name: string;
+    mimeType: string;
+    traceId: string;
+    actionKey: string;
+  }): Promise<string> {
+    const file = await this.client.files.create(
+      {
+        file: await toFile(input.bytes, input.name, { type: input.mimeType }),
+        purpose: "user_data",
+      },
+      {
+        headers: { "Idempotency-Key": `${input.traceId}:${input.actionKey}` },
+      },
+    );
+    return file.id;
   }
 
   async extractClaims(
