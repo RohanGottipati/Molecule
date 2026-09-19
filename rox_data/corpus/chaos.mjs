@@ -35,7 +35,18 @@ export const crlf = (text) => text.replaceAll("\n", "\r\n");
 
 /** Keyboard-adjacent typos and dropped letters, at a low rate. */
 export function typos(r, text, rate = 0.012) {
-  const near = { a: "s", e: "r", i: "o", o: "i", n: "m", t: "y", s: "a", l: "k", c: "v", d: "f" };
+  const near = {
+    a: "s",
+    e: "r",
+    i: "o",
+    o: "i",
+    n: "m",
+    t: "y",
+    s: "a",
+    l: "k",
+    c: "v",
+    d: "f",
+  };
   return [...text]
     .map((ch) => {
       if (!/[a-z]/.test(ch) || !chance(r, rate)) return ch;
@@ -47,8 +58,19 @@ export function typos(r, text, rate = 0.012) {
 
 /** OCR confusions for scanned documents. */
 export function ocrNoise(r, text, rate = 0.02) {
-  const map = { l: "1", "1": "l", O: "0", "0": "O", S: "5", B: "8", rn: "m", m: "rn" };
-  return [...text].map((ch) => (chance(r, rate) && map[ch] ? map[ch] : ch)).join("");
+  const map = {
+    l: "1",
+    1: "l",
+    O: "0",
+    0: "O",
+    S: "5",
+    B: "8",
+    rn: "m",
+    m: "rn",
+  };
+  return [...text]
+    .map((ch) => (chance(r, rate) && map[ch] ? map[ch] : ch))
+    .join("");
 }
 
 export function truncate(r, text) {
@@ -58,7 +80,18 @@ export function truncate(r, text) {
 
 // ---------------------------------------------------------------- number mess
 
-const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const ONES = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
 function spellOut(n) {
   if (n < 10) return ONES[n];
   if (n % 100 === 0 && n < 1000) return `${ONES[n / 100]} hundred`;
@@ -77,13 +110,19 @@ export function renderQuantity(r, value, period, noun = "units") {
     () => ({ text: `${value}`, restated: false }),
     () => ({ text: `${value} ${noun}/${period}`, restated: false }),
     () => ({ text: `${value} a ${period}`, restated: false }),
-    () => ({ text: `${value.toLocaleString("en-US")} per ${period}`, restated: false }),
+    () => ({
+      text: `${value.toLocaleString("en-US")} per ${period}`,
+      restated: false,
+    }),
     () => ({ text: `about ${value}`, restated: false }),
     () => ({ text: `~${value} ${noun}`, restated: false }),
     () => ({ text: `${spellOut(value)} ${noun} a ${period}`, restated: false }),
     () =>
       period === "day"
-        ? { text: `${(value * 7).toLocaleString("en-US")} a week`, restated: "week" }
+        ? {
+            text: `${(value * 7).toLocaleString("en-US")} a week`,
+            restated: "week",
+          }
         : { text: `${Math.round(value / 7)} a day`, restated: "day" },
     () => ({ text: `${value} ${noun} every ${period}`, restated: false }),
   ];
@@ -116,7 +155,20 @@ export function renderPrice(r, cad, currency = "CAD") {
 
 // ------------------------------------------------------------------ date mess
 
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 const pad = (n) => String(n).padStart(2, "0");
 
 /**
@@ -124,13 +176,18 @@ const pad = (n) => String(n).padStart(2, "0");
  * tell what it means (05/03 with no year, "next Tuesday" with no anchor).
  */
 export function renderDate(r, date) {
-  const d = date.getUTCDate(), m = date.getUTCMonth(), y = date.getUTCFullYear();
+  const d = date.getUTCDate(),
+    m = date.getUTCMonth(),
+    y = date.getUTCFullYear();
   const styles = [
     () => ({ text: date.toISOString().slice(0, 10), ambiguous: false }),
     () => ({ text: `${MONTHS[m]} ${d}, ${y}`, ambiguous: false }),
     () => ({ text: `${d} ${MONTHS[m].slice(0, 3)} ${y}`, ambiguous: false }),
     () => ({ text: `${pad(d)}/${pad(m + 1)}/${y}`, ambiguous: false }),
-    () => ({ text: `${pad(m + 1)}/${pad(d)}/${String(y).slice(2)}`, ambiguous: false }),
+    () => ({
+      text: `${pad(m + 1)}/${pad(d)}/${String(y).slice(2)}`,
+      ambiguous: false,
+    }),
     () => ({ text: `${pad(d)}/${pad(m + 1)}`, ambiguous: true }),
     () => ({ text: "next Tuesday", ambiguous: true }),
     () => ({ text: "end of the month", ambiguous: true }),
@@ -145,10 +202,19 @@ export function renderLeadTime(r, hours) {
   const styles = [
     () => ({ text: `${hours} hours`, restated: false }),
     () => ({ text: `${hours}h`, restated: false }),
-    () => ({ text: `under ${hours + 2} hours`, restated: false, bound: "upper" }),
+    () => ({
+      text: `under ${hours + 2} hours`,
+      restated: false,
+      bound: "upper",
+    }),
   ];
-  if (hours % 8 === 0) styles.push(() => ({ text: `${hours / 8} business days`, restated: "business_days" }));
-  if (hours % 24 === 0) styles.push(() => ({ text: `${hours / 24} days`, restated: "days" }));
+  if (hours % 8 === 0)
+    styles.push(() => ({
+      text: `${hours / 8} business days`,
+      restated: "business_days",
+    }));
+  if (hours % 24 === 0)
+    styles.push(() => ({ text: `${hours / 24} days`, restated: "days" }));
   return pick(r, styles)();
 }
 
@@ -170,7 +236,21 @@ export const INJECTIONS = [
 
 /** The full dimension list, for the manifest and the scorecard breakdown. */
 export const DIMENSIONS = [
-  "missing", "unit_restated", "currency_mixed", "alias", "sku_drift", "duplicate",
-  "contradiction", "stale", "ambiguous_date", "encoding", "digit_typo", "typos",
-  "schema_drift", "truncated", "injection", "multilingual", "ocr",
+  "missing",
+  "unit_restated",
+  "currency_mixed",
+  "alias",
+  "sku_drift",
+  "duplicate",
+  "contradiction",
+  "stale",
+  "ambiguous_date",
+  "encoding",
+  "digit_typo",
+  "typos",
+  "schema_drift",
+  "truncated",
+  "injection",
+  "multilingual",
+  "ocr",
 ];

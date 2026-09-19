@@ -176,13 +176,13 @@ override it in-session.
 
 Where the space went (`timescaledb_information.chunks`, total 2,826 MB):
 
-| Table | Size | Rows | Note |
-|---|---|---|---|
-| `fulfillment_samples` | **2,009 MB** | 4,004,900 | uncompressed, ~500 B/row for a six-column table - mostly bloat |
-| `network_events` | 209 MB | 302,114 | uncompressed |
-| `market_metrics` | 144 MB | - | uncompressed |
-| `_materialized_hypertable_9` | 62 MB | - | continuous aggregate |
-| `bulk_order_lines` | 47 MB | 3,059,709 | 122 of 125 chunks compressed - this one is fine |
+| Table                        | Size         | Rows      | Note                                                           |
+| ---------------------------- | ------------ | --------- | -------------------------------------------------------------- |
+| `fulfillment_samples`        | **2,009 MB** | 4,004,900 | uncompressed, ~500 B/row for a six-column table - mostly bloat |
+| `network_events`             | 209 MB       | 302,114   | uncompressed                                                   |
+| `market_metrics`             | 144 MB       | -         | uncompressed                                                   |
+| `_materialized_hypertable_9` | 62 MB        | -         | continuous aggregate                                           |
+| `bulk_order_lines`           | 47 MB        | 3,059,709 | 122 of 125 chunks compressed - this one is fine                |
 
 The Rox tables are a rounding error next to these. `bulk_order_lines` shows what
 compression does: 3M rows in 47 MB.

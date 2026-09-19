@@ -81,8 +81,8 @@ export function DockConversation({
           </div>
         )}
       </div>
-      {project?.intent?.ambiguityFlags.map((flag) => (
-        <p className="question" key={flag.field}>
+      {project?.intent?.ambiguityFlags.map((flag, index) => (
+        <p className="question" key={`${index}:${flag.field}`}>
           {flag.question ?? flag.reason}
         </p>
       ))}

@@ -44,7 +44,9 @@ async function merchantCandidates(db) {
 }
 
 async function capabilityCandidates(db) {
-  const { rows } = await db.query(`select capability_id, merchant_id, name, description from capabilities order by capability_id`);
+  const { rows } = await db.query(
+    `select capability_id, merchant_id, name, description from capabilities order by capability_id`,
+  );
   return rows;
 }
 
@@ -77,26 +79,53 @@ function containmentMatch(alias, candidates) {
     for (const surface of c.surfaces) {
       const sTokens = normalizeAlias(surface).split(" ").filter(Boolean);
       if (!sTokens.length) continue;
-      const [short, long] = aTokens.length <= sTokens.length ? [aTokens, sTokens] : [sTokens, aTokens];
+      const [short, long] =
+        aTokens.length <= sTokens.length
+          ? [aTokens, sTokens]
+          : [sTokens, aTokens];
       const covered = short.filter((tok) =>
-        long.some((other) => (tok.length >= 4 ? other.startsWith(tok) || tok.startsWith(other) : other === tok)),
+        long.some((other) =>
+          tok.length >= 4
+            ? other.startsWith(tok) || tok.startsWith(other)
+            : other === tok,
+        ),
       );
       if (covered.length !== short.length) continue;
       const distinctive = covered.some((tok) => tok.length >= 4);
       if (!distinctive) continue;
       const score = 0.8 + 0.15 * (short.length / long.length);
-      if (!best || score > best.score) best = { merchantId: c.merchantId, method: "trgm", score, via: surface };
+      if (!best || score > best.score)
+        best = {
+          merchantId: c.merchantId,
+          method: "trgm",
+          score,
+          via: surface,
+        };
     }
   }
   // Ambiguous containment ("Logo embroidery" matching three suppliers) is not a match.
   if (!best) return null;
   const rivals = new Set(
     candidates
-      .filter((c) => c.surfaces.some((s) => {
-        const sTokens = normalizeAlias(s).split(" ").filter(Boolean);
-        const [short, long] = aTokens.length <= sTokens.length ? [aTokens, sTokens] : [sTokens, aTokens];
-        return short.length > 0 && short.every((tok) => long.some((o) => (tok.length >= 4 ? o.startsWith(tok) || tok.startsWith(o) : o === tok)));
-      }))
+      .filter((c) =>
+        c.surfaces.some((s) => {
+          const sTokens = normalizeAlias(s).split(" ").filter(Boolean);
+          const [short, long] =
+            aTokens.length <= sTokens.length
+              ? [aTokens, sTokens]
+              : [sTokens, aTokens];
+          return (
+            short.length > 0 &&
+            short.every((tok) =>
+              long.some((o) =>
+                tok.length >= 4
+                  ? o.startsWith(tok) || tok.startsWith(o)
+                  : o === tok,
+              ),
+            )
+          );
+        }),
+      )
       .map((c) => c.merchantId),
   );
   return rivals.size === 1 ? best : null;
@@ -108,11 +137,16 @@ function containmentMatch(alias, candidates) {
  */
 export function senderAliasesFromText(text) {
   const found = new Set();
-  for (const m of String(text ?? "").matchAll(/[\w.+-]+@([\w-]+(?:\.[\w-]+)+)/g)) {
+  for (const m of String(text ?? "").matchAll(
+    /[\w.+-]+@([\w-]+(?:\.[\w-]+)+)/g,
+  )) {
     const domain = m[1].toLowerCase();
     if (!/molecule|example\.com$|gmail|outlook/.test(domain)) found.add(domain);
   }
-  for (const m of String(text ?? "").matchAll(/\b([a-z0-9-]+)\.myshopify\.com\b/gi)) found.add(m[1].toLowerCase());
+  for (const m of String(text ?? "").matchAll(
+    /\b([a-z0-9-]+)\.myshopify\.com\b/gi,
+  ))
+    found.add(m[1].toLowerCase());
   return [...found];
 }
 
@@ -122,17 +156,29 @@ export function senderAliasesFromText(text) {
  * document would attribute every row to whichever appeared first.
  */
 export function capabilityIdsFrom(text) {
-  return [...new Set([...String(text ?? "").matchAll(/\b(cap[-_][a-z0-9_-]+)\b/gi)].map((m) => m[1].toLowerCase().replace(/_/g, "-")))];
+  return [
+    ...new Set(
+      [...String(text ?? "").matchAll(/\b(cap[-_][a-z0-9_-]+)\b/gi)].map((m) =>
+        m[1].toLowerCase().replace(/_/g, "-"),
+      ),
+    ),
+  ];
 }
 
 /** pg_trgm similarity, computed in the database so the index can be used later. */
 async function trigramMatch(db, alias, candidates) {
-  const surfaces = candidates.flatMap((c) => c.surfaces.map((s) => ({ merchantId: c.merchantId, surface: s })));
+  const surfaces = candidates.flatMap((c) =>
+    c.surfaces.map((s) => ({ merchantId: c.merchantId, surface: s })),
+  );
   const { rows } = await db.query(
     `select m.merchant_id, m.surface, similarity($1, m.surface) as sim
        from unnest($2::text[], $3::text[]) as m(merchant_id, surface)
       order by sim desc limit 3`,
-    [normalizeAlias(alias), surfaces.map((s) => s.merchantId), surfaces.map((s) => normalizeAlias(s.surface))],
+    [
+      normalizeAlias(alias),
+      surfaces.map((s) => s.merchantId),
+      surfaces.map((s) => normalizeAlias(s.surface)),
+    ],
   );
   if (!rows.length || Number(rows[0].sim) === 0) return null;
   const best = rows[0];
@@ -142,15 +188,23 @@ async function trigramMatch(db, alias, candidates) {
     method: "trgm",
     score: Number(best.sim),
     margin: Number(best.sim) - Number(runnerUp?.sim ?? 0),
-    top: rows.map((r) => ({ merchantId: r.merchant_id, surface: r.surface, sim: Number(r.sim) })),
+    top: rows.map((r) => ({
+      merchantId: r.merchant_id,
+      surface: r.surface,
+      sim: Number(r.sim),
+    })),
   };
 }
 
 async function embed(client, db, runId, texts) {
   const started = Date.now();
-  const res = await client.embeddings.create({ model: MODELS.embed, input: texts });
+  const res = await client.embeddings.create({
+    model: MODELS.embed,
+    input: texts,
+  });
   await meter(db, runId, {
-    stage: "link", model: MODELS.embed,
+    stage: "link",
+    model: MODELS.embed,
     usage: { input_tokens: res.usage?.prompt_tokens ?? 0, output_tokens: 0 },
     latencyMs: Date.now() - started,
   });
@@ -174,7 +228,11 @@ async function vectorMatch(db, client, runId, alias) {
     method: "vector",
     score: Number(best.sim),
     margin: Number(best.sim) - Number(runnerUp?.sim ?? 0),
-    top: rows.map((r) => ({ merchantId: r.resolved_id, alias: r.alias, sim: Number(r.sim) })),
+    top: rows.map((r) => ({
+      merchantId: r.resolved_id,
+      alias: r.alias,
+      sim: Number(r.sim),
+    })),
   };
 }
 
@@ -186,14 +244,20 @@ async function llmMatch(client, db, runId, alias, shortlist) {
     instructions:
       "You decide whether a supplier name from a document refers to one of the known suppliers. " +
       "Answer with the merchantId only if a careful operations person would be confident. " +
-      "If it is a plausible but unproven match, or the name could be a different company, answer \"unknown\". " +
+      'If it is a plausible but unproven match, or the name could be a different company, answer "unknown". ' +
       "Never invent a merchantId that is not in the list.",
-    input: JSON.stringify({ aliasFromDocument: alias, knownSuppliers: shortlist }),
+    input: JSON.stringify({
+      aliasFromDocument: alias,
+      knownSuppliers: shortlist,
+    }),
     text: {
       format: {
-        type: "json_schema", name: "entity_link", strict: true,
+        type: "json_schema",
+        name: "entity_link",
+        strict: true,
         schema: {
-          type: "object", additionalProperties: false,
+          type: "object",
+          additionalProperties: false,
           required: ["merchantId", "confidence", "reason"],
           properties: {
             merchantId: { type: "string" },
@@ -206,7 +270,8 @@ async function llmMatch(client, db, runId, alias, shortlist) {
     max_output_tokens: 500,
   });
   await meter(db, runId, {
-    stage: "link", model: MODELS.adjudicate,
+    stage: "link",
+    model: MODELS.adjudicate,
     usage: {
       input_tokens: res.usage?.input_tokens ?? 0,
       cached_tokens: res.usage?.input_tokens_details?.cached_tokens ?? 0,
@@ -216,44 +281,76 @@ async function llmMatch(client, db, runId, alias, shortlist) {
   });
   const parsed = JSON.parse(res.output_text ?? "{}");
   if (!parsed.merchantId || parsed.merchantId === "unknown") return null;
-  return { merchantId: parsed.merchantId, method: "llm", score: Number(parsed.confidence ?? 0.6), reason: parsed.reason };
+  return {
+    merchantId: parsed.merchantId,
+    method: "llm",
+    score: Number(parsed.confidence ?? 0.6),
+    reason: parsed.reason,
+  };
 }
 
 // ------------------------------------------------------------------ capability
 
 /** Within a merchant, pick the capability a phrase refers to. */
 async function matchCapability(db, merchantId, subjectHint, fieldKind) {
-  const { rows: caps } = await db.query(`select capability_id, name, description from capabilities where merchant_id = $1`, [merchantId]);
+  const { rows: caps } = await db.query(
+    `select capability_id, name, description from capabilities where merchant_id = $1`,
+    [merchantId],
+  );
   if (!caps.length) return null;
-  if (caps.length === 1) return { capabilityId: caps[0].capability_id, method: "only", score: 1 };
+  if (caps.length === 1)
+    return { capabilityId: caps[0].capability_id, method: "only", score: 1 };
 
   const hint = normalizeAlias(subjectHint);
   // A document that quotes our own identifier is the easiest case.
-  const direct = caps.find((c) => hint && normalizeAlias(c.capability_id).replace(/ /g, "") === hint.replace(/ /g, ""));
-  if (direct) return { capabilityId: direct.capability_id, method: "exact", score: 1 };
+  const direct = caps.find(
+    (c) =>
+      hint &&
+      normalizeAlias(c.capability_id).replace(/ /g, "") ===
+        hint.replace(/ /g, ""),
+  );
+  if (direct)
+    return { capabilityId: direct.capability_id, method: "exact", score: 1 };
   if (!hint) return null;
 
   const { rows } = await db.query(
     `select c.capability_id, similarity($1, c.surface) as sim
        from unnest($2::text[], $3::text[]) as c(capability_id, surface)
       order by sim desc limit 2`,
-    [hint, caps.map((c) => c.capability_id), caps.map((c) => normalizeAlias(`${c.name} ${c.description ?? ""}`))],
+    [
+      hint,
+      caps.map((c) => c.capability_id),
+      caps.map((c) => normalizeAlias(`${c.name} ${c.description ?? ""}`)),
+    ],
   );
   const best = rows[0];
   if (!best || Number(best.sim) < 0.25) return null;
-  return { capabilityId: best.capability_id, method: "trgm", score: Number(best.sim) };
+  return {
+    capabilityId: best.capability_id,
+    method: "trgm",
+    score: Number(best.sim),
+  };
 }
 
 // ------------------------------------------------------------------ stage
 
 /** Builds (or refreshes) the vector index of merchant surfaces. */
 async function ensureAliasIndex(db, client, runId, candidates) {
-  const surfaces = candidates.flatMap((c) => c.surfaces.map((s) => ({ alias: s, resolved: c.merchantId })));
-  const { rows: have } = await db.query(`select alias from rox_alias_embeddings where alias_kind = 'merchant'`);
+  const surfaces = candidates.flatMap((c) =>
+    c.surfaces.map((s) => ({ alias: s, resolved: c.merchantId })),
+  );
+  const { rows: have } = await db.query(
+    `select alias from rox_alias_embeddings where alias_kind = 'merchant'`,
+  );
   const known = new Set(have.map((r) => r.alias));
   const missing = surfaces.filter((s) => !known.has(s.alias));
   if (!missing.length) return 0;
-  const vectors = await embed(client, db, runId, missing.map((m) => m.alias));
+  const vectors = await embed(
+    client,
+    db,
+    runId,
+    missing.map((m) => m.alias),
+  );
   for (const [i, m] of missing.entries()) {
     await db.query(
       `insert into rox_alias_embeddings (alias, alias_kind, resolved_id, embedding, model)
@@ -276,8 +373,13 @@ async function merchantFromCapability(db, texts) {
     `select capability_id, merchant_id from capabilities where lower(capability_id) = any($1::text[])`,
     [ids],
   );
-  if (rows.length !== 1) return null;   // ambiguous or unknown identifier
-  return { merchantId: rows[0].merchant_id, capabilityId: rows[0].capability_id, method: "exact", score: 1 };
+  if (rows.length !== 1) return null; // ambiguous or unknown identifier
+  return {
+    merchantId: rows[0].merchant_id,
+    capabilityId: rows[0].capability_id,
+    method: "exact",
+    score: 1,
+  };
 }
 
 /**
@@ -304,10 +406,13 @@ async function dedupeMerchants(db, runId) {
   for (const [, members] of groups) {
     if (members.length < 2) continue;
     // The row that is actually trading wins: a store first, then online status.
-    const canonical = [...members].sort((a, b) =>
-      Number(b.has_store) - Number(a.has_store) ||
-      Number(b.status === "online") - Number(a.status === "online") ||
-      b.caps - a.caps || a.merchant_id.localeCompare(b.merchant_id))[0];
+    const canonical = [...members].sort(
+      (a, b) =>
+        Number(b.has_store) - Number(a.has_store) ||
+        Number(b.status === "online") - Number(a.status === "online") ||
+        b.caps - a.caps ||
+        a.merchant_id.localeCompare(b.merchant_id),
+    )[0];
     for (const m of members) {
       if (m.merchant_id === canonical.merchant_id) continue;
       map.set(m.merchant_id, canonical.merchant_id);
@@ -315,8 +420,17 @@ async function dedupeMerchants(db, runId) {
         `insert into rox_entity_links (link_id, run_id, alias, alias_kind, resolved_id, method, score, status, evidence)
          values ($1,$2,$3,'merchant',$4,'exact',0.99,'linked',$5)
          on conflict (alias_kind, lower(alias)) do update set resolved_id = excluded.resolved_id, evidence = excluded.evidence`,
-        [shortId("dedupe", m.merchant_id), runId, m.merchant_id, canonical.merchant_id,
-         { reason: "duplicate merchant record in the database", duplicateOf: m.name, canonicalName: canonical.name }],
+        [
+          shortId("dedupe", m.merchant_id),
+          runId,
+          m.merchant_id,
+          canonical.merchant_id,
+          {
+            reason: "duplicate merchant record in the database",
+            duplicateOf: m.name,
+            canonicalName: canonical.name,
+          },
+        ],
       );
     }
   }
@@ -324,8 +438,22 @@ async function dedupeMerchants(db, runId) {
 }
 
 export async function link(db, { runId, batchId, traceId, limit = null }) {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000, maxRetries: 2 });
-  const counts = { extractions: 0, exact: 0, trgm: 0, vector: 0, llm: 0, needs_review: 0, unlinked: 0, capability_linked: 0, indexed: 0 };
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: 60_000,
+    maxRetries: 2,
+  });
+  const counts = {
+    extractions: 0,
+    exact: 0,
+    trgm: 0,
+    vector: 0,
+    llm: 0,
+    needs_review: 0,
+    unlinked: 0,
+    capability_linked: 0,
+    indexed: 0,
+  };
 
   const duplicates = await dedupeMerchants(db, runId);
   counts.duplicates_merged = duplicates.size;
@@ -337,8 +465,16 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
   const candidates = [];
   for (const c of raw) {
     if (duplicates.has(c.merchantId)) continue;
-    const absorbed = [...duplicates.entries()].filter(([, canonical]) => canonical === c.merchantId).map(([dup]) => byId.get(dup)).filter(Boolean);
-    candidates.push({ ...c, surfaces: [...new Set([...c.surfaces, ...absorbed.flatMap((a) => a.surfaces)])] });
+    const absorbed = [...duplicates.entries()]
+      .filter(([, canonical]) => canonical === c.merchantId)
+      .map(([dup]) => byId.get(dup))
+      .filter(Boolean);
+    candidates.push({
+      ...c,
+      surfaces: [
+        ...new Set([...c.surfaces, ...absorbed.flatMap((a) => a.surfaces)]),
+      ],
+    });
   }
   counts.indexed = await ensureAliasIndex(db, client, runId, candidates);
 
@@ -358,7 +494,8 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
     const key = alias.toLowerCase();
     if (decided.has(key)) return decided.get(key);
 
-    let decision = exactMatch(alias, candidates) ?? containmentMatch(alias, candidates);
+    let decision =
+      exactMatch(alias, candidates) ?? containmentMatch(alias, candidates);
     let tri = null;
     let vec = null;
     if (!decision) {
@@ -371,13 +508,20 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
     }
     if (!decision && ((vec?.score ?? 0) >= 0.45 || (tri?.score ?? 0) >= 0.3)) {
       const top = [...(vec?.top ?? []), ...(tri?.top ?? [])];
-      const shortlist = [...new Set(top.map((t) => t.merchantId))].slice(0, 4).map((mid) => ({
-        merchantId: mid,
-        name: candidates.find((c) => c.merchantId === mid)?.name,
-        knownAs: candidates.find((c) => c.merchantId === mid)?.surfaces,
-      }));
+      const shortlist = [...new Set(top.map((t) => t.merchantId))]
+        .slice(0, 4)
+        .map((mid) => ({
+          merchantId: mid,
+          name: candidates.find((c) => c.merchantId === mid)?.name,
+          knownAs: candidates.find((c) => c.merchantId === mid)?.surfaces,
+        }));
       decision = await llmMatch(client, db, runId, alias, shortlist);
-      if (decision) decision.evidence = { shortlist, vector: vec?.score, trigram: tri?.score };
+      if (decision)
+        decision.evidence = {
+          shortlist,
+          vector: vec?.score,
+          trigram: tri?.score,
+        };
     }
 
     await db.query(
@@ -386,12 +530,23 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
        on conflict (alias_kind, lower(alias)) do update
          set resolved_id = excluded.resolved_id, method = excluded.method,
              score = excluded.score, status = excluded.status, evidence = excluded.evidence`,
-      [shortId("link", alias), runId, alias, decision?.merchantId ?? null,
-       decision?.method ?? "trgm", decision?.score ?? null,
-       decision ? "linked" : "needs_review",
-       decision?.evidence ?? { bestTrigram: tri?.score ?? null, bestVector: vec?.score ?? null, top: vec?.top ?? tri?.top ?? [] }],
+      [
+        shortId("link", alias),
+        runId,
+        alias,
+        decision?.merchantId ?? null,
+        decision?.method ?? "trgm",
+        decision?.score ?? null,
+        decision ? "linked" : "needs_review",
+        decision?.evidence ?? {
+          bestTrigram: tri?.score ?? null,
+          bestVector: vec?.score ?? null,
+          top: vec?.top ?? tri?.top ?? [],
+        },
+      ],
     );
-    if (decision && duplicates.has(decision.merchantId)) decision.merchantId = duplicates.get(decision.merchantId);
+    if (decision && duplicates.has(decision.merchantId))
+      decision.merchantId = duplicates.get(decision.merchantId);
     decided.set(key, decision);
     return decision;
   }
@@ -404,15 +559,29 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
     // THIS candidate's evidence. That names the merchant and the capability at once.
     let decision = null;
     let capability = null;
-    const viaCap = await merchantFromCapability(db, [subjectHint, row.evidence_text]);
+    const viaCap = await merchantFromCapability(db, [
+      subjectHint,
+      row.evidence_text,
+    ]);
     if (viaCap) {
-      decision = { merchantId: duplicates.get(viaCap.merchantId) ?? viaCap.merchantId, method: viaCap.method, score: viaCap.score };
-      capability = { capabilityId: viaCap.capabilityId, method: viaCap.method, score: viaCap.score };
+      decision = {
+        merchantId: duplicates.get(viaCap.merchantId) ?? viaCap.merchantId,
+        method: viaCap.method,
+        score: viaCap.score,
+      };
+      capability = {
+        capabilityId: viaCap.capabilityId,
+        method: viaCap.method,
+        score: viaCap.score,
+      };
       counts.via_capability = (counts.via_capability ?? 0) + 1;
     }
 
     // Otherwise the supplier's name, then who sent the document.
-    const aliases = [row.merchant_hint?.trim(), ...senderAliasesFromText(row.content_text)].filter(Boolean);
+    const aliases = [
+      row.merchant_hint?.trim(),
+      ...senderAliasesFromText(row.content_text),
+    ].filter(Boolean);
     if (!decision) {
       for (const alias of aliases) {
         decision = await resolveAlias(alias);
@@ -427,24 +596,37 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
         await db.query(
           `insert into rox_review_queue (task_id, run_id, kind, merchant_hint, detail, proposed_action)
            values ($1,$2,'low_confidence_link',$3,$4,$5) on conflict (task_id) do nothing`,
-          [shortId(runId, "link", aliases[0]), runId, aliases[0],
-           { aliases, sourcePath: row.source_path, subjectHint },
-           { action: "ask_human_to_map_alias", alias: aliases[0] }],
+          [
+            shortId(runId, "link", aliases[0]),
+            runId,
+            aliases[0],
+            { aliases, sourcePath: row.source_path, subjectHint },
+            { action: "ask_human_to_map_alias", alias: aliases[0] },
+          ],
         );
       }
       continue;
     }
     counts[decision.method] = (counts[decision.method] ?? 0) + 1;
 
-    const cap = capability ?? (await matchCapability(db, decision.merchantId, subjectHint, row.field));
-    if (cap && duplicates.has(decision.merchantId)) decision.merchantId = duplicates.get(decision.merchantId);
+    const cap =
+      capability ??
+      (await matchCapability(db, decision.merchantId, subjectHint, row.field));
+    if (cap && duplicates.has(decision.merchantId))
+      decision.merchantId = duplicates.get(decision.merchantId);
     if (cap) counts.capability_linked += 1;
     await db.query(
       `update rox_extractions
           set resolved_merchant_id = $2, resolved_capability_id = $3::text, link_method = $4, link_score = $5,
               resolved_field = case when $3::text is null then null else $3::text || '.' || field end
         where extraction_id = $1`,
-      [row.extraction_id, decision.merchantId, cap?.capabilityId ?? null, decision.method, decision.score ?? null],
+      [
+        row.extraction_id,
+        decision.merchantId,
+        cap?.capabilityId ?? null,
+        decision.method,
+        decision.score ?? null,
+      ],
     );
   }
 

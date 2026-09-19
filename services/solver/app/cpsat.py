@@ -413,7 +413,11 @@ def _solve(data: SolverInput) -> ProductionPlan:
                 start = max(0, int((_date(occupied.starts_at) - now).total_seconds() // 60))
                 end = min(horizon, ceil((_date(occupied.completes_at) - now).total_seconds() / 60))
                 if end > start:
-                    jobs.append(model.new_fixed_size_interval_var(start, end-start, f"occupied:{resource_id}:{index}"))
+                    jobs.append(
+                        model.new_fixed_size_interval_var(
+                            start, end - start, f"occupied:{resource_id}:{index}"
+                        )
+                    )
             model.add_no_overlap(jobs)
 
     for edge in dependencies:

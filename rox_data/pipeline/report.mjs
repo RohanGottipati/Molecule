@@ -12,43 +12,85 @@ import { fileURLToPath } from "node:url";
 import { connect } from "./db.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, "").split("="); return [k, v ?? true]; }));
-const out = resolve(args.out ? String(args.out) : join(HERE, "..", "report.html"));
+const args = Object.fromEntries(
+  process.argv.slice(2).map((a) => {
+    const [k, v] = a.replace(/^--/, "").split("=");
+    return [k, v ?? true];
+  }),
+);
+const out = resolve(
+  args.out ? String(args.out) : join(HERE, "..", "report.html"),
+);
 
 const db = await connect({ max: 4 });
-const runId = String(args.run ?? (await db.query(`select run_id from rox_ingest_runs where status='completed' order by started_at desc limit 1`)).rows[0]?.run_id);
-const { rows: [run] } = await db.query(`select * from rox_ingest_runs where run_id = $1`, [runId]);
-if (!run) { console.error(`no such run: ${runId}`); process.exit(1); }
+const runId = String(
+  args.run ??
+    (
+      await db.query(
+        `select run_id from rox_ingest_runs where status='completed' order by started_at desc limit 1`,
+      )
+    ).rows[0]?.run_id,
+);
+const {
+  rows: [run],
+} = await db.query(`select * from rox_ingest_runs where run_id = $1`, [runId]);
+if (!run) {
+  console.error(`no such run: ${runId}`);
+  process.exit(1);
+}
 
-const { rows: scores } = await db.query(`select variant, metric, value, detail from rox_scorecard where run_id = $1`, [runId]);
-const { rows: [summary] } = await db.query(`select * from rox_run_summary where run_id = $1`, [runId]);
+const { rows: scores } = await db.query(
+  `select variant, metric, value, detail from rox_scorecard where run_id = $1`,
+  [runId],
+);
+const {
+  rows: [summary],
+} = await db.query(`select * from rox_run_summary where run_id = $1`, [runId]);
 const { rows: conflicts } = await db.query(
   `select r.merchant_id, r.field, r.explanation, r.scores, q.draft_message
      from canonical_resolutions r
      left join rox_review_queue q on q.merchant_id = r.merchant_id and q.field = r.field and q.kind = 'conflict'
-    where r.status = 'conflicted' order by r.merchant_id, r.field limit 12`);
+    where r.status = 'conflicted' order by r.merchant_id, r.field limit 12`,
+);
 const { rows: quarantine } = await db.query(
   `select q.field, q.reason, q.raw_value, a.source_path from quarantined_claims q
-     join raw_artifacts a using (artifact_id) where q.run_id = $1 limit 12`, [runId]);
+     join raw_artifacts a using (artifact_id) where q.run_id = $1 limit 12`,
+  [runId],
+);
 const { rows: injections } = await db.query(
   `select detail->>'sourcePath' as path, detail->'patterns' as patterns from rox_review_queue
-    where run_id = $1 and kind = 'injection' limit 12`, [runId]);
+    where run_id = $1 and kind = 'injection' limit 12`,
+  [runId],
+);
 const { rows: links } = await db.query(
   `select alias, resolved_id, method, round(score,3) as score, status from rox_entity_links
-    where method <> 'exact' or status <> 'linked' order by status, method limit 14`);
+    where method <> 'exact' or status <> 'linked' order by status, method limit 14`,
+);
 const { rows: provenance } = await db.query(
   `select merchant_id, field, normalized_value, normalized_unit, source_kind, evidence_text
-     from rox_fact_provenance where evidence_text is not null order by ingested_at desc limit 10`);
+     from rox_fact_provenance where evidence_text is not null order by ingested_at desc limit 10`,
+);
 const { rows: cost } = await db.query(
   `select stage, model, count(*)::int as calls, round(sum(cost_usd),4) as usd,
-          round(avg(latency_ms)) as avg_ms from rox_llm_calls where run_id = $1 group by 1,2 order by 4 desc`, [runId]);
+          round(avg(latency_ms)) as avg_ms from rox_llm_calls where run_id = $1 group by 1,2 order by 4 desc`,
+  [runId],
+);
 
-const by = (variant) => Object.fromEntries(scores.filter((s) => s.variant === variant).map((s) => [s.metric, s.value === null ? null : Number(s.value)]));
+const by = (variant) =>
+  Object.fromEntries(
+    scores
+      .filter((s) => s.variant === variant)
+      .map((s) => [s.metric, s.value === null ? null : Number(s.value)]),
+  );
 const agent = by("agent");
 const baseline = by("regex_baseline");
 const hasBaseline = Object.keys(baseline).length > 0;
 
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = (s) =>
+  String(s ?? "").replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+  );
 const pct = (v) => (v === null || v === undefined ? "n/a" : `${v}%`);
 
 const COMPARE = [
@@ -66,33 +108,47 @@ const COMPARE = [
 // 4px rounded data-ends, a 2px surface gap between adjacent fills, values
 // direct-labelled so identity never rests on colour alone.
 function barChart() {
-  const rows = COMPARE.filter(([k]) => agent[k] !== null && agent[k] !== undefined);
+  const rows = COMPARE.filter(
+    ([k]) => agent[k] !== null && agent[k] !== undefined,
+  );
   const rowH = hasBaseline ? 44 : 30;
   const barH = hasBaseline ? 15 : 18;
-  const top = 8, labelW = 186, valueW = 52;
-  const width = 720, plotW = width - labelW - valueW;
+  const top = 8,
+    labelW = 186,
+    valueW = 52;
+  const width = 720,
+    plotW = width - labelW - valueW;
   const height = top + rows.length * rowH + 22;
   const x = (v) => (plotW * v) / 100;
 
-  const ticks = [0, 25, 50, 75, 100].map((t) => `
+  const ticks = [0, 25, 50, 75, 100]
+    .map(
+      (t) => `
     <line x1="${labelW + x(t)}" y1="${top}" x2="${labelW + x(t)}" y2="${top + rows.length * rowH - 8}" class="grid"/>
-    <text x="${labelW + x(t)}" y="${height - 6}" class="tick" text-anchor="middle">${t}</text>`).join("");
+    <text x="${labelW + x(t)}" y="${height - 6}" class="tick" text-anchor="middle">${t}</text>`,
+    )
+    .join("");
 
-  const bars = rows.map(([key, label], i) => {
-    const y = top + i * rowH;
-    const a = agent[key] ?? 0;
-    const b = baseline[key];
-    const one = (value, series, offset, h) => value === null || value === undefined ? "" : `
+  const bars = rows
+    .map(([key, label], i) => {
+      const y = top + i * rowH;
+      const a = agent[key] ?? 0;
+      const b = baseline[key];
+      const one = (value, series, offset, h) =>
+        value === null || value === undefined
+          ? ""
+          : `
       <g class="bar">
         <rect x="${labelW}" y="${y + offset}" width="${Math.max(2, x(value))}" height="${h}" rx="4" class="fill-${series}"/>
         <text x="${labelW + Math.max(2, x(value)) + 8}" y="${y + offset + h - 3}" class="value">${value}%</text>
         <title>${esc(label)} — ${series === 1 ? "agent" : "regex baseline"}: ${value}%</title>
       </g>`;
-    return `
+      return `
       <text x="${labelW - 12}" y="${y + (hasBaseline ? 13 : 14)}" class="rowlabel" text-anchor="end">${esc(label)}</text>
       ${one(a, 1, 0, barH)}
       ${hasBaseline ? one(b ?? 0, 2, barH + 2, barH) : ""}`;
-  }).join("");
+    })
+    .join("");
 
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" role="img" aria-label="Scorecard by metric">${ticks}${bars}</svg>`;
 }
@@ -104,11 +160,14 @@ const tile = (label, value, note, tone = "") => `
     ${note ? `<div class="tile-note">${esc(note)}</div>` : ""}
   </div>`;
 
-const table = (headers, rows) => rows.length ? `
+const table = (headers, rows) =>
+  rows.length
+    ? `
   <table>
     <thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>
-  </table>` : `<p class="empty">Nothing in this category for this run.</p>`;
+  </table>`
+    : `<p class="empty">Nothing in this category for this run.</p>`;
 
 const html = `<!doctype html>
 <html lang="en">
@@ -192,67 +251,109 @@ const html = `<!doctype html>
 
   <h2>Scorecard${hasBaseline ? " vs the regex control group" : ""}</h2>
   <section>
-    ${hasBaseline ? `<div class="legend">
+    ${
+      hasBaseline
+        ? `<div class="legend">
       <span><span class="swatch" style="background:var(--series-1)"></span>Agent</span>
       <span><span class="swatch" style="background:var(--series-2)"></span>Regex baseline</span>
-    </div>` : `<div class="legend"><span><span class="swatch" style="background:var(--series-1)"></span>Agent — no baseline run scored yet</span></div>`}
+    </div>`
+        : `<div class="legend"><span><span class="swatch" style="background:var(--series-1)"></span>Agent — no baseline run scored yet</span></div>`
+    }
     ${barChart()}
     <details style="margin-top:14px">
       <summary>Table view</summary>
-      ${table(["Metric", "Agent", hasBaseline ? "Regex baseline" : "—"],
-        COMPARE.map(([k, label]) => [esc(label), pct(agent[k]), hasBaseline ? pct(baseline[k]) : "—"]))}
+      ${table(
+        ["Metric", "Agent", hasBaseline ? "Regex baseline" : "—"],
+        COMPARE.map(([k, label]) => [
+          esc(label),
+          pct(agent[k]),
+          hasBaseline ? pct(baseline[k]) : "—",
+        ]),
+      )}
     </details>
   </section>
 
   <h2>What it refused to decide</h2>
   <section>
     <p class="sub" style="margin-bottom:14px">Conflicted fields stay conflicted. The draft below was written by the agent and is waiting for a human to approve before anything is sent.</p>
-    ${table(["Supplier", "Field", "Why"], conflicts.map((c) => [
-      `<code>${esc(c.merchant_id)}</code>`,
-      `<code>${esc(c.field)}</code>`,
-      `${esc(c.explanation)}${c.draft_message ? `<div class="draft">${esc(c.draft_message)}</div>` : ""}`,
-    ]))}
+    ${table(
+      ["Supplier", "Field", "Why"],
+      conflicts.map((c) => [
+        `<code>${esc(c.merchant_id)}</code>`,
+        `<code>${esc(c.field)}</code>`,
+        `${esc(c.explanation)}${c.draft_message ? `<div class="draft">${esc(c.draft_message)}</div>` : ""}`,
+      ]),
+    )}
   </section>
 
   <h2>What it would not read</h2>
   <section>
-    ${table(["Source", "Field", "Value as written", "Reason"], quarantine.map((q) => [
-      `<code>${esc(q.source_path)}</code>`, `<code>${esc(q.field)}</code>`,
-      `<span class="quote">${esc(q.raw_value?.value ?? "")}</span>`, esc(q.reason),
-    ]))}
+    ${table(
+      ["Source", "Field", "Value as written", "Reason"],
+      quarantine.map((q) => [
+        `<code>${esc(q.source_path)}</code>`,
+        `<code>${esc(q.field)}</code>`,
+        `<span class="quote">${esc(q.raw_value?.value ?? "")}</span>`,
+        esc(q.reason),
+      ]),
+    )}
   </section>
 
   <h2>Instructions hidden in supplier documents</h2>
   <section>
     <p class="sub" style="margin-bottom:14px">Detected by a regex guard and the model independently. Every value from these documents was blocked before it could become a claim.</p>
-    ${table(["Document", "Pattern matched"], injections.map((i) => [
-      `<code>${esc(i.path)}</code>`, `<code>${esc(JSON.stringify(i.patterns ?? []).slice(0, 110))}</code>`,
-    ]))}
+    ${table(
+      ["Document", "Pattern matched"],
+      injections.map((i) => [
+        `<code>${esc(i.path)}</code>`,
+        `<code>${esc(JSON.stringify(i.patterns ?? []).slice(0, 110))}</code>`,
+      ]),
+    )}
   </section>
 
   <h2>Entity resolution</h2>
   <section>
     <p class="sub" style="margin-bottom:14px">Names as suppliers write them, resolved to one record — or handed to a human when the match was not decisive.</p>
-    ${table(["Alias in the document", "Resolved to", "How", "Score", "Status"], links.map((l) => [
-      `<code>${esc(l.alias)}</code>`, l.resolved_id ? `<code>${esc(l.resolved_id)}</code>` : "<em>unresolved</em>",
-      esc(l.method), l.score ?? "—", esc(l.status),
-    ]))}
+    ${table(
+      ["Alias in the document", "Resolved to", "How", "Score", "Status"],
+      links.map((l) => [
+        `<code>${esc(l.alias)}</code>`,
+        l.resolved_id
+          ? `<code>${esc(l.resolved_id)}</code>`
+          : "<em>unresolved</em>",
+        esc(l.method),
+        l.score ?? "—",
+        esc(l.status),
+      ]),
+    )}
   </section>
 
   <h2>Every fact carries its sentence</h2>
   <section>
-    ${table(["Supplier", "Field", "Value", "Source", "The words it came from"], provenance.map((p) => [
-      `<code>${esc(p.merchant_id)}</code>`, `<code>${esc(p.field)}</code>`,
-      `${esc(JSON.stringify(p.normalized_value))} ${esc(p.normalized_unit ?? "")}`, esc(p.source_kind),
-      `<span class="quote">${esc(String(p.evidence_text).slice(0, 120))}</span>`,
-    ]))}
+    ${table(
+      ["Supplier", "Field", "Value", "Source", "The words it came from"],
+      provenance.map((p) => [
+        `<code>${esc(p.merchant_id)}</code>`,
+        `<code>${esc(p.field)}</code>`,
+        `${esc(JSON.stringify(p.normalized_value))} ${esc(p.normalized_unit ?? "")}`,
+        esc(p.source_kind),
+        `<span class="quote">${esc(String(p.evidence_text).slice(0, 120))}</span>`,
+      ]),
+    )}
   </section>
 
   <h2>What it cost</h2>
   <section>
-    ${table(["Stage", "Model", "Calls", "USD", "Avg latency"], cost.map((c) => [
-      esc(c.stage), `<code>${esc(c.model)}</code>`, c.calls, `$${c.usd}`, `${c.avg_ms ?? "—"} ms`,
-    ]))}
+    ${table(
+      ["Stage", "Model", "Calls", "USD", "Avg latency"],
+      cost.map((c) => [
+        esc(c.stage),
+        `<code>${esc(c.model)}</code>`,
+        c.calls,
+        `$${c.usd}`,
+        `${c.avg_ms ?? "—"} ms`,
+      ]),
+    )}
   </section>
 
   <p class="foot">Generated by <code>rox_data/pipeline/report.mjs</code>. Corpus artifacts are synthetic and deterministic from a seed;

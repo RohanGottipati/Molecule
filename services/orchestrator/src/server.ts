@@ -60,7 +60,6 @@ function shopifyWebhookStatus(error: ShopifyError): number {
   return 400;
 }
 
-
 export interface ServerDependencies {
   catalogGallery?: () => Promise<import("@molecule/contracts").CatalogGallery>;
   config: Config;
@@ -88,7 +87,11 @@ export interface ServerDependencies {
 
 export async function buildServer(deps: ServerDependencies) {
   const app = Fastify({ logger: true });
-  app.get("/api/catalog/recipes", async () => deps.catalogGallery ? deps.catalogGallery() : { catalogVersion: null, recipes: [] });
+  app.get("/api/catalog/recipes", async () =>
+    deps.catalogGallery
+      ? deps.catalogGallery()
+      : { catalogVersion: null, recipes: [] },
+  );
   if (deps.shopifyWebhook) {
     app.removeContentTypeParser("application/json");
     app.addContentTypeParser(

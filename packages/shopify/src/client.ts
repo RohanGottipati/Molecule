@@ -54,8 +54,12 @@ class DurableShopifyClient implements ShopifyClient {
     for (const node of plan.nodes) {
       const domain = this.effects.supplierDomain(node.merchantId);
       if (node.catalogVersion && this.effects instanceof RealShopifyEffects) {
-        if (!node.selectedItem || node.selectedItem.shopDomain !== domain ||
-            (node.selectedItem.itemKind === "physical" && !node.selectedItem.variantGid))
+        if (
+          !node.selectedItem ||
+          node.selectedItem.shopDomain !== domain ||
+          (node.selectedItem.itemKind === "physical" &&
+            !node.selectedItem.variantGid)
+        )
           throw new ShopifyError("CATALOG_VARIANT_NOT_MAPPED");
       }
     }
@@ -276,8 +280,17 @@ class DurableShopifyClient implements ShopifyClient {
           nodeId: node.nodeId,
           merchantId: node.merchantId,
           title: `${node.quantity} × ${node.selectedItem?.sku ?? node.capabilityId}`,
-          ...(node.selectedItem ? { quantity: node.quantity, unitAmount: node.unitCost, sku: node.selectedItem.sku,
-            ...(node.selectedItem.itemKind === "physical" && node.selectedItem.variantGid ? { variantId: node.selectedItem.variantGid } : {}) } : {}),
+          ...(node.selectedItem
+            ? {
+                quantity: node.quantity,
+                unitAmount: node.unitCost,
+                sku: node.selectedItem.sku,
+                ...(node.selectedItem.itemKind === "physical" &&
+                node.selectedItem.variantGid
+                  ? { variantId: node.selectedItem.variantGid }
+                  : {}),
+              }
+            : {}),
           amount: node.totalCost,
           currency: plan.currency,
           attributes: {
@@ -286,14 +299,18 @@ class DurableShopifyClient implements ShopifyClient {
             molecule_merchant_id: node.merchantId,
             molecule_capability_id: node.capabilityId,
             molecule_quantity: String(node.quantity),
-            ...(node.selectedItem ? {
-              molecule_sku: node.selectedItem.sku,
-              molecule_binding_id: node.selectedItem.bindingId,
-              molecule_catalog_version: node.catalogVersion ?? "",
-              molecule_variant_id: node.selectedItem.variantId,
-              molecule_assets: JSON.stringify(node.customizationAssets ?? []),
-              molecule_synthetic: String(node.synthetic ?? false),
-            } : {}),
+            ...(node.selectedItem
+              ? {
+                  molecule_sku: node.selectedItem.sku,
+                  molecule_binding_id: node.selectedItem.bindingId,
+                  molecule_catalog_version: node.catalogVersion ?? "",
+                  molecule_variant_id: node.selectedItem.variantId,
+                  molecule_assets: JSON.stringify(
+                    node.customizationAssets ?? [],
+                  ),
+                  molecule_synthetic: String(node.synthetic ?? false),
+                }
+              : {}),
             molecule_upstream_nodes: plan.edges
               .filter((edge) => edge.toNodeId === node.nodeId)
               .map((edge) => edge.fromNodeId)

@@ -42,7 +42,19 @@ const products = [
 const sentenceBoundary = /[!?;\r\n]+|\.(?!\d)/;
 const colors = ["black", "white", "red", "blue", "green"] as const;
 const materials = [
-  "polycarbonate", "acrylic", "bamboo", "nylon", "wood", "aluminum", "ceramic", "pla", "petg", "abs", "resin", "tpu", "cork",
+  "polycarbonate",
+  "acrylic",
+  "bamboo",
+  "nylon",
+  "wood",
+  "aluminum",
+  "ceramic",
+  "pla",
+  "petg",
+  "abs",
+  "resin",
+  "tpu",
+  "cork",
   "cotton",
   "polyester",
   "leather",
@@ -269,7 +281,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       .at(-1);
     if (
       prefix &&
-      !materials.some(material => material === prefix) &&
+      !materials.some((material) => material === prefix) &&
       !/^(?:\d[\d,]*|a|an|the|some|make|need|want|of|with|on|onto|for|to|per|include|including|black|white|red|blue|green|cotton|polyester|leather|steel|glass|vegan|premium|embroidered|engraved|printed|named)$/.test(
         prefix,
       )
@@ -299,13 +311,38 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       desiredOutputs.push(output);
     }
     if (product === "phone case") {
-      const model = /\b(?:iphone|pixel|galaxy)\s+\d+(?:\s+(?:pro|max|plus|mini)){0,2}\b/.exec(text)?.[0];
-      if (model) output.attributes = [...output.attributes.filter(attribute => attribute.name !== "deviceModel"), { name: "deviceModel", value: model }];
-      else ambiguityFlags.push({ field: "phone case.deviceModel", reason: "Device model is required", question: "Which phone model must the case fit?" });
+      const model =
+        /\b(?:iphone|pixel|galaxy)\s+\d+(?:\s+(?:pro|max|plus|mini)){0,2}\b/.exec(
+          text,
+        )?.[0];
+      if (model)
+        output.attributes = [
+          ...output.attributes.filter(
+            (attribute) => attribute.name !== "deviceModel",
+          ),
+          { name: "deviceModel", value: model },
+        ];
+      else
+        ambiguityFlags.push({
+          field: "phone case.deviceModel",
+          reason: "Device model is required",
+          question: "Which phone model must the case fit?",
+        });
     }
     if (product === "enclosure") {
-      const dimensions = /(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)\s*mm\b/.exec(text);
-      if (dimensions) for (const [index, name] of ["widthMm", "depthMm", "heightMm"].entries()) output.attributes.push({ name, value: Number(dimensions[index+1]) });
+      const dimensions = /(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)\s*mm\b/.exec(
+        text,
+      );
+      if (dimensions)
+        for (const [index, name] of [
+          "widthMm",
+          "depthMm",
+          "heightMm",
+        ].entries())
+          output.attributes.push({
+            name,
+            value: Number(dimensions[index + 1]),
+          });
     }
     const componentQuantity = numericMatch(
       quantitySource ?? text,
@@ -414,7 +451,11 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     outputKeys: t.outputRefs,
   }));
   for (const [trigger, kind, result] of operations) {
-    if (kind === "printing" && /\b(?:uv|screen|digital|pad|3d)[ _-]print/.test(text)) continue;
+    if (
+      kind === "printing" &&
+      /\b(?:uv|screen|digital|pad|3d)[ _-]print/.test(text)
+    )
+      continue;
     const operationSegments = segments.filter(
       (segment) =>
         trigger.test(segment) ||
@@ -456,7 +497,15 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
           kind === "engraving" && /\b(?:named|names?)\b/.test(text)
             ? "Engrave individual names"
             : `${kind} using supplied artwork`,
-        inputKeys: [transformations.filter(t => t.key === output.key || t.outputKeys.some(ref => ref.endsWith(`-${output.key}`))).at(-1)?.outputKeys[0] ?? output.key],
+        inputKeys: [
+          transformations
+            .filter(
+              (t) =>
+                t.key === output.key ||
+                t.outputKeys.some((ref) => ref.endsWith(`-${output.key}`)),
+            )
+            .at(-1)?.outputKeys[0] ?? output.key,
+        ],
         outputKeys: [`${result}-${output.key}`],
       });
     }
@@ -465,7 +514,9 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     const seen = new Set<string>();
     while (!seen.has(key)) {
       seen.add(key);
-      const transformation = transformations.find(t => t.inputKeys.length === 1 && t.inputKeys.includes(key));
+      const transformation = transformations.find(
+        (t) => t.inputKeys.length === 1 && t.inputKeys.includes(key),
+      );
       if (!transformation?.outputKeys[0]) break;
       key = transformation.outputKeys[0];
     }

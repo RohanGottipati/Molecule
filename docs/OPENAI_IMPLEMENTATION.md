@@ -765,7 +765,7 @@ Placeholders only:
 
 ### O4.3 Definition of done (O4)
 
-- [ ] Next app boots against orchestrator URL from env (`NEXT_PUBLIC_ORCHESTRATOR_URL`)
+- [x] Next app proxies `/api/*` to the server-only `ORCHESTRATOR_URL` (no `NEXT_PUBLIC_*` backend URL is read by the browser)
 - [ ] Mock order session visible: intent panel + graph + events
 - [ ] No OpenAI secrets in client bundles (`pnpm` / build grep or similar check)
 

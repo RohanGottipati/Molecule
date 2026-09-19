@@ -80,7 +80,9 @@ describe.skipIf(!database)("Shopify capacity ingestion", () => {
       getPool(),
       `shopify-webhook-${randomUUID()}`,
     );
-    const source = new MockShopifyAdapter({ stores: ["stitchworks-webhook-test"] });
+    const source = new MockShopifyAdapter({
+      stores: ["stitchworks-webhook-test"],
+    });
     const snapshot = await source.getSnapshot("stitchworks-webhook-test");
     const capacity = snapshot.capacity[0];
     if (!capacity) throw new Error("StitchWorks mock must expose capacity");

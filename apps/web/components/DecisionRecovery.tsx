@@ -11,18 +11,25 @@ export function DecisionRecovery({
   marketplace,
   busy,
   demoMode,
+  resetting = false,
   onOffline,
+  onReset,
 }: {
   order: OrderSessionSnapshot | null;
   marketplace: MarketplaceSnapshot | null;
   busy: boolean;
   demoMode: boolean;
+  resetting?: boolean;
   onOffline: (merchantId: string) => void;
+  onReset?: () => void;
 }) {
   const [confirming, setConfirming] = useState<{
     planId: string;
     merchantId: string;
   } | null>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const offlineMerchants =
+    marketplace?.merchants.filter((item) => item.status === "offline") ?? [];
   const plan = order?.activePlan;
   const selected = [
     ...new Set(plan?.nodes.map((node) => node.merchantId) ?? []),
@@ -127,6 +134,62 @@ export function DecisionRecovery({
               ? "A selected production plan is required."
               : "The server must enable demo mode to use supplier-offline controls."}
           </p>
+        )}
+        {demoMode && onReset && (
+          <div className="decision-recovery-reset">
+            <div className="decision-recovery-choice">
+              <div>
+                <strong>Restore synthetic suppliers</strong>
+                <p className="muted">
+                  Brings offline demo suppliers back, releases their demo
+                  reservations and restores capacity so the next brief starts
+                  from a clean marketplace. Project history is kept.
+                  {offlineMerchants.length
+                    ? ` Currently offline: ${offlineMerchants
+                        .map((item) => item.name)
+                        .join(", ")}.`
+                    : ""}
+                </p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy || resetting}
+                onClick={() => setConfirmingReset(true)}
+              >
+                {resetting ? "Restoring…" : "Restore demo suppliers"}
+              </button>
+            </div>
+            {confirmingReset && (
+              <div className="decision-confirmation">
+                <p>
+                  Restore the synthetic marketplace baseline? Active demo
+                  reservations are released, so plans that are still executing
+                  should be treated as superseded.
+                </p>
+                <div>
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={busy || resetting}
+                    onClick={() => {
+                      setConfirmingReset(false);
+                      onReset();
+                    }}
+                  >
+                    Confirm restore
+                  </button>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => setConfirmingReset(false)}
+                  >
+                    Keep current state
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
         <details>
           <summary>Available recovery controls</summary>
