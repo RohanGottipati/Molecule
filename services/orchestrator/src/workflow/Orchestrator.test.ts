@@ -5,9 +5,13 @@ import {
   type QuoteResponse,
   type SolverInput,
 } from "@molecule/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { MerchantAgentClient, SolverClient } from "../clients.js";
+import type {
+  MerchantAgentClient,
+  OpenAIClient,
+  SolverClient,
+} from "../clients.js";
 import { InMemoryEventStore } from "../events/EventStore.js";
 import { MockMerchantAgentClient } from "../mocks/MockMerchantAgentClient.js";
 import { MockRealityClient } from "../mocks/MockRealityClient.js";
@@ -111,6 +115,7 @@ class ContractSolver implements SolverClient {
 
 async function fixture(
   merchantAgents: MerchantAgentClient = new MockMerchantAgentClient(),
+  openai: OpenAIClient = new MockOpenAIAdapter(),
 ) {
   const sessions = new InMemorySessionRepository();
   const events = new InMemoryEventStore();
@@ -119,7 +124,7 @@ async function fixture(
   const orchestrator = new Orchestrator({
     sessions,
     events,
-    openai: new MockOpenAIAdapter(),
+    openai,
     reality: new MockRealityClient(),
     merchantAgents,
     solver: new ContractSolver(),
@@ -130,6 +135,63 @@ async function fixture(
 }
 
 describe("Orchestrator workflow", () => {
+  const brief = {
+    text: "Make 20 hoodies by 2026-10-01 CAD",
+    locale: "en-CA",
+    timeZone: "UTC",
+    requestedAt: "2026-09-19T12:00:00.000Z",
+    assets: [],
+  };
+  it("bounds quote fanout even when an adapter ignores cancellation", async () => {
+    const { session, orchestrator } = await fixture({
+      quote: () => new Promise<QuoteResponse>(() => {}),
+    });
+    const planned = await orchestrator.submitMessage({
+      ...brief,
+      orderId: session.orderId,
+      traceId: session.traceId,
+    });
+    expect(planned.state).toBe("NEEDS_HUMAN");
+    expect(planned.quotes).toEqual([]);
+  });
+  it("rejects quotes for a different merchant before solving", async () => {
+    const adapter = new MockMerchantAgentClient();
+    const { session, orchestrator } = await fixture({
+      quote: async (request, signal) => ({
+        ...(await adapter.quote(request, signal)),
+        merchantId: "different-merchant",
+      }),
+    });
+    const planned = await orchestrator.submitMessage({
+      ...brief,
+      orderId: session.orderId,
+      traceId: session.traceId,
+    });
+    expect(planned.state).toBe("NEEDS_HUMAN");
+    expect(planned.quotes).toEqual([]);
+  });
+  it("clears a prior compiler error when a new request succeeds", async () => {
+    const openai = new MockOpenAIAdapter();
+    vi.spyOn(openai, "compileIntent").mockRejectedValueOnce(
+      new Error("temporary failure"),
+    );
+    const { session, sessions, orchestrator } = await fixture(
+      undefined,
+      openai,
+    );
+    const input = {
+      ...brief,
+      orderId: session.orderId,
+      traceId: session.traceId,
+    };
+    await expect(orchestrator.submitMessage(input)).rejects.toThrow(
+      "temporary failure",
+    );
+    expect((await sessions.get(session.orderId))?.lastErrorCode).toBe("Error");
+    const planned = await orchestrator.submitMessage(input);
+    expect(planned.state).toBe("AWAITING_APPROVAL");
+    expect(planned.lastErrorCode).toBeNull();
+  });
   it("runs compile, quote, solve, approval, and idempotent mock execution", async () => {
     const { session, events, orchestrator } = await fixture();
     const planned = await orchestrator.submitMessage({

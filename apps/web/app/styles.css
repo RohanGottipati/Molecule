@@ -13,6 +13,13 @@
   --warning: #79581c;
   --red: #a14132;
   --sidebar-width: 230px;
+  --radius-control: 5px;
+  --radius-panel: 7px;
+  --motion-press: 100ms;
+  --motion-fast: 160ms;
+  --motion-standard: 220ms;
+  --motion-panel: 280ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
   color-scheme: light;
 }
 
@@ -58,9 +65,14 @@ button:disabled {
 }
 button {
   transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    transform var(--motion-press) var(--ease-out);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 a {
   color: var(--green);
@@ -78,7 +90,7 @@ button,
 input,
 textarea,
 select {
-  border-radius: 5px;
+  border-radius: var(--radius-control);
 }
 h1,
 h2,
@@ -285,6 +297,9 @@ details ul {
   border-radius: 50%;
   margin-left: auto;
 }
+.nav-item > .nav-short-label {
+  display: none;
+}
 .sidebar-project {
   margin: 33px 0 0;
   border-top: 1px solid #3a453c;
@@ -468,7 +483,7 @@ details ul {
 .panel {
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-panel);
   min-width: 0;
   overflow: hidden;
 }
@@ -1614,6 +1629,130 @@ td summary {
   margin-top: 20px;
 }
 
+.workflow-route {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: -5px 0 24px;
+  padding: 0;
+  gap: 18px;
+}
+.workflow-route li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 8px;
+  border-bottom: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  transition:
+    color var(--motion-standard),
+    border-color var(--motion-standard);
+}
+.workflow-route li > span {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.workflow-route [aria-current="step"] {
+  border-color: var(--green);
+  color: var(--green-dark);
+  font-weight: 650;
+}
+.activity-line {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--green-dark);
+  margin: -8px 0 18px;
+  font-weight: 550;
+}
+.activity-line small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.composer-help {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.composer textarea {
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.composer textarea:disabled {
+  background: var(--canvas);
+  color: var(--muted);
+}
+.primary:focus-visible,
+.primary:hover:not(:disabled) {
+  box-shadow: 0 2px 5px #17654e20;
+}
+.command-layout,
+.directory-layout,
+.two-column,
+.notice,
+.activity-line,
+.attachments li,
+.customer-note {
+  animation: surface-enter var(--motion-standard) var(--ease-out) both;
+}
+.node-dialog[open] {
+  animation: surface-enter var(--motion-panel) var(--ease-out) both;
+}
+.node-dialog[open]::backdrop {
+  animation: backdrop-enter var(--motion-standard) var(--ease-out) both;
+}
+.status-dot.working {
+  animation: working-pulse 1.6s ease-in-out infinite;
+}
+.tabs button {
+  position: relative;
+}
+.tabs button:hover {
+  color: var(--green);
+  background: var(--soft-green);
+}
+.production-node {
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.production-node:hover,
+.production-node:focus-visible {
+  box-shadow: 0 3px 10px #202c2712;
+}
+.plan-metrics strong {
+  font-variant-numeric: tabular-nums;
+}
+.table-scroll {
+  overscroll-behavior-inline: contain;
+}
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes working-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
 @media (min-width: 1700px) {
   :root {
     --sidebar-width: 250px;
@@ -1822,22 +1961,72 @@ td summary {
 }
 @media (max-width: 540px) {
   :root {
-    --sidebar-width: 58px;
+    --sidebar-width: 0px;
   }
   .sidebar {
-    padding-inline: 5px;
+    inset: auto 0 0;
+    width: 100%;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid #4b5c49;
+    box-shadow: 0 -3px 12px #202c2712;
   }
-  .brand-mark {
-    width: 31px;
-    height: 33px;
+  .sidebar .brand {
+    display: none;
+  }
+  .sidebar nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
   }
   .nav-item {
-    padding: 12px;
+    padding: 8px 1px;
+    flex-direction: column;
+    gap: 5px;
+    min-height: 53px;
+    margin-bottom: 0;
   }
-  .nav-item:hover > span,
-  .nav-item:focus-visible > span {
-    left: 48px;
-    z-index: 25;
+  .nav-item > .nav-full-label {
+    display: none;
+  }
+  .nav-item > .nav-short-label,
+  .nav-item:hover > .nav-short-label,
+  .nav-item:focus-visible > .nav-short-label {
+    display: block;
+    position: static;
+    clip-path: none;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    background: none;
+    padding: 0;
+    box-shadow: none;
+    font-size: 9px;
+  }
+  .main-shell {
+    padding-bottom: calc(85px + env(safe-area-inset-bottom));
+  }
+  .workflow-route {
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .workflow-route li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10px;
+  }
+  .composer textarea,
+  input:not([type="file"]),
+  select {
+    font-size: 16px;
+  }
+  .primary,
+  .secondary,
+  .danger-outline,
+  .text-button,
+  .suggestion-chip,
+  .tabs button {
+    min-height: 44px;
   }
   .topbar {
     height: 58px;
@@ -1992,6 +2181,12 @@ td summary {
     padding-inline: 16px;
   }
 }
+@media (pointer: coarse) {
+  button,
+  summary {
+    min-height: 44px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -2001,5 +2196,8 @@ td summary {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+  button:active:not(:disabled) {
+    transform: none;
   }
 }

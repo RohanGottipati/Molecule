@@ -237,3 +237,17 @@ export const processingStates: OrderSessionSnapshot["state"][] = [
   "AT_RISK",
   "RECOVERING",
 ];
+
+export function canEditBrief(order: OrderSessionSnapshot | null) {
+  return (
+    !order ||
+    [
+      "REQUESTED",
+      "NEEDS_CLARIFICATION",
+      "NEEDS_HUMAN",
+      "FAILED",
+      "PLAN_UNSAT",
+      "AWAITING_APPROVAL",
+    ].includes(order.state)
+  );
+}
