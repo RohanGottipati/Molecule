@@ -68,7 +68,8 @@ async function main() {
              select
                floor(random() * $4 + 1)::int as idx,
                (4 + random() * 68) as promised
-           ) i;
+           ) i
+      on conflict (ts, merchant_id, capability_id) do nothing;
     `,
       [merchantIds, capabilityIds, fulfillmentRows, pairCount],
     );
