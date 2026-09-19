@@ -622,8 +622,10 @@ export function ExecutionView({
   actionsBlocked = false,
   blockedReason,
   demoMode,
+  resetting = false,
   onApprove,
   onOffline,
+  onReset,
   events = [],
 }: {
   order: OrderSessionSnapshot | null;
@@ -632,8 +634,10 @@ export function ExecutionView({
   actionsBlocked?: boolean;
   blockedReason?: string | null;
   demoMode: boolean;
+  resetting?: boolean;
   onApprove: () => void;
   onOffline: (merchantId: string) => void;
+  onReset?: () => void;
   events?: MoleculeEvent[];
 }) {
   return (
@@ -676,7 +680,9 @@ export function ExecutionView({
         marketplace={marketplace}
         busy={busy || actionsBlocked}
         demoMode={demoMode}
+        resetting={resetting}
         onOffline={onOffline}
+        onReset={onReset}
       />
     </div>
   );

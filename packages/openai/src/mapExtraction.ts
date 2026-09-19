@@ -193,7 +193,14 @@ export function mapExtractionToResult(
         ]),
       ).values(),
     ],
-    ambiguityFlags: extraction.ambiguityFlags,
+    ambiguityFlags: [
+      ...new Map(
+        extraction.ambiguityFlags.map((flag) => [
+          `${flag.field}\u0000${flag.question ?? flag.reason}`,
+          flag,
+        ]),
+      ).values(),
+    ],
   });
   const graphIssues = intentGraphIssues(draft);
   draft.ambiguityFlags.push(
@@ -204,9 +211,13 @@ export function mapExtractionToResult(
     })),
   );
 
-  const questions = draft.ambiguityFlags
-    .map(({ question }) => question)
-    .filter((question): question is string => Boolean(question));
+  const questions = [
+    ...new Set(
+      draft.ambiguityFlags
+        .map(({ question }) => question)
+        .filter((question): question is string => Boolean(question)),
+    ),
+  ];
   const complete = ProductIntentSchema.safeParse({
     ...draft,
     budgetMax: draft.budgetMax ?? undefined,

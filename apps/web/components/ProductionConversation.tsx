@@ -146,8 +146,10 @@ export function ProductionConversation({
               >
                 <h3>Details needed</h3>
                 <ul>
-                  {order.intent.ambiguityFlags.map((flag) => (
-                    <li key={flag.field}>{flag.question ?? flag.reason}</li>
+                  {order.intent.ambiguityFlags.map((flag, index) => (
+                    <li key={`${index}:${flag.field}`}>
+                      {flag.question ?? flag.reason}
+                    </li>
                   ))}
                 </ul>
               </section>
