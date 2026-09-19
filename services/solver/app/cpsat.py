@@ -215,7 +215,8 @@ def solve(data: SolverInput) -> ProductionPlan:
 
 def _solve(data: SolverInput) -> ProductionPlan:
     if data.intent.ambiguity_flags:
-        return _unsat(data, "Customer requirements still need clarification.")
+        questions = " ".join(flag.question or flag.reason for flag in data.intent.ambiguity_flags)
+        return _unsat(data, f"Customer requirements still need clarification. {questions}")
     try:
         needs, dependencies = requirements(data.intent)
     except ValueError as error:

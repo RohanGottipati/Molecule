@@ -34,6 +34,9 @@ importers:
       react-dom:
         specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
+      voice-glow:
+        specifier: 0.2.0
+        version: 0.2.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -4342,6 +4345,15 @@ packages:
       jsdom:
         optional: true
 
+  voice-glow@0.2.0:
+    resolution:
+      {
+        integrity: sha512-AsglDdWohs31Q+PAGIz1jWDqAfXYXnBDUzBP/Dxadkcf8xs4vZ6/qV8TiE0Gz4xGygQfuGZtBQGAz/t6s8qA0w==,
+      }
+    peerDependencies:
+      react: ">=18.0.0"
+      react-dom: ">=18.0.0"
+
   which@2.0.2:
     resolution:
       {
@@ -6687,6 +6699,11 @@ snapshots:
       "@types/node": 26.6.2
     transitivePeerDependencies:
       - msw
+
+  voice-glow@0.2.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   which@2.0.2:
     dependencies:

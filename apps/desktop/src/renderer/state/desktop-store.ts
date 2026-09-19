@@ -18,12 +18,18 @@ import {
 } from "../services/events.js";
 import { MoleculeApi, validateContext } from "../services/molecule-api.js";
 
+export interface StagedContext {
+  id: string;
+  file: File;
+}
+
 export interface DesktopState {
   bootstrap?: DesktopBootstrap;
   mode: OverlayMode;
   visible: boolean;
   project: DesktopResult["project"] | null;
   attachments: AssetRef[];
+  staged: StagedContext[];
   uploading: string[];
   activity: Activity[];
   alert: Activity | null;
@@ -44,6 +50,7 @@ export class DesktopStore {
     visible: false,
     project: null,
     attachments: [],
+    staged: [],
     uploading: [],
     activity: [],
     alert: null,
@@ -77,6 +84,7 @@ export class DesktopStore {
   private checkingProviders?: Promise<void>;
   private savingSettings = Promise.resolve();
   private capture = new AbortController();
+  private flushing?: Promise<void>;
   onBackendEvent?: (event: MoleculeEvent) => void;
   onContextAttached?: () => void;
   onProjectChanging?: () => void;
@@ -237,6 +245,7 @@ export class DesktopStore {
     this.patch({
       project: null,
       attachments: [],
+      staged: [],
       uploading: [],
       pending: 0,
       activity: [],
@@ -245,6 +254,7 @@ export class DesktopStore {
       recovery: null,
       error: null,
     });
+    this.flushing = undefined;
     return this.generation;
   }
   private async select(result: DesktopResult, generation: number) {
@@ -449,21 +459,64 @@ export class DesktopStore {
         this.patch({ pending: Math.max(0, this.state.pending - 1) });
     }
   }
-  async upload(files: File[]) {
+  stage(files: File[]) {
+    if (this.state.staged.length + files.length > 8)
+      throw new Error("Attach up to eight files at a time.");
+    files.forEach(validateContext);
+    this.patch({
+      staged: [
+        ...this.state.staged,
+        ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+      ],
+      error: null,
+    });
+  }
+  removeStaged(id: string) {
+    if (this.flushing) return;
+    this.patch({ staged: this.state.staged.filter((item) => item.id !== id) });
+  }
+  flushContext() {
+    if (this.flushing) return this.flushing;
+    const generation = this.generation;
+    const batch = this.state.staged;
+    const flush = (async () => {
+      for (const { id, file } of batch) {
+        const attached = await this.upload([file], id);
+        this.assertCurrent(generation);
+        if (!attached)
+          throw new Error(
+            this.state.error ??
+              "Context could not be attached. Try sending again.",
+          );
+        this.patch({
+          staged: this.state.staged.filter((item) => item.id !== id),
+        });
+      }
+    })();
+    this.flushing = flush;
+    void flush
+      .finally(() => {
+        if (this.flushing === flush) this.flushing = undefined;
+      })
+      .catch(() => undefined);
+    return flush;
+  }
+  async upload(files: File[], batchId?: string) {
     if (files.length > 8) throw new Error("Attach up to eight files at a time");
-    if (!files.length) return;
+    if (!files.length) return true;
     files.forEach(validateContext);
     const generation = this.generation;
     const { project } = await this.ensureProject();
     this.assertCurrent(generation);
-    for (const file of files) {
+    let succeeded = true;
+    for (const [index, file] of files.entries()) {
       try {
         this.assertCurrent(generation);
         this.patch({
           uploading: [...this.state.uploading, file.name],
           error: null,
         });
-        const actionId = crypto.randomUUID();
+        const actionId = batchId ? `${batchId}:${index}` : crypto.randomUUID();
         const context = await this.api.uploadContext(
           project.orderId,
           file,
@@ -479,7 +532,8 @@ export class DesktopStore {
         this.apply(result);
         this.onContextAttached?.();
       } catch (error) {
-        if (generation !== this.generation) return;
+        if (generation !== this.generation) return false;
+        succeeded = false;
         this.error(error);
       } finally {
         if (generation === this.generation)
@@ -490,8 +544,12 @@ export class DesktopStore {
           });
       }
     }
+    return succeeded;
   }
-  async uploadFrom(read: (signal: AbortSignal) => Promise<File[]>) {
+  async uploadFrom(
+    read: (signal: AbortSignal) => Promise<File[]>,
+    stage = false,
+  ) {
     const generation = this.generation;
     const signal = AbortSignal.any([
       this.selection.signal,
@@ -500,7 +558,8 @@ export class DesktopStore {
     const files = await read(signal);
     signal.throwIfAborted();
     this.assertCurrent(generation);
-    await this.upload(files);
+    if (stage) this.stage(files);
+    else await this.upload(files);
   }
   async chaos() {
     if (!this.state.demoMode)

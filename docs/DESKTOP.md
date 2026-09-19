@@ -30,7 +30,9 @@ The desktop launches hidden. Press **Option+Space**; the fallback is **Command+S
 pnpm --filter @molecule/web dev
 ```
 
-Settings and the menu-bar item provide alternate ways to open the overlay. Escape hides it. **Option+Shift+Space toggles conversation**; Electron `globalShortcut` does not provide reliable key-up events, so this is not hold-to-talk.
+Settings and the menu-bar item provide alternate ways to open the overlay. The activation shortcut focuses a visible dock when another app has focus; invoking it again while Molecule is focused hides it. **Option+Shift+Space toggles voice**; Electron `globalShortcut` does not provide reliable key-up events, so this is not hold-to-talk.
+
+The compact dock includes the primary input, voice, attachment, send, and expand controls. **Enter sends**, **Shift+Enter inserts a newline**, and Ctrl/Command+Enter also sends. Escape closes the screen picker or settings first, then collapses the conversation, then hides the dock. Collapsing retains the draft, staged context, transcript, and active voice connection; hiding releases microphone resources. The conversation scrolls independently above the input. Command Center opens the same project.
 
 Environment files are not automatically loaded by the orchestrator. Export server variables in its terminal or use a Node environment-file launcher with your private environment file. Do not export server credentials into the desktop terminal. Empty secret placeholders in `.env.example` must be omitted rather than supplied as empty values.
 
@@ -98,11 +100,17 @@ Speech-start events, local microphone energy during playback, and the Interrupt 
 
 Mute disables microphone tracks. Stop, hide, project switch, and lifecycle teardown close WebRTC, stop tracks, cancel retry timers, close the audio context, and release playback. Hiding does not cancel backend orchestration.
 
+`voice-glow@0.2.0` runs on the existing React 19.3.0 runtime. `VoiceBeam` wraps `MoleculeInput` with exactly `level={() => yourLevel}` and no other props. The existing transmitted microphone stream feeds one analyser: RMS is normalized to `[0, 1]` and delivered through `RealtimeClient.subscribeLevel`, separately from the React state subscription. There is no second capture pipeline or assistant-output meter.
+
+VoiceBeam's published defaults include breathing at zero. The input therefore hides its decorative layers through the package's documented opacity CSS variables when measured level is below 0.015; it does not generate artificial audio. VoiceBeam is unmounted when disconnected/closed, and respects reduced motion while connected. The analyser/source, animation frame, tracks, connection timers, WebRTC peer, and playback are released together. Short repeated connection failures exhaust the retry budget; it resets only after ten stable seconds.
+
 Files: PNG, JPG/JPEG, PDF, CSV, TXT, JSON; 1 byte–10 MB each and at most eight per operation. The backend checks extension/MIME agreement and image/PDF signatures. XLSX is not supported because the existing backend has no parser. Explicit paste accepts text, files, or images; the clipboard is not polled.
 
-Uploaded files pass through the OpenAI adapter and are included in subsequent compiler input. An attachment alone does not change product requirements: say or type “Put this on the hoodie.” Mock mode retains bytes/metadata but does not interpret image or document content.
+Drop, file selection, paste-context, and screen capture stage removable files in the draft. Sending uploads and attaches them before submitting the instruction; sending context alone attaches it to the current project. Failed files remain staged for retry using the same action identity. Switching projects clears the staged files and invalidates pending capture/upload results. Alerts and expansion never clear the draft.
 
-“Share current screen/window” explains the operation, lists sources, and authorizes one chosen source for 30 seconds. The renderer captures one frame, stops all display tracks, and uploads the image through the same context API. It never starts continuous surveillance.
+Uploaded files pass through the OpenAI adapter and are included in subsequent compiler input. An attachment alone does not change product requirements: say or type “Put this on the hoodie.” For voice, send staged context before referring to it. Mock mode retains bytes/metadata but does not interpret image or document content.
+
+“Share screen or window” explains the operation, lists sources, and authorizes one chosen source for 30 seconds. The renderer captures one frame, stops all display tracks, and stages the image for the same context API. It never starts continuous surveillance.
 
 Official API references used:
 
@@ -183,6 +191,7 @@ Controls are keyboard accessible, statuses include text, and animation respects 
 - Microphone: **“Microphone access is off. Enable it in System Settings.”**
 - Screen: **“Screen context requires Screen Recording permission.”**
 - File: **“That file type isn’t supported yet.”**
+- Clarification: unresolved customer details remain `NEEDS_CLARIFICATION` after constraint changes or recompile requests. The backend persists the questions and intent version without searching merchants or solving. The dock and voice expose those questions; supplying the details through `start_project` lets the compiler resolve them. Direct solver requests with ambiguity flags return the missing-detail explanations and no budget, deadline, or quantity relaxations.
 - UNSAT: **“No valid company can satisfy all current requirements.”** Public solver explanations follow.
 - Cancellation only stops planning before execution. It does not undo completed commerce.
 
