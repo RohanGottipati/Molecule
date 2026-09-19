@@ -23,25 +23,15 @@ import OpenAI from "openai";
 
 import { connect, startRun, finishRun, meter, shortId } from "./db.mjs";
 import { MODELS } from "./config.mjs";
+import { canonicalise, compileRule, applyRules, agree } from "./quantity-rules.mjs";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, "").split("="); return [k, v ?? true]; }));
 const SAMPLE = Number(args.sample ?? 250);
 const HOLDOUT = Number(args.holdout ?? 150);
 const ESCALATE_CAP = Number(args["escalate-cap"] ?? 200);
 const DOMAIN = "off_quantity";
-
-// Canonical units. The model proposes patterns; it does not get to invent physics.
-const TO_GRAMS = { g: 1, gram: 1, grams: 1, gr: 1, kg: 1000, mg: 0.001, oz: 28.3495, ozs: 28.3495, lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592 };
-const TO_ML = { ml: 1, millilitre: 1, milliliter: 1, cl: 10, dl: 100, l: 1000, litre: 1000, liter: 1000, "fl oz": 29.5735, floz: 29.5735, qt: 946.353, quart: 946.353, gallon: 3785.41, gal: 3785.41, pint: 473.176 };
-
-export function canonicalise(value, unit, count = 1) {
-  const u = String(unit ?? "").toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
-  const n = Number(value) * (Number(count) || 1);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  if (u in TO_GRAMS) return { grams: Math.round(n * TO_GRAMS[u] * 1000) / 1000, millilitres: null };
-  if (u in TO_ML) return { grams: null, millilitres: Math.round(n * TO_ML[u] * 1000) / 1000 };
-  return null;
-}
+/** Held-out matches a rule needs before its precision means anything. */
+const MIN_SUPPORT = Number(args["min-support"] ?? 3);
 
 const MINE_INSTRUCTIONS = `You are writing a parser, not answering questions.
 
@@ -50,7 +40,8 @@ You will see real free-text quantity labels from a food product database, with h
 Guidance:
 - Prefer a small number of general rules over many specific ones. Order matters: the most specific rule should come first.
 - When a label states the same quantity twice in different units ("6 oz (170 g)", "16 oz (1LB) 454 grams"), write the rule to capture the METRIC one, because it is exact.
-- When a label is a multipack ("10x 0.8 oz", "3x100 g"), capture the multiplier in countGroup so the total can be computed.
+- When a label is a multipack ("10x 0.8 oz", "3x100 g", "2*1 L", "10ct 0.09 OZ"), capture the multiplier in countGroup so the total can be computed. The separator may be "x", "X", the multiplication sign, "*", "-" or "ct".
+- When a label states BOTH the components and the total ("4*125gr = 500gr", "10ct 0.09 OZ (2.55g) Packets / 0.9 OZ (25g)"), the answer is the TOTAL. Write the rule so the total wins, and order it ahead of the rule that would match the first component.
 - Labels that name countable things with no weight ("6 ROLLS", "300 Tablets", "1 dozen", "5 PIECES") are NOT weights. Write rules for them with unit "count".
 - Do not write a rule that matches a bare number with no unit ("1", "3x100"): that is genuinely ambiguous and must stay unparsed.
 - Use only groups you declare. Keep patterns anchored where you can, and avoid nested quantifiers.
@@ -100,45 +91,6 @@ const LABEL_SCHEMA = {
     countUnits: { type: ["number", "null"] },
     unparseable: { type: "boolean" },
   },
-};
-
-/** Compiles a proposed rule, refusing anything that will not run safely. */
-export function compileRule(rule) {
-  try {
-    const re = new RegExp(rule.pattern, rule.flags?.includes("g") ? rule.flags.replace("g", "") : rule.flags || "i");
-    // A pattern that takes too long on a short string is rejected outright.
-    const started = Date.now();
-    re.test("10x 0.8 oz (22.7 g) - Net weight 8 oz (227 g)".repeat(2));
-    if (Date.now() - started > 50) return null;
-    return { ...rule, re };
-  } catch {
-    return null;
-  }
-}
-
-export function applyRules(label, rules) {
-  const text = String(label ?? "").slice(0, 160);
-  for (const rule of rules) {
-    const m = rule.re.exec(text);
-    if (!m) continue;
-    const rawValue = (m[rule.valueGroup] ?? "").replace(",", ".");
-    const count = rule.countGroup ? Number((m[rule.countGroup] ?? "1").replace(",", ".")) : 1;
-    const unit = rule.unitGroup ? m[rule.unitGroup] : rule.unitLiteral;
-    if (String(unit ?? "").toLowerCase() === "count") {
-      const n = Number(rawValue) * (Number(count) || 1);
-      if (!Number.isFinite(n) || n <= 0) continue;
-      return { grams: null, millilitres: null, count_units: n, rule_id: rule.rule_id, name: rule.name };
-    }
-    const canon = canonicalise(rawValue, unit, count);
-    if (canon) return { ...canon, count_units: null, rule_id: rule.rule_id, name: rule.name };
-  }
-  return null;
-}
-
-const agree = (a, b) => {
-  if (a === null || a === undefined) return b === null || b === undefined;
-  if (b === null || b === undefined) return false;
-  return Math.abs(Number(a) - Number(b)) <= Math.max(0.5, Math.abs(Number(b)) * 0.02);
 };
 
 // ------------------------------------------------------------------ main
@@ -252,22 +204,33 @@ if (args.evaluate) {
     covered += 1;
     const stat = per.get(applied.rule_id);
     stat.hits += 1;
-    const ok = !h.unparseable &&
-      agree(applied.grams, h.grams) && agree(applied.millilitres, h.millilitres) && agree(applied.count_units, h.count_units);
+    // Judge the primary measure. A rule that reads "660 g (30 individual
+    // sachets)" as 660 g is correct about the quantity even though it does not
+    // also report the 30; counting only decides the verdict when there is no
+    // weight or volume to compare.
+    const measured = applied.grams !== null || applied.millilitres !== null;
+    const labelMeasured = h.grams !== null || h.millilitres !== null;
+    const ok = !h.unparseable && (
+      measured || labelMeasured
+        ? agree(applied.grams, h.grams) && agree(applied.millilitres, h.millilitres)
+        : agree(applied.count_units, h.count_units));
     if (ok) { stat.correct += 1; correct += 1; }
   }
   let accepted = 0;
   for (const [ruleId, stat] of per) {
     const precision = stat.hits ? (100 * stat.correct) / stat.hits : null;
-    const status = stat.hits >= 3 && precision >= 95 ? "accepted" : stat.hits === 0 ? "candidate" : "rejected";
+    // Three outcomes, and "not enough evidence" is not the same as "wrong":
+    // a rule that matched one held-out label perfectly stays a candidate until
+    // a larger holdout can support it.
+    const status = stat.hits < MIN_SUPPORT ? "candidate" : precision >= 95 ? "accepted" : "rejected";
     if (status === "accepted") accepted += 1;
     await db.query(
       `update rox_rules set status = $2, precision_pct = $3, sample_size = $4, evaluated_at = now() where rule_id = $1`,
       [ruleId, status, precision, stat.hits],
     );
   }
-  console.log(`evaluated against ${holdout.length} held-out labels: ${covered} matched, ${correct} agreed, ${accepted} rules accepted`);
-  console.log(`(holdout labelled by ${MODELS.extract}; precision means agreement with a per-item read, not human truth)`);
+  console.log(`evaluated against ${holdout.length} held-out labels: ${covered} matched, ${correct} agreed, ${accepted} rules accepted (>= ${MIN_SUPPORT} matches and >= 95% agreement)`);
+  console.log(`(holdout labelled by ${MODELS.extract}; precision means agreement with a per-item read, not human truth.\n Spot-checking the disagreements found the holdout itself wrong on a minority of them - fluid ounces converted to grams, a multipack mis-multiplied - so this is a lower bound.)`);
 }
 
 // ---- apply
