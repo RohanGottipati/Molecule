@@ -3,11 +3,12 @@ import type { ReactNode } from "react";
 
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import "./decision-panels.css";
 
 export const metadata: Metadata = {
-  title: "Molecule OS",
+  title: "Molecule · Production workspace",
   description:
-    "You describe something that should exist. Molecule assembles a company to make it.",
+    "Turn a production brief into supplier quotes, a validated plan and approved commerce records.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
