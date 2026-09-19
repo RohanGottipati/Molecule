@@ -20,6 +20,18 @@ export const SettingsSchema = z.object({
   lastProjectId: z.uuid().optional(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
+export const SettingsPatchSchema = SettingsSchema.extend({
+  shortcut: SettingsSchema.shape.shortcut.removeDefault(),
+  microphoneDevice: SettingsSchema.shape.microphoneDevice.removeDefault(),
+  voiceEnabled: SettingsSchema.shape.voiceEnabled.removeDefault(),
+  notificationsEnabled:
+    SettingsSchema.shape.notificationsEnabled.removeDefault(),
+  autoExpandOnAlert: SettingsSchema.shape.autoExpandOnAlert.removeDefault(),
+  screenShareConsent: SettingsSchema.shape.screenShareConsent.removeDefault(),
+})
+  .partial()
+  .strict();
+export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
 export type PermissionStatus =
   "not-determined" | "granted" | "denied" | "restricted" | "unknown";
 export interface DesktopBootstrap {
@@ -48,7 +60,7 @@ export interface DesktopBridge {
   toggleOverlay(): Promise<void>;
   setMode(mode: OverlayMode): Promise<void>;
   openDashboard(projectId?: string): Promise<void>;
-  saveSettings(settings: Settings): Promise<DesktopBootstrap>;
+  saveSettings(settings: SettingsPatch): Promise<DesktopBootstrap>;
   getPermissionStatus(): Promise<{
     microphone: PermissionStatus;
     screen: PermissionStatus;

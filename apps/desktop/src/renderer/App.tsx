@@ -15,8 +15,16 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   const [sources, setSources] = useState<ScreenSource[] | null>(null);
   const [sourceId, setSourceId] = useState("");
+  const [listingSources, setListingSources] = useState(false);
+  const [notice, setNotice] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const shareButton = useRef<HTMLButtonElement>(null);
+  const sourceSelect = useRef<HTMLSelectElement>(null);
+  const sourceTitle = useRef<HTMLHeadingElement>(null);
+  const orb = useRef<HTMLButtonElement>(null);
+  const screenRequest = useRef(0);
   const { voice, state: audio, toggle: toggleVoice } = useVoice(store);
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => store.error(error));
@@ -29,10 +37,22 @@ export function App() {
     const unsubscribe = store.bridge.onSignal((signal) => {
       if (signal.type === "visibility") store.setVisible(signal.visible);
       if (signal.type === "project") run(store.openProject(signal.projectId));
+      if (
+        (signal.type === "visibility" && !signal.visible) ||
+        signal.type === "project"
+      ) {
+        screenRequest.current += 1;
+        setSources(null);
+        setListingSources(false);
+      }
       if (signal.type === "settings") {
+        screenRequest.current += 1;
+        setSources(null);
+        setListingSources(false);
         setShowSettings(true);
         run(store.mode("conversation"));
       }
+      if (signal.type === "start-voice") setShowSettings(false);
     });
     return () => {
       unsubscribe();
@@ -40,6 +60,37 @@ export function App() {
       store.dispose();
     };
   }, [store]);
+  useEffect(() => {
+    if (state.mode === "compact") orb.current?.focus();
+    else if (!showSettings) input.current?.focus();
+  }, [state.mode, showSettings]);
+  useEffect(() => {
+    if (sources) (sourceSelect.current ?? sourceTitle.current)?.focus();
+  }, [sources]);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      if (sources || listingSources) {
+        screenRequest.current += 1;
+        setSources(null);
+        setListingSources(false);
+        shareButton.current?.focus();
+      } else if (showSettings) {
+        setShowSettings(false);
+        requestAnimationFrame(() => settingsButton.current?.focus());
+      } else {
+        run(store.bridge.hideOverlay());
+      }
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [store, showSettings, sources, listingSources]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const voiceActive = !["idle", "error"].includes(audio.state);
   const project = state.project;
   return (
@@ -104,8 +155,12 @@ export function App() {
     >
       <header className="drag-region">
         <button
+          ref={orb}
           className="orb"
-          aria-label="Expand Molecule"
+          aria-label={
+            state.mode === "compact" ? "Expand Molecule" : "Collapse Molecule"
+          }
+          aria-expanded={state.mode !== "compact"}
           onClick={() =>
             run(
               store.mode(state.mode === "compact" ? "conversation" : "compact"),
@@ -118,7 +173,7 @@ export function App() {
           <strong>
             Molecule <span>OS</span>
           </strong>
-          <small>
+          <small role="status">
             {voiceActive
               ? audio.muted
                 ? "Microphone muted"
@@ -131,7 +186,11 @@ export function App() {
         <button
           className={`mic-button ${voiceActive ? "active" : ""}`}
           aria-label={voiceActive ? "Stop voice" : "Start voice"}
-          onClick={() => run(toggleVoice())}
+          aria-pressed={voiceActive}
+          onClick={() => {
+            if (!voiceActive) setShowSettings(false);
+            run(toggleVoice());
+          }}
         >
           {voiceActive ? "Stop" : "Talk"}
         </button>
@@ -152,20 +211,41 @@ export function App() {
             <SettingsPanel
               value={state.bootstrap.settings}
               shortcut={state.bootstrap.shortcut}
-              close={() => setShowSettings(false)}
+              close={() => {
+                setShowSettings(false);
+                requestAnimationFrame(() => settingsButton.current?.focus());
+              }}
               save={async (settings) => {
                 if (
-                  !settings.voiceEnabled ||
-                  settings.microphoneDevice !==
-                    state.bootstrap?.settings.microphoneDevice
+                  settings.voiceEnabled === false ||
+                  (settings.microphoneDevice !== undefined &&
+                    settings.microphoneDevice !==
+                      state.bootstrap?.settings.microphoneDevice)
                 )
                   voice.stop();
                 await store.settings(settings);
+                const registered = store.getSnapshot().bootstrap?.shortcut;
+                setNotice(
+                  settings.shortcut && settings.shortcut !== registered
+                    ? `Settings saved. Requested shortcut unavailable; ${registered ? `using ${registered}` : "use the menu bar"}.`
+                    : "Settings saved on this device.",
+                );
               }}
             />
           ) : (
             <>
               <p className="eyebrow">YOUR COMPANY, ON DEMAND</p>
+              {notice && (
+                <p className="notice" role="status">
+                  {notice}
+                </p>
+              )}
+              {state.pending > 0 && (
+                <p className="pending-status" role="status">
+                  <span className="status-pulse" aria-hidden="true" />
+                  Working on your request. You can send an update below.
+                </p>
+              )}
               {!state.project && (
                 <>
                   <h1>What are we making?</h1>
@@ -278,7 +358,10 @@ export function App() {
                     )}
                   </div>
                   <span>{audio.muted ? "Muted" : audio.state}</span>
-                  <button onClick={() => voice.mute(!audio.muted)}>
+                  <button
+                    aria-pressed={audio.muted}
+                    onClick={() => voice.mute(!audio.muted)}
+                  >
                     {audio.muted ? "Unmute" : "Mute"}
                   </button>
                   <button onClick={() => voice.interrupt()}>Interrupt</button>
@@ -302,15 +385,21 @@ export function App() {
                 </p>
               ))}
               <form
+                className="composer"
                 onSubmit={(event) => {
                   event.preventDefault();
                   if (!text.trim()) return;
                   const intent = text.trim();
                   setLastText(intent);
                   if (voiceActive) voice.interrupt();
-                  setText("");
                   run(
-                    store.command({ name: "start_project", args: { intent } }),
+                    store
+                      .command({ name: "start_project", args: { intent } })
+                      .then(() => {
+                        setText((current) =>
+                          current.trim() === intent ? "" : current,
+                        );
+                      }),
                   );
                 }}
               >
@@ -321,7 +410,21 @@ export function App() {
                   placeholder="200 onboarding kits by Friday, under $7,000 CAD…"
                   value={text}
                   onChange={(event) => setText(event.target.value)}
+                  aria-describedby="intent-hint"
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      (event.metaKey || event.ctrlKey) &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
                 />
+                <small id="intent-hint" className="input-hint">
+                  ⌘ / Ctrl + Enter to send · Enter for a new line
+                </small>
                 <button
                   className="primary"
                   disabled={!text.trim()}
@@ -348,22 +451,34 @@ export function App() {
                   ＋ Attach context
                 </button>
                 <button
+                  ref={shareButton}
+                  disabled={listingSources}
+                  aria-expanded={!!sources}
                   onClick={() =>
                     run(
                       (async () => {
+                        const request = ++screenRequest.current;
+                        setListingSources(true);
                         try {
                           const items = await store.bridge.listScreenSources();
+                          if (request !== screenRequest.current) return;
                           setSources(items);
                           setSourceId(items[0]?.id ?? "");
                         } catch (error) {
+                          if (request !== screenRequest.current) return;
                           store.error(error);
                           setSources([]);
+                        } finally {
+                          if (request === screenRequest.current)
+                            setListingSources(false);
                         }
                       })(),
                     )
                   }
                 >
-                  Share screen / window
+                  {listingSources
+                    ? "Finding screens…"
+                    : "Share screen / window"}
                 </button>
               </div>
               {dragging && (
@@ -379,7 +494,7 @@ export function App() {
                   </span>
                 ))}
                 {state.uploading.map((name, index) => (
-                  <span key={`${name}-${index}`}>
+                  <span className="uploading" key={`${name}-${index}`}>
                     {name}
                     <small>Uploading…</small>
                   </span>
@@ -387,7 +502,9 @@ export function App() {
               </div>
               {sources && (
                 <section className="screen-picker">
-                  <h2>Share one frame</h2>
+                  <h2 ref={sourceTitle} tabIndex={-1}>
+                    Share one frame
+                  </h2>
                   {!state.bootstrap?.settings.screenShareConsent && (
                     <p>
                       Only your selected source will be captured once and
@@ -400,6 +517,7 @@ export function App() {
                       <label>
                         Screen or window
                         <select
+                          ref={sourceSelect}
                           value={sourceId}
                           onChange={(event) => setSourceId(event.target.value)}
                         >
@@ -416,14 +534,17 @@ export function App() {
                           run(
                             (async () => {
                               setSources(null);
-                              await store.uploadFrom(async () => [
-                                await captureFrame(store.bridge, sourceId),
+                              await store.uploadFrom(async (signal) => [
+                                await captureFrame(
+                                  store.bridge,
+                                  sourceId,
+                                  signal,
+                                ),
                               ]);
                               const settings =
                                 store.getSnapshot().bootstrap?.settings;
                               if (settings)
                                 await store.settings({
-                                  ...settings,
                                   screenShareConsent: true,
                                 });
                             })(),
@@ -442,7 +563,14 @@ export function App() {
                       Open Screen Recording settings
                     </button>
                   )}
-                  <button onClick={() => setSources(null)}>Cancel</button>
+                  <button
+                    onClick={() => {
+                      setSources(null);
+                      shareButton.current?.focus();
+                    }}
+                  >
+                    Cancel
+                  </button>
                 </section>
               )}
               {project && (
@@ -464,6 +592,10 @@ export function App() {
                       voice.stop();
                       run(store.newProject());
                       setLastText("");
+                      setText("");
+                      setSources(null);
+                      screenRequest.current += 1;
+                      setListingSources(false);
                     }}
                   >
                     New project
@@ -566,7 +698,7 @@ export function App() {
                               <small>{item.merchantId}</small>
                             )}
                           </span>
-                          <time>
+                          <time dateTime={item.timestamp}>
                             {new Date(item.timestamp).toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
@@ -631,7 +763,17 @@ export function App() {
               )}
               <footer>
                 <span>{state.bootstrap?.shortcut ?? "Menu bar"} to return</span>
-                <button onClick={() => setShowSettings(true)}>Settings</button>
+                <button
+                  ref={settingsButton}
+                  onClick={() => {
+                    screenRequest.current += 1;
+                    setSources(null);
+                    setListingSources(false);
+                    setShowSettings(true);
+                  }}
+                >
+                  Settings
+                </button>
               </footer>
             </>
           )}

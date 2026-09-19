@@ -3,8 +3,11 @@ import type { DesktopBridge } from "../../shared/bridge.js";
 export async function captureFrame(
   bridge: DesktopBridge,
   sourceId: string,
+  signal?: AbortSignal,
 ): Promise<File> {
+  signal?.throwIfAborted();
   await bridge.selectScreenSource(sourceId);
+  signal?.throwIfAborted();
   const stream = await navigator.mediaDevices
     .getDisplayMedia({
       video: true,
@@ -16,20 +19,30 @@ export async function captureFrame(
       throw error;
     });
   const video = document.createElement("video");
+  let frame: number | undefined;
   try {
+    signal?.throwIfAborted();
     video.muted = true;
     video.srcObject = stream;
-    await video.play();
     await new Promise<void>((resolve, reject) => {
+      const finish = (error?: unknown) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+        if (error) reject(error);
+        else resolve();
+      };
+      const abort = () => finish(signal?.reason);
       const timer = setTimeout(
-        () => reject(new Error("Screen capture timed out")),
+        () => finish(new Error("Screen capture timed out")),
         5000,
       );
-      video.requestVideoFrameCallback(() => {
-        clearTimeout(timer);
-        resolve();
-      });
+      signal?.addEventListener("abort", abort, { once: true });
+      frame = video.requestVideoFrameCallback(() => finish());
+      void video.play().catch(finish);
     });
+    signal?.throwIfAborted();
+    if (!video.videoWidth || !video.videoHeight)
+      throw new Error("Screen capture unavailable");
     const scale = Math.min(1, 1920 / video.videoWidth);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(video.videoWidth * scale);
@@ -48,6 +61,7 @@ export async function captureFrame(
     );
     return new File([blob], `screen-${Date.now()}.png`, { type: "image/png" });
   } finally {
+    if (frame !== undefined) video.cancelVideoFrameCallback(frame);
     stream.getTracks().forEach((track) => track.stop());
     video.pause();
     video.srcObject = null;

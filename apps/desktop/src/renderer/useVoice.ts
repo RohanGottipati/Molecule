@@ -32,6 +32,9 @@ export function useVoice(store: DesktopStore) {
       voice.stop();
       return;
     }
+    void store
+      .mode("conversation")
+      .catch((error: unknown) => store.error(error));
     if (!store.getSnapshot().bootstrap?.settings.voiceEnabled)
       throw new Error("Enable voice in Settings to start a conversation.");
     await voice.start();

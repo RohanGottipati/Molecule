@@ -14,7 +14,7 @@ import {
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { OverlayModeSchema, SettingsSchema } from "../shared/bridge.js";
+import { OverlayModeSchema, SettingsPatchSchema } from "../shared/bridge.js";
 import {
   allowsMediaRequest,
   allowsMediaCheck,
@@ -196,12 +196,15 @@ else
         shell.openExternal(dashboardUrl(webUrl, z.uuid().optional().parse(id))),
       );
       handle("desktop:settings", async (value) => {
-        const next = SettingsSchema.parse(value);
-        const previousShortcut = settings.get().shortcut;
-        await settings.save(next);
-        if (next.shortcut !== previousShortcut) {
+        const next = SettingsPatchSchema.parse(value);
+        await settings.update(next);
+        if (next.shortcut !== undefined) {
           if (shortcut) globalShortcut.unregister(shortcut);
-          shortcut = registerShortcut(globalShortcut, next.shortcut, toggle);
+          shortcut = registerShortcut(
+            globalShortcut,
+            settings.get().shortcut,
+            toggle,
+          );
         }
         return bootstrap();
       });
@@ -233,7 +236,7 @@ else
         pendingProject =
           argv.map(projectFromLink).find((id) => id !== null) ?? null;
         overlay.show();
-        revealProject();
+        if (rendererReady) revealProject();
       });
       const startVoice = () => {
         overlay.show();

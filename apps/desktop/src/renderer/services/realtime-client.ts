@@ -139,6 +139,9 @@ export class RealtimeClient {
           if (generation === this.generation) this.reconnect();
         };
       });
+      this.connectTimer = setTimeout(() => {
+        if (generation === this.generation) this.reconnect();
+      }, 30_000);
       const context = await this.deps.refresh();
       if (!this.wanted || generation !== this.generation) return;
       const secret = await this.deps.createSession(context.project.orderId);
@@ -209,10 +212,6 @@ export class RealtimeClient {
         sdp,
       });
       if (!this.wanted || generation !== this.generation) return;
-      if (channel.readyState !== "open")
-        this.connectTimer = setTimeout(() => {
-          if (generation === this.generation) this.reconnect();
-        }, 15_000);
     } catch (error) {
       if (!this.wanted || generation !== this.generation) return;
       if (
