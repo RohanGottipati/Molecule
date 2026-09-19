@@ -1,5 +1,7 @@
 # OpenAI, Orchestrator, and Solver Owner Task
 
+> **Full execution bible:** [`docs/OPENAI_IMPLEMENTATION.md`](../OPENAI_IMPLEMENTATION.md) — titled **OpenAI implementation**. Work packets O0–O12, keys/setup, contracts, file trees, tests, fallbacks, and ready-to-paste agent prompts.
+
 ## Scope
 
 Own `apps/web/**`, `packages/openai/**`, `services/orchestrator/**`, `services/solver/**`, and their tests. Access Shopify, Backboard, and Tiger only through typed interfaces.

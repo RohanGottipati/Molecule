@@ -27,6 +27,7 @@ export const ConstraintOperatorSchema = z.enum([
   "gte",
   "in",
   "contains",
+  "not_contains",
 ]);
 
 export const ConstraintSchema = z.object({
@@ -49,10 +50,12 @@ export const AssetRefSchema = z
     mimeType: z.string().optional(),
     url: z.url().optional(),
     checksum: z.string().optional(),
+    providerFileId: z.string().optional(),
   })
   .refine((asset) => asset.url !== undefined || asset.checksum !== undefined, {
     message: "An asset must have a URL or checksum",
   });
+export type AssetRef = z.infer<typeof AssetRefSchema>;
 
 export const AmbiguityFlagSchema = z.object({
   field: z.string(),
@@ -75,6 +78,103 @@ export const ProductIntentSchema = z.object({
   ambiguityFlags: z.array(AmbiguityFlagSchema).default([]),
 });
 export type ProductIntent = z.infer<typeof ProductIntentSchema>;
+
+export const ProductIntentDraftSchema = ProductIntentSchema.extend({
+  quantity: z.number().int().positive().nullable(),
+  deadline: z.iso.datetime().nullable(),
+  currency: CurrencySchema.nullable(),
+  budgetMax: z.number().positive().nullable().optional(),
+  desiredOutputs: z.array(DesiredOutputSchema),
+});
+export type ProductIntentDraft = z.infer<typeof ProductIntentDraftSchema>;
+
+export const CompileIntentRequestSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  text: z.string().min(1),
+  locale: z.string().min(2).default("en-CA"),
+  timeZone: z.string().min(1).default("UTC"),
+  requestedAt: z.iso.datetime(),
+  assets: z.array(AssetRefSchema).default([]),
+  previousIntent: ProductIntentDraftSchema.optional(),
+  correction: z
+    .object({
+      kind: z.enum([
+        "constraint",
+        "preference",
+        "quantity",
+        "deadline",
+        "budget",
+        "other",
+      ]),
+      text: z.string().min(1),
+    })
+    .optional(),
+});
+export type CompileIntentRequest = z.infer<typeof CompileIntentRequestSchema>;
+
+export const CompileIntentResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("READY"),
+    intent: ProductIntentSchema,
+  }),
+  z.strictObject({
+    status: z.literal("NEEDS_CLARIFICATION"),
+    draft: ProductIntentDraftSchema,
+    questions: z.array(z.string().min(1)).min(1),
+  }),
+  z.strictObject({
+    status: z.literal("UNSUPPORTED"),
+    reason: z.string().min(1),
+  }),
+]);
+export type CompileIntentResult = z.infer<typeof CompileIntentResultSchema>;
+
+export const ClaimSourceSchema = z.object({
+  kind: z.enum(["shopify", "csv", "document", "note", "api", "manual"]),
+  reference: z.string(),
+  checksum: z.string().optional(),
+});
+
+export const ClaimExtractionRequestSchema = z
+  .strictObject({
+    traceId: z.string().min(1),
+    merchantId: z.string().min(1),
+    source: ClaimSourceSchema.optional(),
+    text: z.string().min(1).optional(),
+    assets: z.array(AssetRefSchema).default([]),
+    locale: z.string().min(2).default("en-CA"),
+  })
+  .refine((input) => input.text !== undefined || input.assets.length > 0, {
+    message: "Claim extraction requires text or an asset",
+  });
+export type ClaimExtractionRequest = z.infer<
+  typeof ClaimExtractionRequestSchema
+>;
+
+export const ExtractedClaimCandidateSchema = z.strictObject({
+  field: z.string().min(1),
+  value: z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.array(z.string()),
+    z.array(z.number()),
+  ]),
+  normalizedUnit: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
+  evidenceText: z.string().nullable(),
+  ambiguity: z.string().nullable(),
+});
+export type ExtractedClaimCandidate = z.infer<
+  typeof ExtractedClaimCandidateSchema
+>;
+
+export const ClaimExtractionResultSchema = z.strictObject({
+  merchantId: z.string().min(1),
+  candidates: z.array(ExtractedClaimCandidateSchema),
+});
+export type ClaimExtractionResult = z.infer<typeof ClaimExtractionResultSchema>;
 
 export const CapabilityPortSchema = z.object({
   kind: z.string().min(1),
@@ -135,12 +235,6 @@ export const MerchantCapabilitySchema = z.object({
 });
 export type MerchantCapability = z.infer<typeof MerchantCapabilitySchema>;
 
-export const ClaimSourceSchema = z.object({
-  kind: z.enum(["shopify", "csv", "document", "note", "api", "manual"]),
-  reference: z.string(),
-  checksum: z.string().optional(),
-});
-
 export const CanonicalClaimSchema = z.object({
   claimId: z.string(),
   merchantId: z.string(),
@@ -178,18 +272,33 @@ export const ConstraintPatchSchema = z.object({
  * should actually reserve capacity; a false/absent hold keeps the quote
  * non-binding regardless of what the merchant assistant proposes.
  */
-export const QuoteRequestSchema = z.object({
-  orderId: z.string().min(1),
-  traceId: z.string().min(1),
-  merchantId: z.string().min(1),
-  capabilityId: z.string().min(1),
-  quantity: z.number().int().positive(),
-  currency: CurrencySchema,
-  deadline: z.iso.datetime().optional(),
-  hold: z.boolean().default(false),
-  relevantClaimFields: z.array(z.string()).default([]),
-  constraints: z.array(ConstraintSchema).default([]),
-});
+export const QuoteRequestSchema = z
+  .strictObject({
+    orderId: z.string().min(1),
+    traceId: z.string().min(1),
+    merchantId: z.string().min(1),
+    capabilityId: z.string().min(1),
+    intentVersion: z.number().int().positive().default(1),
+    quantity: z.number().int().positive(),
+    currency: CurrencySchema,
+    deadline: z.iso.datetime().optional(),
+    hold: z.boolean().default(false),
+    actionKey: z.string().min(1).optional(),
+    hardConstraints: z.array(ConstraintSchema).default([]),
+    softPreferences: z.array(WeightedPreferenceSchema).default([]),
+    relevantClaimFields: z.array(z.string()).default([]),
+    constraints: z.array(ConstraintSchema).default([]),
+  })
+  .transform((request) => {
+    const constraints = [
+      ...new Map(
+        [...request.constraints, ...request.hardConstraints].map(
+          (constraint) => [constraint.constraintId, constraint],
+        ),
+      ).values(),
+    ];
+    return { ...request, constraints, hardConstraints: constraints };
+  });
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
 
 export const QuoteResponseSchema = z.object({
@@ -265,6 +374,36 @@ export const RecommendationSetSchema = z.object({
 });
 export type RecommendationSet = z.infer<typeof RecommendationSetSchema>;
 
+export const CandidateRiskSchema = z.strictObject({
+  p50Hours: z.number().nonnegative().optional(),
+  p95Hours: z.number().nonnegative().optional(),
+  p99Hours: z.number().nonnegative().optional(),
+  sampleCount: z.number().int().nonnegative(),
+  confidence: z.enum(["low", "medium", "high"]),
+});
+
+export const CandidateCapabilitySchema = z.strictObject({
+  capabilityId: z.string().min(1),
+  merchantId: z.string().min(1),
+  score: z.number(),
+  capability: MerchantCapabilitySchema,
+  risk: CandidateRiskSchema.optional(),
+  blockedReasons: z.array(z.string()).default([]),
+});
+export type CandidateCapability = z.infer<typeof CandidateCapabilitySchema>;
+
+export const SolverInputSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
+  now: z.iso.datetime(),
+  intent: ProductIntentSchema,
+  candidates: z.array(CandidateCapabilitySchema),
+  quotes: z.array(QuoteResponseSchema),
+  changePenaltyNodeIds: z.array(z.string()).default([]),
+});
+export type SolverInput = z.infer<typeof SolverInputSchema>;
+
 export const PlanNodeSchema = z.object({
   nodeId: z.string(),
   merchantId: z.string(),
@@ -328,6 +467,144 @@ export const ProductionPlanSchema = z
   });
 export type ProductionPlan = z.infer<typeof ProductionPlanSchema>;
 
+export const ExecutionActionReceiptSchema = z.strictObject({
+  actionKey: z.string().min(1),
+  kind: z.enum([
+    "CAPACITY_RESERVATION",
+    "COMPOSITE_PRODUCT",
+    "SUPPLIER_JOB",
+    "CUSTOMER_ORDER",
+    "SUPERSEDE_SUPPLIER_JOB",
+  ]),
+  status: z.enum(["PENDING", "SUCCEEDED", "FAILED", "COMPENSATED"]),
+  providerRef: z.string().optional(),
+  errorCode: z.string().optional(),
+});
+export type ExecutionActionReceipt = z.infer<
+  typeof ExecutionActionReceiptSchema
+>;
+
+export const ExecutionReceiptSchema = z.strictObject({
+  orderId: z.string().min(1),
+  planId: z.string().min(1),
+  intentVersion: z.number().int().positive(),
+  actions: z.array(ExecutionActionReceiptSchema),
+  compositeProduct: z
+    .strictObject({
+      storeDomain: z.string(),
+      productGid: z.string(),
+      variantGid: z.string().optional(),
+      adminUrl: z.url().optional(),
+      storefrontUrl: z.url().optional(),
+    })
+    .optional(),
+  customerOrder: z
+    .strictObject({
+      draftOrderGid: z.string().optional(),
+      orderGid: z.string().optional(),
+      checkoutUrl: z.url().optional(),
+    })
+    .optional(),
+  supplierJobs: z.array(
+    z.strictObject({
+      merchantId: z.string(),
+      nodeId: z.string(),
+      draftOrderGid: z.string(),
+      storeDomain: z.string(),
+    }),
+  ),
+});
+export type ExecutionReceipt = z.infer<typeof ExecutionReceiptSchema>;
+
+export const ChaosRequestSchema = z.strictObject({
+  scenario: z.enum([
+    "supplier_offline",
+    "inventory_zero",
+    "price_spike",
+    "lead_time_delay",
+    "conflicting_document",
+  ]),
+  orderId: z.string().optional(),
+  merchantId: z.string().optional(),
+});
+export type ChaosRequest = z.infer<typeof ChaosRequestSchema>;
+
+export const ChaosReceiptSchema = z.strictObject({
+  scenario: ChaosRequestSchema.shape.scenario,
+  applied: z.boolean(),
+  reversible: z.boolean(),
+  eventId: z.uuid(),
+});
+export type ChaosReceipt = z.infer<typeof ChaosReceiptSchema>;
+
+export const OrderSessionStateSchema = z.enum([
+  "REQUESTED",
+  "COMPILING_INTENT",
+  "NEEDS_CLARIFICATION",
+  "INTENT_COMPILED",
+  "DISCOVERING",
+  "CANDIDATES_READY",
+  "QUOTING",
+  "QUOTED",
+  "SOLVING",
+  "PLAN_VALIDATED",
+  "PLAN_UNSAT",
+  "AWAITING_APPROVAL",
+  "EXECUTING",
+  "SKU_CREATED",
+  "SUPPLIER_JOBS_CREATED",
+  "CUSTOMER_ORDER_CREATED",
+  "COMPLETED",
+  "AT_RISK",
+  "RECOVERING",
+  "NEEDS_HUMAN",
+  "FAILED",
+  "CANCELLED",
+]);
+export type OrderSessionState = z.infer<typeof OrderSessionStateSchema>;
+
+export const OrderSessionSnapshotSchema = z.strictObject({
+  orderId: z.string().min(1),
+  traceId: z.string().min(1),
+  state: OrderSessionStateSchema,
+  revision: z.number().int().nonnegative(),
+  intentVersion: z.number().int().nonnegative(),
+  planGeneration: z.number().int().nonnegative(),
+  intent: ProductIntentDraftSchema.nullable(),
+  candidates: z.array(CandidateCapabilitySchema),
+  quotes: z.array(QuoteResponseSchema),
+  activePlan: ProductionPlanSchema.nullable(),
+  executionReceipt: ExecutionReceiptSchema.nullable(),
+  lastErrorCode: z.string().nullable(),
+  eventCursor: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type OrderSessionSnapshot = z.infer<typeof OrderSessionSnapshotSchema>;
+
+export const ApiErrorSchema = z.strictObject({
+  code: z.enum([
+    "VALIDATION_ERROR",
+    "CONFLICT",
+    "STALE_VERSION",
+    "NOT_FOUND",
+    "PROVIDER_TIMEOUT",
+    "PROVIDER_AUTH",
+    "RATE_LIMITED",
+    "MODEL_REFUSAL",
+    "INCOMPLETE_MODEL_OUTPUT",
+    "SOLVER_UNSAT",
+    "INVALID_TRANSITION",
+    "CHAOS_DISABLED",
+    "INTERNAL",
+  ]),
+  message: z.string(),
+  traceId: z.string().min(1),
+  retryable: z.boolean(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+export type ApiError = z.infer<typeof ApiErrorSchema>;
+
 export const MoleculeEventSchema = z.object({
   eventId: z.uuid(),
   traceId: z.string().min(1),
@@ -338,6 +615,7 @@ export const MoleculeEventSchema = z.object({
   ts: z.iso.datetime(),
   severity: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]),
   source: z.enum([
+    "orchestrator",
     "openai",
     "rox",
     "backboard",
@@ -349,3 +627,79 @@ export const MoleculeEventSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 export type MoleculeEvent = z.infer<typeof MoleculeEventSchema>;
+
+export const ActionIdSchema = z.string().min(1).max(160);
+export const DesktopConstraintSchema = ConstraintSchema.omit({
+  constraintId: true,
+}).extend({
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+  hard: z.boolean(),
+});
+export const DesktopCommandSchema = z.discriminatedUnion("name", [
+  z.object({
+    name: z.literal("start_project"),
+    args: z.object({ intent: z.string().min(1).max(20_000) }),
+  }),
+  z.object({
+    name: z.literal("add_constraint"),
+    args: z.object({ constraint: DesktopConstraintSchema }),
+  }),
+  z.object({
+    name: z.literal("remove_constraint"),
+    args: z.object({ constraintId: z.string().min(1) }),
+  }),
+  z.object({
+    name: z.literal("attach_context"),
+    args: z.object({ contextId: z.uuid() }),
+  }),
+  z.object({ name: z.literal("get_project_status"), args: z.object({}) }),
+  z.object({ name: z.literal("get_active_plan"), args: z.object({}) }),
+  z.object({
+    name: z.literal("explain_decision"),
+    args: z.object({ decisionId: z.string().optional() }),
+  }),
+  z.object({ name: z.literal("request_recompile"), args: z.object({}) }),
+  z.object({
+    name: z.literal("approve_action"),
+    args: z.object({
+      planId: z.string(),
+      intentVersion: z.number().int().positive(),
+    }),
+  }),
+  z.object({ name: z.literal("cancel_project"), args: z.object({}) }),
+  z.object({ name: z.literal("open_command_center"), args: z.object({}) }),
+]);
+export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
+export const DesktopActionSchema = z.object({
+  actionId: ActionIdSchema,
+  command: DesktopCommandSchema,
+  locale: z.string().default("en-CA"),
+  timeZone: z.string().default("UTC"),
+});
+export const DesktopResultSchema = z.object({
+  project: OrderSessionSnapshotSchema,
+  contexts: z.array(AssetRefSchema),
+});
+export type DesktopResult = z.infer<typeof DesktopResultSchema>;
+export const RealtimeSessionSchema = z.object({
+  value: z.string().min(1),
+  expiresAt: z.number().optional(),
+});
+export const ContextUploadSchema = z.object({
+  actionId: ActionIdSchema,
+  name: z.string().min(1).max(200),
+  mimeType: z.enum([
+    "image/png",
+    "image/jpeg",
+    "application/pdf",
+    "text/csv",
+    "text/plain",
+    "application/json",
+  ]),
+});
+export const MAX_CONTEXT_BYTES = 10 * 1024 * 1024;
+export const ContextReceiptSchema = z.object({
+  contextId: z.uuid(),
+  asset: AssetRefSchema,
+});
+export type ContextReceipt = z.infer<typeof ContextReceiptSchema>;

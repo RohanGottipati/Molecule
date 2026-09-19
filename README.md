@@ -28,6 +28,7 @@ Do not add real secrets to committed files.
 
 ```text
 apps/web                 Customer UI and production graph
+apps/desktop             macOS Electron voice/context overlay
 apps/shopify-app         Shopify embedded/central app
 services/orchestrator    Workflow, actions, state machine, and SSE
 services/solver          Deterministic Python solver
@@ -45,6 +46,8 @@ scripts                  Bootstrap, provider verification, demo, and load tools
 ```
 
 Read [`AGENTS.md`](AGENTS.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/CONTRACTS.md`](docs/CONTRACTS.md) before implementation. Owner-specific scopes live in [`docs/TASKS`](docs/TASKS).
+
+For the desktop application, permissions, setup, API boundaries, demo instructions, and verification limitations, see [`docs/DESKTOP.md`](docs/DESKTOP.md).
 
 ## Core rules
 
