@@ -25,12 +25,12 @@ Goal: pull all types of supplier data out of the 8 Shopify dev stores, land it i
 
 New migration `sql/009_shopify_catalog.sql` (additive, never edits an applied file):
 
-| Table | Holds |
-|---|---|
-| `shopify_sync_runs` | one row per run: started/finished, stores, counts, status |
-| `shopify_products` | store, merchant, product GID, handle, title, type, vendor, status, tags, description, `synced_at` |
-| `shopify_variants` | variant GID, product GID, SKU, options, price, currency, tracked, `available`, inventory item GID, `synced_at` |
-| `shopify_capacity_signals` (view) | tracked "capacity" products with current available units per store |
+| Table                             | Holds                                                                                                          |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `shopify_sync_runs`               | one row per run: started/finished, stores, counts, status                                                      |
+| `shopify_products`                | store, merchant, product GID, handle, title, type, vendor, status, tags, description, `synced_at`              |
+| `shopify_variants`                | variant GID, product GID, SKU, options, price, currency, tracked, `available`, inventory item GID, `synced_at` |
+| `shopify_capacity_signals` (view) | tracked "capacity" products with current available units per store                                             |
 
 Existing tables also populated: `merchants` (adds `print-press` if missing), `merchant_stores` (domain per merchant), `raw_artifacts` + `canonical_claims` (capacity claims), `molecule_events` (`reality.claim.ingested`, `shopify.sync.completed`).
 
@@ -59,7 +59,7 @@ Mapping of store handle to merchant ID uses `MERCHANT_IDS` from `packages/test-f
 2. `node --env-file=.env --env-file=.env.local scripts/shopify-sync.mjs` (or the webhook, once mounted) sees 0, inserts a claim, supersedes the old Shopify claim.
 3. Reality resolves `cap-thread-embroidery.capacity` to 0 at the next search, the capability drops out, the solver plans Needle North.
 4. Write-back updates the Admin metafields (`resolved_value = 0`, `claim_status = resolved`).
-Automating step 2 (poll every 10s, later the `inventory_levels/update` webhook) is the next milestone, see section 8.
+   Automating step 2 (poll every 10s, later the `inventory_levels/update` webhook) is the next milestone, see section 8.
 
 ## 7. Verification
 
