@@ -15,7 +15,7 @@ export interface ShopifyRealityClaimInput {
   rawValue: unknown;
   sourceKind: "shopify";
   sourceReference: string;
-  observedAt: string;
+  observedAt?: string;
   sourceAuthority: number;
   extractionConfidence: number;
   evidenceText: string;
@@ -39,7 +39,11 @@ const INGESTIBLE_ROLES = new Set([
 export function merchantIdForShopifyStore(
   storeHandle: string,
 ): string | undefined {
-  const role = roleForStore(storeHandle);
+  const handle = storeHandle
+    .trim()
+    .toLowerCase()
+    .replace(/\.myshopify\.com$/, "");
+  const role = roleForStore(handle);
   if (!INGESTIBLE_ROLES.has(role)) return undefined;
   return MERCHANT_IDS[role as keyof typeof MERCHANT_IDS];
 }
@@ -58,7 +62,6 @@ export function extractCapacityClaims(
     rawValue: item.quantity,
     sourceKind: "shopify",
     sourceReference: item.itemId,
-    observedAt: snapshot.capturedAt,
     sourceAuthority: 0.9,
     extractionConfidence: 1,
     evidenceText: `${item.title} tracked inventory = ${item.quantity}`,

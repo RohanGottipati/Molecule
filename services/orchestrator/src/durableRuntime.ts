@@ -10,8 +10,13 @@ import {
   MockShopifyClient,
   RealShopifyClient,
   PostgresShopifyActionRepository,
+  ShopifyError,
+  ShopifyTransport,
+  merchantIdForShopifyStore,
+  shopDomain,
   type ShopifyActionRepository,
 } from "@molecule/shopify";
+import { MockShopifyAdapter } from "@molecule/shopify/catalog";
 import {
   MarketplaceSnapshotSchema,
   type ProviderStatus,
@@ -19,6 +24,33 @@ import {
 import type { Config } from "./config.js";
 import { PostgresStore } from "./PostgresStore.js";
 import { DurableExecutionClient } from "./clients/DurableExecutionClient.js";
+import {
+  ingestShopifyCapacityBatch,
+  ingestShopifyInventoryUpdate,
+  type ShopifyInventoryUpdate,
+} from "./shopifyRealityIngestion.js";
+
+function configuredShopifyStores(value: string | undefined): string[] {
+  return [
+    ...new Set(
+      (value ?? "")
+        .split(",")
+        .map((shop) => shop.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function configuredShopifyDomains(stores: readonly string[]): string[] {
+  return stores.map((store) => {
+    const normalized = store.trim().toLowerCase();
+    return shopDomain(
+      normalized.endsWith(".myshopify.com")
+        ? normalized
+        : `${normalized}.myshopify.com`,
+    );
+  });
+}
 
 export async function createDurableRuntime(config: Config) {
   const store = new PostgresStore();
@@ -106,7 +138,15 @@ export async function createDurableRuntime(config: Config) {
       ),
     inspect: (id) => repository.inspect(id),
     events: (id) => repository.events(id),
-    recordWebhook: (...args) => repository.recordWebhook(...args),
+    recordWebhook: async (...args) => {
+      const status = await repository.recordWebhook(...args);
+      // The Shopify journal and global Molecule event feed are separate
+      // durable stores. Project the webhook immediately; the append is
+      // idempotent by event ID, so a duplicate delivery also repairs a
+      // previously interrupted projection.
+      await store.append(args[3]);
+      return status;
+    },
   };
   const supplierSchema = z.record(
     z.string(),
@@ -115,6 +155,58 @@ export async function createDurableRuntime(config: Config) {
       auth: z.object({ accessToken: z.string().min(1) }),
     }),
   );
+  const supplierStores =
+    config.SHOPIFY_MODE === "live"
+      ? supplierSchema.parse(JSON.parse(config.SHOPIFY_SUPPLIER_STORES!))
+      : undefined;
+  const mockCatalog =
+    config.SHOPIFY_MODE === "demo" ? new MockShopifyAdapter() : undefined;
+  const shops = configuredShopifyStores(config.SHOPIFY_STORES);
+  const snapshotStores = shops.length ? shops : mockCatalog!.listStores();
+  const snapshotSource =
+    config.SHOPIFY_MODE === "live"
+      ? {
+          getSnapshot: async (shop: string) => {
+            const merchantId = merchantIdForShopifyStore(shop);
+            const supplier = merchantId
+              ? supplierStores?.[merchantId]
+              : undefined;
+            if (!supplier)
+              throw new ShopifyError("SUPPLIER_STORE_NOT_CONFIGURED");
+            return new ShopifyTransport({
+              domain: supplier.domain,
+              auth: supplier.auth,
+            }).getSnapshot(shop);
+          },
+        }
+      : mockCatalog!;
+  const batch = await ingestShopifyCapacityBatch(
+    snapshotSource,
+    snapshotStores,
+    {
+      onSkippedStore: (shop) =>
+        console.info({
+          event: "shopify.reality_ingestion.store_skipped",
+          shop,
+          reason: "merchant_not_mapped",
+        }),
+    },
+  );
+  const syncedAt = new Date().toISOString();
+  await store.append({
+    eventId: randomUUID(),
+    traceId: batch.traceId,
+    eventType: "shopify.reality_ingestion.completed",
+    severity: "INFO",
+    source: "shopify",
+    ts: syncedAt,
+    payload: {
+      syncedAt,
+      accepted: batch.accepted,
+      quarantined: batch.quarantined,
+      skippedStores: batch.skippedStores,
+    },
+  });
   const commerce =
     config.SHOPIFY_MODE === "live"
       ? new RealShopifyClient({
@@ -124,9 +216,7 @@ export async function createDurableRuntime(config: Config) {
             domain: config.SHOPIFY_STOREFRONT_DOMAIN!,
             auth: { accessToken: config.SHOPIFY_ACCESS_TOKEN! },
           },
-          supplierStores: supplierSchema.parse(
-            JSON.parse(config.SHOPIFY_SUPPLIER_STORES!),
-          ),
+          supplierStores: supplierStores!,
         })
       : new MockShopifyClient({ repository: journal });
   return {
@@ -134,6 +224,25 @@ export async function createDurableRuntime(config: Config) {
     reality,
     merchantAgents: merchants,
     shopify: new DurableExecutionClient(commerce, merchants),
+    shopifyWebhook: config.SHOPIFY_API_SECRET
+      ? {
+          options: {
+            secret: config.SHOPIFY_API_SECRET,
+            allowedDomains: configuredShopifyDomains(snapshotStores),
+            repository: journal,
+          },
+          ingestInventoryUpdate: async (update: ShopifyInventoryUpdate) => {
+            const ingested = await ingestShopifyInventoryUpdate(update);
+            if (ingested.status === "skipped") {
+              console.info({
+                event: "shopify.reality_ingestion.store_skipped",
+                shop: update.shop,
+                reason: "merchant_not_mapped",
+              });
+            }
+          },
+        }
+      : undefined,
     async marketplace(providers: ProviderStatus[]) {
       const summaries = await reality.listMerchants();
       for (const merchant of summaries) {

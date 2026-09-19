@@ -19,6 +19,8 @@ export const ConfigSchema = z.object({
   SHOPIFY_STOREFRONT_DOMAIN: z.string().optional(),
   SHOPIFY_ACCESS_TOKEN: z.string().optional(),
   SHOPIFY_SUPPLIER_STORES: z.string().optional(),
+  SHOPIFY_STORES: z.string().optional(),
+  SHOPIFY_API_SECRET: z.string().min(1).optional(),
   SOLVER_URL: z.url().default("http://localhost:8000"),
   DEMO_MODE: BooleanString.default(false),
   CHAOS_SECRET: z.string().min(16).optional(),
@@ -52,7 +54,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     (!config.REAL_EXECUTION_ENABLED ||
       !config.SHOPIFY_STOREFRONT_DOMAIN ||
       !config.SHOPIFY_ACCESS_TOKEN ||
-      !config.SHOPIFY_SUPPLIER_STORES)
+      !config.SHOPIFY_SUPPLIER_STORES ||
+      !config.SHOPIFY_STORES)
   )
     throw new Error(
       "Live Shopify requires execution authorization and store credentials",

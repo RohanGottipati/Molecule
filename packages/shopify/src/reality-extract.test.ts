@@ -18,7 +18,6 @@ describe("Shopify Reality extraction", () => {
         rawValue: 20,
         sourceKind: "shopify",
         sourceReference: snapshot.capacity[0]!.itemId,
-        observedAt: "2026-09-19T12:00:00.000Z",
         sourceAuthority: 0.9,
         extractionConfidence: 1,
         evidenceText: `${snapshot.capacity[0]!.title} tracked inventory = 20`,
@@ -30,6 +29,9 @@ describe("Shopify Reality extraction", () => {
     expect(merchantIdForShopifyStore("stitchworks-7gw6fagb")).toBe(
       "stitch-works",
     );
+    expect(
+      merchantIdForShopifyStore("stitchworks-7gw6fagb.myshopify.com"),
+    ).toBe("stitch-works");
     expect(merchantIdForShopifyStore("printpress-b9oy1d5n")).toBeUndefined();
     expect(merchantIdForShopifyStore("molecule-storefront")).toBeUndefined();
   });

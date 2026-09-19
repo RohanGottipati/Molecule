@@ -149,6 +149,7 @@ export async function createApp() {
     marketplace,
     applyChaos: durable?.reality.applyChaos,
     resetDemo: durable?.reality.resetDemo,
+    shopifyWebhook: durable?.shopifyWebhook,
   });
   app.addHook("onClose", async () => {
     await durable?.close();
