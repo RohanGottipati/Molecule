@@ -134,6 +134,87 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     ).toEqual([{ status: "unknown", backboard_assistant_id: null }]);
   });
 
+  it("atomically fences approval against attachment from another worker", async () => {
+    const initial = OrderSessionSnapshotSchema.parse(
+      await post("/api/orders", {}),
+    );
+    const planned = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/messages`, {
+        text: "Make 20 hoodies by 2026-10-01 CAD",
+      }),
+    );
+    const asset = { assetId: randomUUID(), checksum: "a".repeat(64) };
+    const worker = new PostgresStore();
+    await worker.saveContext({
+      orderId: initial.orderId,
+      asset,
+      attached: false,
+    });
+    const contexts = vi.spyOn(PostgresStore.prototype, "contexts");
+    contexts.mockImplementationOnce(async () => {
+      await worker.attachContext(initial.orderId, asset.assetId);
+      return [];
+    });
+    try {
+      const approval = await app.inject({
+        method: "POST",
+        url: `/api/orders/${initial.orderId}/approve`,
+        payload: {
+          planId: planned.activePlan!.planId,
+          intentVersion: planned.intentVersion,
+        },
+      });
+      expect(approval.statusCode, approval.body).toBe(409);
+    } finally {
+      contexts.mockRestore();
+    }
+    const attached = (await worker.get(initial.orderId))!;
+    expect(attached).toMatchObject({
+      state: "AWAITING_APPROVAL",
+      revision: planned.revision + 1,
+      executionReceipt: null,
+    });
+    await worker.attachContext(initial.orderId, asset.assetId);
+    expect((await worker.get(initial.orderId))?.revision).toBe(
+      attached.revision,
+    );
+    const events = await worker.list(initial.orderId, 0);
+    expect(
+      events.filter(({ event }) => event.eventType === "context.attached"),
+    ).toHaveLength(1);
+    expect(
+      events.some(({ event }) => event.eventType === "execution.started"),
+    ).toBe(false);
+    const corrected = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/messages`, {
+        text: "No polyester.",
+      }),
+    );
+    expect(corrected.intent?.assets).toEqual([asset]);
+    const completed = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/approve`, {
+        planId: corrected.activePlan!.planId,
+        intentVersion: corrected.intentVersion,
+      }),
+    );
+    expect(completed.state).toBe("COMPLETED");
+    const late = { assetId: randomUUID(), checksum: "b".repeat(64) };
+    await worker.saveContext({
+      orderId: initial.orderId,
+      asset: late,
+      attached: false,
+    });
+    await expect(
+      worker.attachContext(initial.orderId, late.assetId),
+    ).rejects.toThrow("Context cannot be attached");
+    expect(
+      (await worker.contexts(initial.orderId)).find(
+        ({ asset: item }) => item.assetId === late.assetId,
+      )?.attached,
+    ).toBe(false);
+    await resetDemoData();
+  });
+
   it("rolls back events with failed revisions and claims actions across workers", async () => {
     const session = createOrderSession();
     await store.create(session);

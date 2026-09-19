@@ -1,4 +1,4 @@
-import { ProductionPlanSchema } from "@molecule/contracts";
+import { ProductIntentSchema, ProductionPlanSchema } from "@molecule/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopStore } from "./desktop-store.js";
 import {
@@ -35,6 +35,71 @@ async function fixture() {
   return { store, bridge, notify };
 }
 describe("authoritative desktop state", () => {
+  it("blocks typed and voice approval for staged or uncompiled context, then allows the compiled plan", async () => {
+    const { store } = await fixture();
+    const result = projectResult();
+    result.project.state = "AWAITING_APPROVAL";
+    result.project.intentVersion = 1;
+    result.project.intent = ProductIntentSchema.parse({
+      intentId: crypto.randomUUID(),
+      version: 1,
+      quantity: 20,
+      deadline: "2026-10-01T00:00:00Z",
+      currency: "CAD",
+      desiredOutputs: [{ outputId: "hoodie", name: "Hoodie", quantity: 20 }],
+      transformations: [],
+      hardConstraints: [],
+      softPreferences: [],
+    });
+    result.project.activePlan = ProductionPlanSchema.parse({
+      planId: "plan",
+      orderId: result.project.orderId,
+      intentVersion: 1,
+      status: "VALID",
+      nodes: [],
+      edges: [],
+      totalCost: 20,
+      currency: "CAD",
+      riskScore: 0,
+      constraintResults: [],
+      unsatRelaxations: [],
+    });
+    const read = vi.spyOn(store.api, "getProject").mockResolvedValue(result);
+    const execute = vi.spyOn(store.api, "command").mockResolvedValue(result);
+    await store.openProject(result.project.orderId);
+    const approval = {
+      name: "approve_action",
+      args: { planId: "plan", intentVersion: 1 },
+    } as const;
+    expect(store.getCapabilities().canApprove).toBe(true);
+    store.stage([new File(["brand"], "brand.txt")]);
+    expect(store.getCapabilities().canApprove).toBe(false);
+    await expect(store.command(approval)).rejects.toThrow("staged context");
+    store.removeStaged(store.getSnapshot().staged[0]!.id);
+    expect(store.getCapabilities().canApprove).toBe(true);
+    const asset = { assetId: "brand", checksum: "a".repeat(64) };
+    read.mockResolvedValue({ ...result, contexts: [asset] });
+    await store.refresh();
+    expect(store.getCapabilities().canApprove).toBe(false);
+    await expect(store.command(approval, "voice:approve")).rejects.toThrow(
+      "compile the attached context",
+    );
+    expect(execute).not.toHaveBeenCalled();
+    read.mockResolvedValue({
+      ...result,
+      contexts: [asset],
+      project: {
+        ...result.project,
+        revision: 2,
+        intent: { ...result.project.intent, assets: [asset] },
+      },
+    });
+    await store.refresh();
+    expect(store.getCapabilities().canApprove).toBe(true);
+    await store.command(approval);
+    expect(execute).toHaveBeenCalledOnce();
+    store.dispose();
+  });
   it("retains the observed revision when retrying a command after another surface updates", async () => {
     const { store } = await fixture();
     const original = projectResult();

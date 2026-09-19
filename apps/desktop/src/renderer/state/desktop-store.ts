@@ -1,10 +1,12 @@
-import type {
-  AssetRef,
-  DesktopCommand,
-  DesktopResult,
-  MoleculeEvent,
-  MarketplaceSnapshot,
-  ContextReceipt,
+import {
+  deriveProjectCapabilities,
+  hasUncompiledContext,
+  type AssetRef,
+  type DesktopCommand,
+  type DesktopResult,
+  type MoleculeEvent,
+  type MarketplaceSnapshot,
+  type ContextReceipt,
 } from "@molecule/contracts";
 import type {
   DesktopBootstrap,
@@ -180,6 +182,15 @@ export class DesktopStore {
   onProjectChanging?: () => void;
   constructor(readonly bridge: DesktopBridge) {}
   getSnapshot = () => this.state;
+  private approvalContextReason() {
+    if (this.state.staged.length || this.state.uploading.length)
+      return "Send or remove staged context before approval.";
+    if (this.state.uploadResults.some((item) => item.outcome === "unknown"))
+      return "Reconcile the uncertain attachment before approval.";
+    if (hasUncompiledContext(this.state.project, this.state.attachments))
+      return "Submit a brief update to compile the attached context before approval.";
+    return null;
+  }
   getCapabilities() {
     const project = this.state.project;
     const planning =
@@ -216,10 +227,12 @@ export class DesktopStore {
       canSubmitBrief: planning && !committing,
       canCancelPlanning: Boolean(project) && planning && !committing,
       canApprove:
-        project?.state === "AWAITING_APPROVAL" &&
-        project.activePlan?.status === "VALID" &&
-        project.activePlan.intentVersion === project.intentVersion &&
+        !!project &&
+        deriveProjectCapabilities(project, false, this.state.attachments)
+          .canApprove &&
+        !this.approvalContextReason() &&
         !mutating,
+      approvalBlockedReason: this.approvalContextReason(),
       canRefresh: Boolean(project),
     };
   }
@@ -611,6 +624,9 @@ export class DesktopStore {
     }
   }
   command(command: DesktopCommand, actionId?: string): Promise<DesktopResult> {
+    const blockedReason =
+      command.name === "approve_action" ? this.approvalContextReason() : null;
+    if (blockedReason) return Promise.reject(new Error(blockedReason));
     const fingerprint = JSON.stringify(command);
     const automatic = actionId === undefined;
     actionId ??= this.automaticActions.get(fingerprint) ?? crypto.randomUUID();

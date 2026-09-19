@@ -18,6 +18,7 @@ describe("HTTP error contract", () => {
     const deps = {
       sessions: store,
       events: store,
+      contexts: store,
       openai,
       solver,
       reality: new MockRealityClient(),

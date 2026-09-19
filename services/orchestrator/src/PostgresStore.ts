@@ -33,6 +33,8 @@ import {
   projectPage,
   projectSummary,
 } from "./projectDiscovery.js";
+import { prepareContextAttachment } from "./contextAttachment.js";
+import { RequestProblem } from "./errors.js";
 
 export class PostgresStore
   implements SessionRepository, EventStore, ContextStore
@@ -165,6 +167,40 @@ export class PostgresStore
     return result.rows.map(({ context_json }) =>
       StoredContextSchema.parse(context_json),
     );
+  }
+  async attachContext(orderId: string, contextId: string) {
+    await transaction(async (client) => {
+      const sessions = await client.query<{ session_json: unknown }>(
+        "select session_json from order_sessions where order_id=$1 for update",
+        [orderId],
+      );
+      const contexts = await client.query<{ context_json: unknown }>(
+        "select context_json from order_contexts where order_id=$1 and context_id=$2 for update",
+        [orderId, contextId],
+      );
+      if (!sessions.rows[0] || !contexts.rows[0])
+        throw new RequestProblem(
+          404,
+          "NOT_FOUND",
+          "Project context not found.",
+        );
+      const session = OrderSessionSnapshotSchema.parse(
+        sessions.rows[0].session_json,
+      );
+      const context = StoredContextSchema.parse(contexts.rows[0].context_json);
+      if (context.attached) return;
+      const next = prepareContextAttachment(session, context);
+      const persisted = await persistEvent(next.event, client);
+      await this.save(
+        { ...next.session, eventCursor: persisted.cursor },
+        session.revision,
+        client,
+      );
+      await client.query(
+        "update order_contexts set context_json=$3 where order_id=$1 and context_id=$2",
+        [orderId, contextId, { ...context, attached: true }],
+      );
+    });
   }
   async saveContext(context: StoredContext, bytes?: Buffer) {
     const parsed = StoredContextSchema.parse(context);

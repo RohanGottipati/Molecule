@@ -1,5 +1,6 @@
 import {
   deriveProjectCapabilities,
+  hasUncompiledContext,
   type ActionStatus,
   type AssetRef,
   type MessageHistory,
@@ -22,15 +23,7 @@ export function safeCapabilities(
   contexts: AssetRef[],
   blocked = false,
 ): ProjectCapabilities & { hasUncompiledContexts: boolean } {
-  const hasUncompiledContexts = contexts.some(
-    (asset) =>
-      !order?.intent?.assets.some(
-        (compiled) =>
-          compiled.assetId === asset.assetId &&
-          compiled.checksum === asset.checksum &&
-          (asset.checksum !== undefined || compiled.url === asset.url),
-      ),
-  );
+  const hasUncompiledContexts = hasUncompiledContext(order, contexts);
   const ready =
     !blocked &&
     freshness === "fresh" &&

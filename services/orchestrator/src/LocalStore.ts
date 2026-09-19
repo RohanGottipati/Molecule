@@ -25,6 +25,8 @@ import {
 import type { OrderSession } from "./session/OrderSession.js";
 import { Serial } from "./serial.js";
 import { listProjectSnapshots } from "./projectDiscovery.js";
+import { prepareContextAttachment } from "./contextAttachment.js";
+import { RequestProblem } from "./errors.js";
 
 export const StoredContextSchema = z.object({
   orderId: z.string(),
@@ -36,6 +38,7 @@ export interface ContextStore extends ReceiptStore {
   readonly directory?: string;
   contexts(orderId: string): StoredContext[] | Promise<StoredContext[]>;
   saveContext(context: StoredContext, bytes?: Buffer): Promise<void>;
+  attachContext(orderId: string, contextId: string): Promise<void>;
 }
 const StateSchema = z.object({
   sessions: z.array(OrderSessionSnapshotSchema).default([]),
@@ -218,6 +221,33 @@ export class LocalStore implements SessionRepository, EventStore, ReceiptStore {
   }
   contexts(orderId: string) {
     return this.state.contexts.filter((item) => item.orderId === orderId);
+  }
+  async attachContext(orderId: string, contextId: string) {
+    const persisted = await this.change((state) => {
+      const session = state.sessions.find((item) => item.orderId === orderId);
+      const context = state.contexts.find(
+        (item) => item.orderId === orderId && item.asset.assetId === contextId,
+      );
+      if (!session || !context)
+        throw new RequestProblem(
+          404,
+          "NOT_FOUND",
+          "Project context not found.",
+        );
+      if (context.attached) return;
+      const next = prepareContextAttachment(session, context);
+      const entry = {
+        cursor: (state.events.at(-1)?.cursor ?? 0) + 1,
+        event: next.event,
+      };
+      state.events.push(entry);
+      Object.assign(session, next.session, { eventCursor: entry.cursor });
+      context.attached = true;
+      return entry;
+    });
+    if (persisted)
+      for (const listener of this.listeners.get(orderId) ?? [])
+        listener(persisted);
   }
   async saveContext(context: StoredContext) {
     await this.change((state) => {

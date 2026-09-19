@@ -110,6 +110,8 @@ Drop, file selection, paste-context, and screen capture stage removable files in
 
 Uploaded files pass through the OpenAI adapter and are included in subsequent compiler input. An attachment alone does not change product requirements: say or type “Put this on the hoodie.” For voice, send staged context before referring to it. Mock mode retains bytes/metadata but does not interpret image or document content.
 
+Approval stays unavailable while attached context is absent from the current compiled intent. Typed constraint edits alone do not compile new context; submit a brief update first. The backend enforces this for every execution entry point. Attachment, its event, and the project revision commit together, so a racing approval cannot execute the earlier plan. Projects that cannot accept corrections also reject new attachments.
+
 “Share screen or window” explains the operation, lists sources, and authorizes one chosen source for 30 seconds. The renderer captures one frame, stops all display tracks, and stages the image for the same context API. It never starts continuous surveillance.
 
 Official API references used:

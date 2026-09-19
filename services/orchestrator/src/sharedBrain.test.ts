@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -84,6 +84,7 @@ async function fixture(directory?: string) {
   const orchestrator = new Orchestrator({
     sessions: store,
     events: store,
+    contexts: store,
     openai,
     solver,
     reality,
@@ -125,6 +126,113 @@ async function fixture(directory?: string) {
 }
 
 describe("shared brain read models", () => {
+  it.each(["web", "desktop", "commit"] as const)(
+    "blocks %s approval until every attached asset enters the compiled intent",
+    async (surface) => {
+      const { app, url, store, session, orchestrator, input, shopify } =
+        await fixture();
+      const planned = await orchestrator.submitMessage(input);
+      const commit = vi.spyOn(shopify, "commit");
+      const asset = { assetId: randomUUID(), checksum: "a".repeat(64) };
+      await store.saveContext({
+        orderId: session.orderId,
+        asset,
+        attached: false,
+      });
+      await store.attachContext(session.orderId, asset.assetId);
+      const attached = (await store.get(session.orderId))!;
+      expect(attached.revision).toBe(planned.revision + 1);
+      const args = {
+        planId: planned.activePlan!.planId,
+        intentVersion: planned.intentVersion,
+      };
+      const response = await app.inject({
+        method: "POST",
+        url:
+          surface === "web"
+            ? `${url}/approve`
+            : surface === "desktop"
+              ? `/api/projects/${session.orderId}/actions`
+              : "/api/execution/commit",
+        payload:
+          surface === "desktop"
+            ? {
+                actionId: "approve-with-uncompiled-context",
+                command: { name: "approve_action", args },
+                expectedRevision: attached.revision,
+              }
+            : surface === "commit"
+              ? { orderId: session.orderId, ...args }
+              : args,
+      });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(response.json().message).toContain("compile the attached context");
+      expect(commit).not.toHaveBeenCalled();
+      expect(
+        (await orchestrator.capabilities(session.orderId)).capabilities,
+      ).toMatchObject({ canApprove: false, canSubmitMessage: true });
+      expect(
+        (await store.list(session.orderId, 0)).some(
+          ({ event }) => event.eventType === "execution.started",
+        ),
+      ).toBe(false);
+      const corrected = await orchestrator.submitMessage({
+        ...input,
+        text: "No polyester.",
+        assets: [asset],
+      });
+      expect(
+        (await orchestrator.capabilities(session.orderId)).capabilities
+          .canApprove,
+      ).toBe(true);
+      const completed = await orchestrator.approve(
+        session.orderId,
+        corrected.activePlan!.planId,
+        corrected.intentVersion,
+      );
+      expect(completed.state).toBe("COMPLETED");
+      expect(commit).toHaveBeenCalledOnce();
+      const late = { assetId: randomUUID(), checksum: "b".repeat(64) };
+      await store.saveContext({
+        orderId: session.orderId,
+        asset: late,
+        attached: false,
+      });
+      await expect(
+        store.attachContext(session.orderId, late.assetId),
+      ).rejects.toThrow("Context cannot be attached");
+      expect(
+        store
+          .contexts(session.orderId)
+          .find(({ asset: item }) => item.assetId === late.assetId)?.attached,
+      ).toBe(false);
+    },
+  );
+  it("fences approval when an attachment commits after its context read", async () => {
+    const { store, session, orchestrator, input, shopify } = await fixture();
+    const planned = await orchestrator.submitMessage(input);
+    const asset = { assetId: randomUUID(), checksum: "a".repeat(64) };
+    await store.saveContext({
+      orderId: session.orderId,
+      asset,
+      attached: false,
+    });
+    const commit = vi.spyOn(shopify, "commit");
+    const save = store.saveWithEvent.bind(store);
+    vi.spyOn(store, "saveWithEvent").mockImplementationOnce(async (...args) => {
+      await store.attachContext(session.orderId, asset.assetId);
+      return save(...args);
+    });
+    await expect(
+      orchestrator.approve(
+        session.orderId,
+        planned.activePlan!.planId,
+        planned.intentVersion,
+      ),
+    ).rejects.toThrow();
+    expect(commit).not.toHaveBeenCalled();
+    expect((await store.get(session.orderId))?.state).toBe("AWAITING_APPROVAL");
+  });
   it("retains correction history and outcomes while unresolved details require clarification", async () => {
     const { orchestrator, openai, solver, store, input, session } =
       await fixture();

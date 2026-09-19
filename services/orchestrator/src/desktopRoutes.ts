@@ -136,31 +136,7 @@ export function registerDesktopRoutes(
               await deps.orchestrator.cancel(id);
               break;
             case "attach_context": {
-              const context = (await store.contexts(id)).find(
-                (item) => item.asset.assetId === command.args.contextId,
-              );
-              if (!context)
-                throw new RequestProblem(
-                  404,
-                  "NOT_FOUND",
-                  "Context not found on this project.",
-                );
-              if (!context.attached) {
-                await store.saveContext({ ...context, attached: true });
-                const session = (await result(id)).project;
-                await deps.events.append(
-                  makeEvent({
-                    traceId: session.traceId,
-                    orderId: id,
-                    eventType: "context.attached",
-                    source: "ui",
-                    payload: {
-                      contextId: context.asset.assetId,
-                      name: context.asset.name,
-                    },
-                  }),
-                );
-              }
+              await store.attachContext(id, command.args.contextId);
               break;
             }
             case "get_project_status":

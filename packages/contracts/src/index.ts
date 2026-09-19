@@ -865,4 +865,8 @@ export const ContextReceiptSchema = z.object({
 });
 export type ContextReceipt = z.infer<typeof ContextReceiptSchema>;
 
-export { deriveProjectCapabilities, isPlanningState } from "./capabilities.js";
+export {
+  deriveProjectCapabilities,
+  hasUncompiledContext,
+  isPlanningState,
+} from "./capabilities.js";

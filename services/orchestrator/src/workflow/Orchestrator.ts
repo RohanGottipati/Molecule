@@ -14,6 +14,7 @@ import {
   type ProductionMessage,
   deriveProjectCapabilities,
   ProductionMessageSchema,
+  hasUncompiledContext,
 } from "@molecule/contracts";
 
 import type {
@@ -35,6 +36,7 @@ import { isStale } from "../session/staleGuard.js";
 import { canAcceptCorrection, transition } from "../session/transitions.js";
 import { RequestProblem, apiFailure } from "../errors.js";
 import { ExecutionInterruptedError } from "../clients/ExecutionInterruptedError.js";
+import type { ContextStore } from "../LocalStore.js";
 
 export interface SubmissionIdentity {
   messageId?: string;
@@ -46,6 +48,7 @@ export interface SubmissionIdentity {
 export interface OrchestratorDependencies {
   sessions: SessionRepository;
   events: EventStore;
+  contexts: Pick<ContextStore, "contexts">;
   openai: OpenAIClient;
   reality: RealityClient;
   merchantAgents: MerchantAgentClient;
@@ -102,6 +105,18 @@ export class Orchestrator {
       const latest = await this.load(session.orderId);
       if (latest.revision !== session.revision)
         throw new SessionConflictError("Workflow superseded");
+      if (
+        state === "EXECUTING" &&
+        hasUncompiledContext(
+          latest,
+          await this.attachedContexts(session.orderId),
+        )
+      )
+        throw new RequestProblem(
+          409,
+          "CONFLICT",
+          "Submit a brief update to compile the attached context before approval.",
+        );
       const next = transition(session, state, { solverPlan });
       const event = makeEvent({
         traceId: next.traceId,
@@ -158,8 +173,18 @@ export class Orchestrator {
     return {
       orderId,
       revision: session.revision,
-      capabilities: deriveProjectCapabilities(session, executionStarted),
+      capabilities: deriveProjectCapabilities(
+        session,
+        executionStarted,
+        await this.attachedContexts(orderId),
+      ),
     };
+  }
+
+  private async attachedContexts(orderId: string) {
+    return (await this.deps.contexts.contexts(orderId))
+      .filter((context) => context.attached)
+      .map((context) => context.asset);
   }
 
   private async failCurrent(
