@@ -1,48 +1,50 @@
-// Verifies every connected Shopify dev store: gets a token via the client credentials grant,
-// reads the shop name, and lists the granted scopes. Never prints secrets or tokens.
-// Usage: node --env-file=.env scripts/verify-shopify.mjs
-const { SHOPIFY_CLIENT_ID, SHOPIFY_API_SECRET, SHOPIFY_STORES, SHOPIFY_API_VERSION = "2026-07" } = process.env;
+// Read-only verification. Build @molecule/shopify first; never prints tokens or raw errors.
+import {
+  ShopifyError,
+  ShopifyTransport,
+  shopDomain,
+} from "../packages/shopify/dist/index.js";
 
-if (!SHOPIFY_CLIENT_ID || !SHOPIFY_API_SECRET || !SHOPIFY_STORES) {
-  console.error("Missing SHOPIFY_CLIENT_ID, SHOPIFY_API_SECRET or SHOPIFY_STORES in .env");
-  process.exit(1);
-}
-
-async function getToken(shop) {
-  const r = await fetch(`https://${shop}.myshopify.com/admin/oauth/access_token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: SHOPIFY_CLIENT_ID,
-      client_secret: SHOPIFY_API_SECRET,
-    }),
-  });
-  if (!r.ok) throw new Error(`token request ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return (await r.json()).access_token;
-}
-
-async function gql(shop, token, query) {
-  const r = await fetch(`https://${shop}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
-    body: JSON.stringify({ query }),
-  });
-  const j = await r.json();
-  if (j.errors) throw new Error(JSON.stringify(j.errors).slice(0, 300));
-  return j.data;
-}
-
+const stores = (process.env.SHOPIFY_STORES ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 let failed = 0;
-for (const shop of SHOPIFY_STORES.split(",").map((s) => s.trim()).filter(Boolean)) {
+if (!stores.length) {
+  console.error("Missing SHOPIFY_STORES");
+  process.exitCode = 1;
+}
+for (const store of stores) {
   try {
-    const token = await getToken(shop);
-    const d = await gql(shop, token, "{ shop { name myshopifyDomain } currentAppInstallation { accessScopes { handle } } }");
-    const scopes = d.currentAppInstallation.accessScopes.map((s) => s.handle).join(", ");
-    console.log(`OK   ${d.shop.myshopifyDomain}  "${d.shop.name}"  scopes: ${scopes}`);
-  } catch (e) {
+    const domain = shopDomain(
+      store.includes(".") ? store : `${store}.myshopify.com`,
+    );
+    const auth = process.env.SHOPIFY_ACCESS_TOKEN
+      ? { accessToken: process.env.SHOPIFY_ACCESS_TOKEN }
+      : {
+          clientId: process.env.SHOPIFY_CLIENT_ID ?? "",
+          clientSecret: process.env.SHOPIFY_API_SECRET ?? "",
+        };
+    const { shop, currentAppInstallation } = await new ShopifyTransport({
+      domain,
+      auth,
+    }).verifyStore();
+    console.log(
+      JSON.stringify({
+        status: "OK",
+        domain: shop.myshopifyDomain,
+        name: shop.name,
+        currency: shop.currencyCode,
+        scopes: currentAppInstallation.accessScopes.map(
+          (scope) => scope.handle,
+        ),
+      }),
+    );
+  } catch (error) {
     failed++;
-    console.log(`FAIL ${shop}: ${e.message}`);
+    console.error(
+      `FAIL ${error instanceof ShopifyError ? error.code : "VERIFICATION_FAILED"}`,
+    );
   }
 }
-process.exit(failed ? 1 : 0);
+if (failed) process.exitCode = 1;
