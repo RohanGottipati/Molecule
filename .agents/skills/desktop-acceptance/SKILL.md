@@ -74,5 +74,23 @@ or ephemeral tokens. Virtual audio does not establish physical-media acceptance.
   approximate A/V alignment rather than using it to claim millisecond latency.
 - Distinguish interruption of buffered assistant playback from cancellation of
   an actively generating response/tool. Only claim the states actually observed.
+  For active-generation coverage, request a long spoken explanation, then feed
+  a fresh microphone instruction while `responseFinished=false` and no matching
+  `response.done` has arrived. Observe real cancellation/buffer-clear events,
+  the new transcript and durable tool receipt; never inject response events.
+  Semantic VAD may cancel first (`reason=turn_detected`), followed by a redundant
+  `response_cancel_not_active` error from the client cancel. Disclose this race;
+  do not claim that the explicit client cancel was accepted.
+- For live planning, start from an unresumed dock to create a fresh project
+  before voice connects. Switching projects stops voice and costs a new session.
+  Match Realtime call IDs to durable action receipts and project events. Verify
+  corrections increase intent version and preserve existing requirements.
+  Missing artwork, recipient-name data or shipping destinations may legitimately
+  prevent a valid kit plan. Record the exact clarification/solver result rather
+  than inventing facts or applying generic budget/deadline relaxations.
+  A completed backend action is reconciled by a later correction, not rolled
+  back by audio interruption. Cancellation of an undispatched tool requires
+  separate observed evidence; voice interruption alone does not establish it.
+- Cleanup:
   Stop voice and the secret-bearing backend at the end; remove temporary audio
   routes. No physical microphone or native macOS claim follows from virtual audio.
