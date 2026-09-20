@@ -28,15 +28,24 @@ export function WorkspaceNotices({ workspace }: { workspace: Workspace }) {
             Open it to check the saved request and result, or choose New project
             for a separate brief.
           </p>
-          <WorkspaceLink
-            orderId={pending.orderId}
-            view="command"
-            onNavigate={() =>
-              workspace.openProject(pending.orderId!, "command")
-            }
-          >
-            Resume submitted project
-          </WorkspaceLink>
+          <div className="notice-actions">
+            <WorkspaceLink
+              orderId={pending.orderId}
+              view="command"
+              onNavigate={() =>
+                workspace.openProject(pending.orderId!, "command")
+              }
+            >
+              Resume submitted project
+            </WorkspaceLink>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => workspace.newProject()}
+            >
+              Start a new project
+            </button>
+          </div>
         </section>
       ) : (
         isUnresolved(pending) &&
@@ -82,7 +91,7 @@ export function WorkspaceNotices({ workspace }: { workspace: Workspace }) {
           {workspace.storageError}
         </p>
       )}
-      {workspace.marketplaceError && (
+      {workspace.marketplaceError && workspace.view !== "projects" && (
         <div className="notice notice-warning" role="status">
           <strong>
             Supplier information unavailable

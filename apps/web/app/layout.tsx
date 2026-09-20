@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
 import "./decision-panels.css";
+import "./dashboard.css";
 
 export const metadata: Metadata = {
   title: "Molecule · Production workspace",

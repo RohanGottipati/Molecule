@@ -198,7 +198,7 @@ export function DecisionApproval({
       </div>
       {status !== "confirmed" && status !== "uncertain" && (
         <button
-          className="primary"
+          className="primary decision-approval-cta"
           type="button"
           disabled={!canApproveDecision(order) || busy || actionsBlocked}
           onClick={onApprove}

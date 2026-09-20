@@ -9,7 +9,8 @@ export type DockIconName =
   | "collapse"
   | "close"
   | "settings"
-  | "command";
+  | "command"
+  | "home";
 
 const paths: Record<DockIconName, string> = {
   mic: "M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5ZM5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8",
@@ -25,6 +26,7 @@ const paths: Record<DockIconName, string> = {
   settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
   command:
     "M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4M14 3h7v7M11 13 21 3",
+  home: "m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10",
 };
 
 export function DockIcon({ name }: { name: DockIconName }) {

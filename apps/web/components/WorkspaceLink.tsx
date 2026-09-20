@@ -9,6 +9,7 @@ export function WorkspaceLink({
   children,
   className,
   current,
+  title,
 }: {
   orderId: string | null;
   view: WorkspaceView;
@@ -16,12 +17,14 @@ export function WorkspaceLink({
   children: ReactNode;
   className?: string;
   current?: boolean;
+  title?: string;
 }) {
   const search = typeof window === "undefined" ? "" : window.location.search;
   return (
     <a
       href={projectHref(orderId, view, search)}
       className={className}
+      title={title}
       aria-current={current ? "page" : undefined}
       onClick={(event) => {
         if (
