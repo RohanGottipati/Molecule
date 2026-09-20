@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import {
   closePool,
@@ -20,15 +28,33 @@ import {
 } from "./index.js";
 
 const database = process.env.TEST_DATABASE_URL;
+const capacityClaim = "demo:cap-thread-embroidery:capacity";
 describe.skipIf(!database)("real PostgreSQL operational store", () => {
+  let seededCapacity: { normalized_value: unknown; normalized_unit: unknown };
   beforeAll(async () => {
     process.env.DATABASE_URL = database;
     process.env.DEMO_MODE = "true";
     await migrate();
     await seedDemo();
+    seededCapacity = (
+      await getPool().query(
+        "select normalized_value,normalized_unit from canonical_claims where claim_id=$1",
+        [capacityClaim],
+      )
+    ).rows[0];
   });
   beforeEach(async () => {
     await resetDemoData();
+  });
+  afterEach(async () => {
+    await getPool().query(
+      "update canonical_claims set normalized_value=$2::jsonb,normalized_unit=$3 where claim_id=$1",
+      [
+        capacityClaim,
+        JSON.stringify(seededCapacity.normalized_value),
+        seededCapacity.normalized_unit,
+      ],
+    );
   });
   afterAll(closePool);
 
@@ -181,9 +207,10 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     await getPool()
       .query(`update capabilities set capability_json=jsonb_set(capability_json,'{capacity}',
       '{"available":700,"maximum":1400,"period":"week"}') where capability_id='cap-thread-embroidery'`);
-    await getPool()
-      .query(`update canonical_claims set normalized_value='200',normalized_unit='units/day'
-      where claim_id='demo:cap-thread-embroidery:capacity'`);
+    await getPool().query(
+      "update canonical_claims set normalized_value='200',normalized_unit='units/day' where claim_id=$1",
+      [capacityClaim],
+    );
     const inserted = await getPool()
       .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
       select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
@@ -214,8 +241,10 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
   });
 
   it("refuses incompatible winning capacity units before creating a hold", async () => {
-    await getPool().query(`update canonical_claims set normalized_unit='kg/day'
-      where claim_id='demo:cap-thread-embroidery:capacity'`);
+    await getPool().query(
+      "update canonical_claims set normalized_unit='kg/day' where claim_id=$1",
+      [capacityClaim],
+    );
     const inserted = await getPool()
       .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
       select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
