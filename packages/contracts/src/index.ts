@@ -1135,6 +1135,8 @@ export const CatalogGallerySchema = z.strictObject({
 });
 export type CatalogGallery = z.infer<typeof CatalogGallerySchema>;
 
+export { applyCapacityLimit } from "./capacity.js";
+
 export {
   deriveProjectCapabilities,
   hasUncompiledContext,

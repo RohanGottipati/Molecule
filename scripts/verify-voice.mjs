@@ -39,6 +39,63 @@ const solver = spawn(
 let app;
 let desktop;
 let phase = "solver";
+const actionEvidence = [];
+async function captureVoiceEvidence() {
+  if (!desktop) return;
+  const page = await desktop.firstWindow();
+  const evidence = await page.evaluate(async () => {
+    const bootstrap = await window.moleculeDesktop.bootstrap();
+    const projectId = bootstrap.settings.lastProjectId;
+    let project = null;
+    if (projectId) {
+      const response = await fetch(
+        `${bootstrap.apiUrl}/api/projects/${projectId}`,
+      );
+      if (response.ok) {
+        const result = await response.json();
+        project = {
+          orderId: result.project.orderId,
+          state: result.project.state,
+          revision: result.project.revision,
+          planId: result.project.activePlan?.planId ?? null,
+          executionReceiptPresent: Boolean(result.project.executionReceipt),
+        };
+      }
+    }
+    return {
+      project,
+      events: (window.voiceProbe?.events ?? [])
+        .filter((event) =>
+          [
+            "conversation.item.input_audio_transcription.completed",
+            "response.function_call_arguments.done",
+          ].includes(event.type),
+        )
+        .map((event) => ({
+          type: event.type,
+          transcript: event.transcript,
+          name: event.name,
+          arguments: event.arguments,
+          callId: event.call_id,
+          responseId: event.response_id,
+        })),
+    };
+  });
+  await writeFile(
+    join(artifacts, "approval-evidence.json"),
+    JSON.stringify(
+      {
+        phase,
+        syntheticInputOnly: true,
+        externalCommerce: "mock",
+        ...evidence,
+        actions: actionEvidence,
+      },
+      null,
+      2,
+    ),
+  );
+}
 try {
   const solverUrl = await new Promise((resolveUrl, reject) => {
     const timeout = setTimeout(
@@ -66,6 +123,16 @@ try {
     REAL_EXECUTION_ENABLED: "false",
   });
   ({ app } = await createApp());
+  app.addHook("preHandler", async (request) => {
+    if (request.method !== "POST" || !request.url.endsWith("/actions")) return;
+    const body = request.body;
+    if (!body || typeof body !== "object" || !body.command) return;
+    actionEvidence.push({
+      actionId: body.actionId,
+      command: body.command,
+      originalText: body.originalText,
+    });
+  });
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   const args = [
     resolve("apps/desktop"),
@@ -468,6 +535,61 @@ try {
       const final = `final-${session}`;
       assert.equal(result.project.state, "AWAITING_APPROVAL");
       assert.equal(result.project.activePlan?.status, "VALID");
+      if (session === 1) {
+        const approvalCall = "unadvertised-voice-approval";
+        const approvalResponse = "unadvertised-approval-response";
+        await emit({
+          type: "response.created",
+          response: { id: approvalResponse },
+        });
+        await emit({
+          type: "response.function_call_arguments.done",
+          response_id: approvalResponse,
+          call_id: approvalCall,
+          name: "approve_action",
+          arguments: JSON.stringify({
+            planId: result.project.activePlan.planId,
+            intentVersion: result.project.intentVersion,
+          }),
+        });
+        await emit({
+          type: "response.done",
+          response: { id: approvalResponse, status: "completed" },
+        });
+        await waitFor(
+          (callId) =>
+            window.voiceProbe.messages.some(
+              (event) =>
+                event.item?.call_id === callId &&
+                event.item.type === "function_call_output",
+            ),
+          approvalCall,
+        );
+        const denied = await page.evaluate(
+          (callId) =>
+            JSON.parse(
+              window.voiceProbe.messages.find(
+                (event) => event.item?.call_id === callId,
+              ).item.output,
+            ),
+          approvalCall,
+        );
+        assert.equal(
+          denied.error,
+          "Review the plan and use Approve in the app.",
+        );
+        assert.equal(
+          actionEvidence.some(
+            (action) => action.command.name === "approve_action",
+          ),
+          false,
+        );
+        const unchanged = await fetch(
+          `${address}/api/projects/${result.project.orderId}`,
+        ).then((response) => response.json());
+        assert.equal(unchanged.project.state, "AWAITING_APPROVAL");
+        assert.equal(unchanged.project.executionReceipt, null);
+      }
       await emit({ type: "response.created", response: { id: final } });
       await emit({
         type: "response.output_audio_transcript.delta",
@@ -586,9 +708,11 @@ try {
     join(artifacts, live ? "live-result.json" : "result.json"),
     JSON.stringify(evidence, null, 2),
   );
+  await captureVoiceEvidence();
   console.log(JSON.stringify(evidence));
 } catch (error) {
   console.error(`Voice acceptance failed at ${phase}: ${error.message}`);
+  await captureVoiceEvidence().catch(() => {});
   if (desktop)
     console.error(
       "Audio evidence",

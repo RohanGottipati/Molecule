@@ -7,7 +7,7 @@ import {
   type ProviderStatus,
 } from "@molecule/contracts";
 import { catalogGallery } from "@molecule/service-reality";
-import { closePool } from "@molecule/db";
+import { closePool, getPool } from "@molecule/db";
 
 import { HttpSolverClient } from "./clients/HttpSolverClient.js";
 import { readConfig } from "./config.js";
@@ -55,12 +55,14 @@ export async function createApp() {
   await durable?.attachResourceRecovery((orderId, resourceId) =>
     orchestrator.recoverResource(orderId, resourceId),
   );
-  const providers = async (): Promise<ProviderStatus[]> => {
-    const solverReady = await fetch(`${config.SOLVER_URL}/health`, {
+  const solverHealthy = () =>
+    fetch(`${config.SOLVER_URL}/health`, {
       signal: AbortSignal.timeout(2000),
     })
       .then((response) => response.ok)
       .catch(() => false);
+  const providers = async (): Promise<ProviderStatus[]> => {
+    const solverReady = await solverHealthy();
     return [
       {
         name: "openai",
@@ -144,6 +146,18 @@ export async function createApp() {
     });
   };
   const app = await buildServer({
+    readiness: async () => {
+      const [solver, persistence] = await Promise.all([
+        solverHealthy(),
+        durable
+          ? getPool()
+              .query("select 1")
+              .then(() => true)
+              .catch(() => false)
+          : Promise.resolve(true),
+      ]);
+      return { solver, persistence };
+    },
     config,
     sessions,
     events,

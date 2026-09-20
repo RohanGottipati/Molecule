@@ -1,4 +1,7 @@
-import { MerchantCapabilitySchema } from "@molecule/contracts";
+import {
+  MerchantCapabilitySchema,
+  applyCapacityLimit,
+} from "@molecule/contracts";
 
 import { transaction } from "./client.js";
 import { effectId, persistEvent } from "./operations.js";
@@ -154,11 +157,15 @@ export async function reserveCapacity(
       field: string;
       status: string;
       value: unknown;
+      normalized_unit: string | null;
     }>(
-      "select field,status,value from canonical_resolutions where merchant_id=$1",
+      `select r.field,r.status,r.value,c.normalized_unit
+       from canonical_resolutions r
+       left join canonical_claims c on c.claim_id=r.winning_claim_id
+       where r.merchant_id=$1`,
       [input.merchantId],
     );
-    let maximum = capability.capacity.available;
+    let capacity = capability.capacity;
     for (const fact of facts.rows) {
       if (
         ![
@@ -183,8 +190,27 @@ export async function reserveCapacity(
           "Capacity or inventory is unresolved",
         );
       }
-      maximum = Math.min(maximum ?? fact.value, fact.value);
+      const field =
+        fact.field === "capacity_per_day" ||
+        fact.field.endsWith(".capacity_per_day")
+          ? "capacity_per_day"
+          : fact.field === "inventory" ||
+              fact.field.startsWith("inventory.") ||
+              fact.field.endsWith(".inventory")
+            ? "inventory"
+            : "capacity";
+      const applied = applyCapacityLimit(
+        capacity,
+        capability.quantity.unit,
+        field,
+        fact.value,
+        fact.normalized_unit ?? undefined,
+      );
+      if (!applied.ok)
+        throw new ReservationError("UNAVAILABLE", applied.reason);
+      capacity = applied.capacity;
     }
+    const maximum = capacity.available;
     if (maximum === undefined)
       throw new ReservationError("UNAVAILABLE", "Capacity is unknown");
     if (

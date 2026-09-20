@@ -23,7 +23,7 @@ import { MockMerchantAgentClient } from "./mocks/MockMerchantAgentClient.js";
 import { MockRealityClient } from "./mocks/MockRealityClient.js";
 import { MockShopifyClient } from "./mocks/MockShopifyClient.js";
 import { InMemorySessionRepository } from "./repositories.js";
-import { buildServer } from "./server.js";
+import { buildServer, type ServerDependencies } from "./server.js";
 import { createOrderSession } from "./session/OrderSession.js";
 import { Orchestrator } from "./workflow/Orchestrator.js";
 
@@ -72,7 +72,10 @@ function solve(input: SolverInput) {
   });
 }
 
-async function fixture(directory?: string) {
+async function fixture(
+  directory?: string,
+  readiness?: ServerDependencies["readiness"],
+) {
   const store = new LocalStore(directory);
   await store.load();
   const session = createOrderSession();
@@ -92,6 +95,7 @@ async function fixture(directory?: string) {
     merchantAgents: new MockMerchantAgentClient(),
   });
   const app = await buildServer({
+    readiness,
     config: ConfigSchema.parse({ DEMO_MODE: "true" }),
     sessions: store,
     events: store,
@@ -126,6 +130,47 @@ async function fixture(directory?: string) {
 }
 
 describe("shared brain read models", () => {
+  it.each(["", "x".repeat(161)])(
+    "rejects invalid create action IDs before persisting a project (%j)",
+    async (actionId) => {
+      const { app, store } = await fixture();
+      const before = await store.listProjects({ limit: 50, search: "" });
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/orders",
+        headers: { "x-action-id": actionId },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: "VALIDATION_ERROR" });
+      expect(await store.listProjects({ limit: 50, search: "" })).toEqual(
+        before,
+      );
+    },
+  );
+
+  it("replays valid create action IDs and keeps missing IDs independent", async () => {
+    const { app } = await fixture();
+    const create = (actionId?: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/orders",
+        headers: actionId ? { "x-action-id": actionId } : {},
+        payload: {},
+      });
+    const first = await create("create-audit-project");
+    const replay = await create("create-audit-project");
+    expect(first.statusCode).toBe(201);
+    expect(replay.json().orderId).toBe(first.json().orderId);
+    const anonymousFirst = await create();
+    const anonymousSecond = await create();
+    expect(anonymousFirst.statusCode).toBe(201);
+    expect(anonymousSecond.statusCode).toBe(201);
+    expect(anonymousFirst.json().orderId).not.toBe(
+      anonymousSecond.json().orderId,
+    );
+  });
+
   it.each(["web", "desktop", "commit"] as const)(
     "blocks %s approval until every attached asset enters the compiled intent",
     async (surface) => {
@@ -778,5 +823,38 @@ describe("shared brain read models", () => {
       /operator/,
     );
     await expect(orchestrator.submitMessage(input)).rejects.toThrow(/operator/);
+  });
+});
+
+describe("dependency readiness", () => {
+  it.each([
+    { solver: true, persistence: true, status: 200 },
+    { solver: false, persistence: true, status: 503 },
+    { solver: true, persistence: false, status: 503 },
+    { solver: false, persistence: false, status: 503 },
+  ])(
+    "reports dependency failures without failing liveness: %j",
+    async ({ solver, persistence, status }) => {
+      const { app } = await fixture(undefined, async () => ({
+        solver,
+        persistence,
+      }));
+      const ready = await app.inject("/ready");
+      expect(ready.statusCode).toBe(status);
+      expect(ready.json()).toEqual({
+        status: status === 200 ? "ready" : "unavailable",
+        checks: { solver, persistence },
+      });
+      expect((await app.inject("/health")).statusCode).toBe(200);
+    },
+  );
+
+  it("fails closed and sanitizes unexpected readiness errors", async () => {
+    const { app } = await fixture(undefined, async () => {
+      throw new Error("private connection details");
+    });
+    const ready = await app.inject("/ready");
+    expect(ready.statusCode).toBe(503);
+    expect(ready.body).not.toContain("private");
   });
 });

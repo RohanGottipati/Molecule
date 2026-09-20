@@ -157,6 +157,16 @@ thread/material blends. Unknown, conflicted, null and unresolved values do not
 satisfy exclusions. Kit assembly and fulfillment do not require a fictitious
 single kit material.
 
+Live verification found that the model could encode "no polyester" as material
+`neq`, which admits a `cotton polyester blend` under exact comparison. Compiler
+prompt version `2026-09-19.3` explicitly requires `not_contains` for material
+exclusions. The domain mapper blocks string material inequalities, including
+scoped fields and retained prior constraints, with clarification. An extracted
+response receives the existing single semantic repair attempt before a typed
+validation failure. The original constraint is never silently rewritten, and
+the solver's general `neq` semantics are unchanged. Exact-composition inequality
+requests therefore require clarification at this compiler boundary.
+
 Merchant hard rules are also enforced; quantity/currency/capacity use known
 request/candidate values, material/product rules use explicitly requested
 component attributes, and `assets` can require supplied asset IDs. Unknown

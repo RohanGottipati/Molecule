@@ -20,6 +20,24 @@ function claim(overrides: Partial<CanonicalClaim> = {}): CanonicalClaim {
 }
 
 describe("merchant source streams", () => {
+  it("preserves the winning capacity unit for downstream rate comparisons", () => {
+    expect(
+      resolveMerchantClaims(
+        [
+          claim({
+            field: "capacity",
+            normalizedValue: 80,
+            normalizedUnit: "units/day",
+          }),
+        ],
+        now,
+      )[0]?.fact,
+    ).toMatchObject({
+      status: "resolved",
+      value: 80,
+      normalizedUnit: "units/day",
+    });
+  });
   it.each(["active", "superseded"] as const)(
     "never resurrects an older %s observation, including a delayed webhook",
     (resolutionStatus) => {

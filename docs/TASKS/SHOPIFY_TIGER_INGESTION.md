@@ -4,6 +4,17 @@
 > source for current counts, evaluation caveats and priorities. Historical test
 > results and incidents below apply only to their recorded revision/environment.
 
+Current verification, 2026-09-19: the three ingestion integration scenarios now
+pass against a fresh disposable PostgreSQL database. The mock capacity snapshot
+uses a stable `gid://shopify/InventoryItem/<number>` identity, matching numeric
+`inventory_item_id` webhook payloads; product variant IDs remain separate. A
+newer webhook supersedes the older snapshot from that same source. ThreadForge's
+single-stream fixture resolves a zero inventory update, while StitchWorks keeps
+its independent, high-authority outage claim conflicted. An HTTP 200 receipt
+does not override conflicting operational evidence. These tests use signed
+synthetic webhooks and establish no live Shopify delivery or commerce result.
+The gap analysis below records the earlier implementation starting point.
+
 Written 2026-09-19 for an agent picking this up cold. Scope: the missing middle leg of
 Shopify API → Tiger (Reality) → Shopify Admin. The write-back leg (Tiger/solver plan →
 Shopify Admin via `@molecule/shopify`'s `ShopifyClient.commit()`) already exists and is

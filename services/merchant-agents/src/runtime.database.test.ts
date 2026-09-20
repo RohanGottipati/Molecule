@@ -813,18 +813,33 @@ describe.skipIf(!databaseUrl)(
 
     it("keeps live failure visible and never invokes synthetic quote fallback", async () => {
       await runtime.close();
-      let requests = 0;
-      const fetchImpl: typeof fetch = async (_url, init) => {
-        requests++;
-        if (requests === 1)
+      let assistants = 0;
+      const fetchImpl: typeof fetch = async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith("/assistants")) {
+          assistants += 1;
           return Response.json({
-            assistant_id: "live-assistant",
+            assistant_id: `live-assistant-${assistants}`,
             created_at: now.toISOString(),
           });
-        if (requests === 2)
+        }
+        if (path.endsWith("/threads"))
           return Response.json({
             thread_id: "live-thread",
             created_at: now.toISOString(),
+          });
+        if (path.endsWith("/models"))
+          return Response.json({
+            models: [
+              {
+                name: "test-model",
+                provider: "test",
+                context_limit: 128000,
+                supports_tools: true,
+                supports_thinking: true,
+                supports_json_output: true,
+              },
+            ],
           });
         return new Response("provider secret must not appear", { status: 503 });
       };
@@ -846,9 +861,10 @@ describe.skipIf(!databaseUrl)(
         reason: "PROVIDER_ERROR",
       });
       expect(runtime.mode).toBe("live");
-      expect(
-        (await runtime.repository.getAssistant(merchantId))?.assistantId,
-      ).toBe("live-assistant");
+      expect(await runtime.repository.getAssistant(merchantId)).toMatchObject({
+        assistantId: "live-assistant-1",
+        jsonAssistantId: "live-assistant-2",
+      });
     });
 
     it.each(["reserve_capacity", "switch_capability"])(
@@ -936,8 +952,24 @@ describe.skipIf(!databaseUrl)(
 
     it("uses canonical prices for validated live output and persists the model lane", async () => {
       await runtime.close();
-      const fetchImpl: typeof fetch = async (url) => {
+      const createdAssistants: string[] = [];
+      const fetchImpl: typeof fetch = async (url, init) => {
         const path = new URL(String(url)).pathname;
+        if (path.endsWith("/assistants")) {
+          const id = `live-${createdAssistants.length + 1}`;
+          createdAssistants.push(id);
+          return Response.json({
+            assistant_id: id,
+            created_at: now.toISOString(),
+          });
+        }
+        if (path.endsWith("/messages")) {
+          const body = JSON.parse(String(init?.body));
+          expect(body.json_output).toBe(true);
+          expect(body.memory).toBe("off");
+          expect(body).not.toHaveProperty("tools");
+          expect(body.assistant_id).toBe("live-2");
+        }
         if (path.endsWith("/models") || path.endsWith("/messages")) {
           expect(getPool().idleCount).toBe(getPool().totalCount);
           const client = await getPool().connect();
@@ -952,11 +984,6 @@ describe.skipIf(!databaseUrl)(
             client.release();
           }
         }
-        if (path.endsWith("/assistants"))
-          return Response.json({
-            assistant_id: "live",
-            created_at: now.toISOString(),
-          });
         if (path.endsWith("/threads"))
           return Response.json({
             thread_id: "live-thread",
@@ -976,17 +1003,19 @@ describe.skipIf(!databaseUrl)(
             ],
           });
         return Response.json({
-          thread_id: "live-thread",
+          thread_id: path.endsWith("/messages")
+            ? JSON.parse(String(init?.body)).thread_id
+            : "live-thread",
           status: "COMPLETED",
           content: JSON.stringify({
             merchantId,
             capabilityId: capability.capabilityId,
-            status: "CAN_ACCEPT",
+            status: "DECLINE",
             currency: "CAD",
-            unitPrice: 0,
+            unitPrice: 0.01,
             setupFee: 0,
             confidence: 1,
-            explanation: "Provider output.",
+            explanation: "Remembered stale price.",
           }),
         });
       };

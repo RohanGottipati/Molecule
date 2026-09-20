@@ -103,6 +103,28 @@ describe("createModelRouter", () => {
     expect(models.map((model) => model.modelId)).toContain("mock-fast-1");
   });
 
+  it("does not route deadline quotes to a thinking model that cannot emit JSON", async () => {
+    const router = createModelRouter({
+      listModels: async () => [
+        {
+          modelId: "thinking-only",
+          provider: "test",
+          supportsTools: true,
+          supportsThinking: true,
+          supportsJsonOutput: false,
+          supportsVision: false,
+          contextWindow: 128_000,
+        },
+      ],
+    });
+    await expect(
+      router.selectModel({
+        task: { kind: "deadline_guarantee" },
+        traceId: "t1",
+      }),
+    ).rejects.toThrow(/HIGH_REASONING/i);
+  });
+
   it("throws when no discovered model satisfies a lane and none is pinned", async () => {
     const emptyAdapter: Pick<
       InstanceType<typeof MockBackboardAdapter>,

@@ -52,7 +52,12 @@ const completed = {
   output: [],
 };
 
-function pythonSolve(intent: ProductIntent, offline = false, generation = 1) {
+function pythonSolve(
+  intent: ProductIntent,
+  offline = false,
+  generation = 1,
+  supplyMaterial?: string,
+) {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const result = execFileSync(
     `${root}/services/solver/.venv/bin/python`,
@@ -67,6 +72,8 @@ incoming = json.load(sys.stdin)
 data = kit_payload()
 data["intent"] = incoming["intent"]
 data["generation"] = incoming["generation"]
+if incoming.get("supplyMaterial"):
+    data["candidates"][0]["capability"]["produces"][0]["attributes"]["material"] = incoming["supplyMaterial"]
 if incoming["offline"]:
     data["candidates"][4]["blockedReasons"] = ["offline"]
 print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True, exclude_none=True))
@@ -75,7 +82,7 @@ print(solve(SolverInput.model_validate(data)).model_dump_json(by_alias=True, exc
     {
       cwd: root,
       encoding: "utf8",
-      input: JSON.stringify({ intent, offline, generation }),
+      input: JSON.stringify({ intent, offline, generation, supplyMaterial }),
       timeout: 20_000,
       env: {
         ...process.env,
@@ -836,6 +843,133 @@ describe("compiler and solver release acceptance", () => {
 });
 
 describe("strict Responses boundary", () => {
+  const observedMaterialExclusion = {
+    key: "no-polyester",
+    field: "material",
+    operator: "neq" as const,
+    value: "polyester",
+    unit: null,
+    description: "Applies globally to all supplied and transformed goods.",
+  };
+
+  it.each(["material", "hoodie.material"])(
+    "requires clarification for an ambiguous exact %s exclusion",
+    (field) => {
+      const result = mapExtractionToResult(
+        {
+          ...extraction,
+          hardConstraints: [{ ...observedMaterialExclusion, field }],
+        },
+        undefined,
+        [],
+      );
+      expect(result.status).toBe("NEEDS_CLARIFICATION");
+      if (result.status !== "NEEDS_CLARIFICATION")
+        throw new Error("Expected material clarification");
+      expect(result.draft.hardConstraints[0]?.operator).toBe("neq");
+      expect(result.draft.ambiguityFlags).toContainEqual(
+        expect.objectContaining({
+          field,
+          reason: expect.stringContaining("blends"),
+        }),
+      );
+    },
+  );
+
+  it("keeps an unresolved persisted material inequality from becoming READY", () => {
+    const initial = mapExtractionToResult(extraction, undefined, []);
+    if (initial.status !== "READY") throw new Error("Expected initial intent");
+    const result = mapExtractionToResult(
+      extraction,
+      {
+        ...initial.intent,
+        hardConstraints: [
+          {
+            constraintId: "previous-exclusion",
+            field: "material",
+            operator: "neq",
+            value: "polyester",
+          },
+        ],
+      },
+      [],
+    );
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+  });
+
+  it("preserves exact inequalities for other attributes", () => {
+    const result = mapExtractionToResult(
+      {
+        ...extraction,
+        hardConstraints: [
+          {
+            ...observedMaterialExclusion,
+            field: "hoodie.color",
+            value: "white",
+          },
+        ],
+      },
+      undefined,
+      [],
+    );
+    expect(result.status).toBe("READY");
+  });
+
+  it("repairs the observed live exclusion and rejects polyester blends in the real solver", async () => {
+    const parse = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...completed,
+        output_parsed: {
+          ...extraction,
+          hardConstraints: [observedMaterialExclusion],
+        },
+      })
+      .mockResolvedValueOnce({
+        ...completed,
+        output_parsed: {
+          ...extraction,
+          hardConstraints: [
+            { ...observedMaterialExclusion, operator: "not_contains" },
+          ],
+        },
+      });
+    const adapter = new RealOpenAIAdapter({
+      apiKey: "test",
+      client: { responses: { parse } } as unknown as OpenAI,
+    });
+    const result = await adapter.compileIntent({
+      ...base,
+      text: "Make 20 hoodies by 2026-10-01 in CAD. No polyester.",
+    });
+    expect(parse).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(parse.mock.calls[1])).toContain("not_contains");
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Expected repaired intent");
+    expect(pythonSolve(result.intent, false, 1, "cotton").status).toBe("VALID");
+    expect(
+      pythonSolve(result.intent, false, 1, "cotton polyester blend").status,
+    ).toBe("UNSAT");
+  });
+
+  it("fails visibly when the provider repeats the ambiguous material exclusion", async () => {
+    const parse = vi.fn().mockResolvedValue({
+      ...completed,
+      output_parsed: {
+        ...extraction,
+        hardConstraints: [observedMaterialExclusion],
+      },
+    });
+    const adapter = new RealOpenAIAdapter({
+      apiKey: "test",
+      client: { responses: { parse } } as unknown as OpenAI,
+    });
+    await expect(
+      adapter.compileIntent({ ...base, text: "No polyester." }),
+    ).rejects.toMatchObject({ code: "VALIDATION", retryable: false });
+    expect(parse).toHaveBeenCalledTimes(2);
+  });
+
   it("uses the strict Responses text schema with required nullable fields", () => {
     const format = zodTextFormat(IntentExtractionSchema, "product_intent");
     expect(format.type).toBe("json_schema");

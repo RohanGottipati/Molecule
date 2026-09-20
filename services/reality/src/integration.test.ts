@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closePool,
   getPool,
+  insertClaim,
   listMerchantClaims,
   migrate,
   reserveCapacity,
@@ -198,6 +199,61 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     );
     expect(candidate?.capability.capacity.available).toBe(400);
   });
+
+  it.each([
+    "capacity",
+    "cap-thread-embroidery.capacity",
+    "capacity_per_day",
+    "cap-thread-embroidery.capacity_per_day",
+  ])(
+    "preserves normalized daily units in the actual read model for %s",
+    async (field) => {
+      // Replace this synthetic fixture's original capacity source with explicit
+      // daily evidence; the next beforeEach restores the deterministic seed.
+      await getPool().query(
+        "delete from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'",
+      );
+      await getPool().query(
+        `update capabilities set capability_json=jsonb_set(capability_json,'{capacity}',
+       '{"available":700,"maximum":1400,"period":"week"}') where capability_id='cap-thread-embroidery'`,
+      );
+      const claimId = randomUUID();
+      await insertClaim({
+        claimId,
+        merchantId: "thread-forge",
+        field,
+        normalizedValue: 80,
+        normalizedUnit: "units/day",
+        source: {
+          kind: "api",
+          reference: `demo:chaos:unit-regression:${claimId}`,
+        },
+        observedAt: now.toISOString(),
+        ingestedAt: now.toISOString(),
+        sourceAuthority: 1,
+        extractionConfidence: 1,
+        resolutionStatus: "active",
+      });
+      const capability = (await service.listMerchants()).find(
+        (merchant) => merchant.merchantId === "thread-forge",
+      )?.capabilities[0];
+      expect(capability?.capability.capacity).toMatchObject({
+        available: 80,
+        maximum: 200,
+        period: "day",
+      });
+      expect(capability?.blockedReasons).toEqual([]);
+      expect(capability?.capability.sourceClaimIds).toContain(claimId);
+      const stored = await getPool().query(
+        "select capability_json->'capacity' as capacity from capabilities where capability_id='cap-thread-embroidery'",
+      );
+      expect(stored.rows[0].capacity).toEqual({
+        available: 700,
+        maximum: 1400,
+        period: "week",
+      });
+    },
+  );
 
   it("removes superseded evidence from candidate source claims", async () => {
     const result = await ingestClaim(

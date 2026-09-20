@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { liveShopifyConfiguration } from "./shopifyConfig.js";
 
 const BooleanString = z
   .enum(["true", "false"])
@@ -17,6 +18,8 @@ export const ConfigSchema = z.object({
   SHOPIFY_MODE: z.enum(["demo", "live"]).default("demo"),
   SHOPIFY_API_VERSION: z.literal("2026-07").default("2026-07"),
   SHOPIFY_STOREFRONT_DOMAIN: z.string().optional(),
+  MOLECULE_STOREFRONT_DOMAIN: z.string().optional(),
+  SHOPIFY_CLIENT_ID: z.string().min(1).optional(),
   SHOPIFY_ACCESS_TOKEN: z.string().optional(),
   SHOPIFY_SUPPLIER_STORES: z.string().optional(),
   SHOPIFY_STORES: z.string().optional(),
@@ -49,16 +52,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("DATABASE_URL is required when STORAGE_MODE=postgres");
   if (config.BACKBOARD_MODE === "live" && !config.BACKBOARD_API_KEY)
     throw new Error("BACKBOARD_API_KEY is required for live Merchant Twins");
-  if (
-    config.SHOPIFY_MODE === "live" &&
-    (!config.REAL_EXECUTION_ENABLED ||
-      !config.SHOPIFY_STOREFRONT_DOMAIN ||
-      !config.SHOPIFY_ACCESS_TOKEN ||
-      !config.SHOPIFY_SUPPLIER_STORES ||
-      !config.SHOPIFY_STORES)
-  )
-    throw new Error(
-      "Live Shopify requires execution authorization and store credentials",
-    );
+  if (config.SHOPIFY_MODE === "live") {
+    if (!config.REAL_EXECUTION_ENABLED)
+      throw new Error("Live Shopify requires REAL_EXECUTION_ENABLED=true");
+    liveShopifyConfiguration(config);
+  }
   return config;
 }

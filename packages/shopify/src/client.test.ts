@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockShopifyClient, RealShopifyClient } from "./client.js";
 import { ShopifyError, digest } from "./types.js";
+import { actionTag, matchesActionTag } from "./effects.js";
 import { FakeShopify, plan, TestRepository } from "../tests/helpers.js";
 import type { OrderJournal } from "./repository.js";
 
@@ -376,6 +377,116 @@ describe("durable mock execution", () => {
 });
 
 describe("real adapter with deterministic HTTP provider", () => {
+  it("keeps provider tags within the live 40-character draft limit and retains full audit keys", async () => {
+    const provider = new FakeShopify();
+    const repository = new TestRepository();
+    const trace = "trace-".repeat(100);
+    const receipt = await new RealShopifyClient({
+      ...provider.options(),
+      repository,
+    }).commit(plan(), trace);
+    expect(
+      receipt.actions.every((action) => action.status === "SUCCEEDED"),
+    ).toBe(true);
+    for (const call of provider.calls.filter(
+      (call) => call.operation === "CreateDraft",
+    )) {
+      const input = call.variables.input as {
+        tags: string[];
+        customAttributes: { key: string; value: string }[];
+      };
+      expect(input.tags.every((tag) => tag.length <= 40)).toBe(true);
+      const attributes = Object.fromEntries(
+        input.customAttributes.map(({ key, value }) => [key, value]),
+      );
+      expect(attributes.molecule_trace_id).toBe(trace);
+      expect(attributes.molecule_action_key).toMatch(/^molecule:[a-f0-9]{64}$/);
+      expect(input.tags).toContain(actionTag(attributes.molecule_action_key!));
+    }
+  });
+
+  it("recognizes legacy product action tags without confusing another action", () => {
+    const key = "legacy-key";
+    expect(actionTag(key)).toHaveLength(40);
+    expect(matchesActionTag([`molecule_action_${digest(key)}`], key)).toBe(
+      true,
+    );
+    expect(matchesActionTag([actionTag(key)], key)).toBe(true);
+    expect(matchesActionTag([actionTag("another-key")], key)).toBe(false);
+  });
+
+  it.each(["physical", "service"] as const)(
+    "preserves quoted quantity, unit price and setup charge for a catalog-bound %s supplier job",
+    async (itemKind) => {
+      const provider = new FakeShopify();
+      const repository = new TestRepository();
+      const value = plan();
+      const node = value.nodes[0]!;
+      node.catalogVersion = "catalog-v1";
+      node.selectedItem = {
+        bindingId: "binding",
+        productId: "product",
+        variantId: "variant",
+        sku: "SMOKE-SKU",
+        itemKind,
+        shopDomain: "base-goods.myshopify.com",
+        ...(itemKind === "physical"
+          ? { variantGid: "gid://shopify/ProductVariant/123" }
+          : {}),
+      };
+      node.totalCost += 15;
+      value.totalCost += 15;
+      const options = { ...provider.options(), repository };
+      const receipt = await new RealShopifyClient(options).commit(
+        value,
+        "trace",
+      );
+      expect(
+        receipt.actions.every((action) => action.status === "SUCCEEDED"),
+      ).toBe(true);
+      const supplier = provider.calls.find(
+        (call) =>
+          call.operation === "CreateDraft" &&
+          call.domain === "base-goods.myshopify.com",
+      )!;
+      expect(supplier.variables.input).toMatchObject({
+        presentmentCurrencyCode: "CAD",
+        acceptAutomaticDiscounts: false,
+        allowDiscountCodesInCheckout: false,
+        lineItems: [
+          {
+            quantity: 200,
+            ...(itemKind === "physical"
+              ? {
+                  variantId: "gid://shopify/ProductVariant/123",
+                  priceOverride: { amount: "12.00", currencyCode: "CAD" },
+                }
+              : {
+                  sku: "SMOKE-SKU",
+                  originalUnitPriceWithCurrency: {
+                    amount: "12.00",
+                    currencyCode: "CAD",
+                  },
+                }),
+          },
+          {
+            title: "Setup / minimum order charge",
+            quantity: 1,
+            originalUnitPriceWithCurrency: {
+              amount: "15.00",
+              currencyCode: "CAD",
+            },
+          },
+        ],
+      });
+      const count = provider.calls.length;
+      expect(
+        await new RealShopifyClient(options).commit(value, "trace"),
+      ).toEqual(receipt);
+      expect(provider.calls).toHaveLength(count);
+    },
+  );
+
   it("recovers an uncertain cancellation without repeating a supplier mutation", async () => {
     const provider = new FakeShopify();
     const repository = new TestRepository();

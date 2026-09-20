@@ -53,6 +53,17 @@ goods; global material exclusions apply to goods and transformation ports.
 Quantity ranges, currencies and individual capability/p95 deadlines are checked.
 The solver must still check complete dependency paths, combined cost and schedule.
 
+Resolved facts retain the winning claim's optional `normalizedUnit`. For
+capacity and `capacity_per_day`, including capability-scoped fields, Reality
+aligns explicit hour/day/week rates before applying the tighter availability
+limit. It converts the existing maximum to the same period. For example,
+700 units/week with a resolved 80 units/day limit becomes 80 units/day; its
+1,400/week maximum becomes 200/day. Incompatible quantities, unsupported periods,
+or disagreement between an explicit unit and the daily field block the candidate.
+Legacy facts without a rate unit retain their existing field semantics. These
+are read-model transformations; they do not rewrite stored capabilities or
+change the separate database reservation implementation.
+
 Other package exports are `ingestClaim`, `resolveMerchant`, `ResolvedFact`,
 `toCanonicalClaim`, `normalizeValue`, `RawClaimInput`, `resolveClaims`,
 `explainResolution`, `RESOLUTION_WEIGHTS`, `CONFLICT_MARGIN_THRESHOLD`, and

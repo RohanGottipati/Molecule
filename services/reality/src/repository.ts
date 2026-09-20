@@ -21,6 +21,7 @@ export interface ResolvedFact {
   field: string;
   status: "resolved" | "conflicted" | "unknown";
   value: unknown;
+  normalizedUnit?: CanonicalClaim["normalizedUnit"];
   winningClaimId?: string;
   explanation: string;
 }
@@ -96,6 +97,7 @@ export function resolveMerchantClaims(
           field,
           status: result.status,
           value: winner?.normalizedValue,
+          normalizedUnit: winner?.normalizedUnit,
           winningClaimId: winner?.claimId,
           explanation,
         },

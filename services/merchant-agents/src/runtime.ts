@@ -170,6 +170,20 @@ export function createMerchantRuntime(
             [merchantId, input.identity.displayName],
           );
           assistant = await adapter.createMerchantAssistant(input.identity);
+          if (mode === "live") {
+            const jsonAssistant = await adapter.createMerchantAssistant({
+              ...input.identity,
+              displayName: `${input.identity.displayName} (JSON quote)`,
+              boundaries: [
+                ...input.identity.boundaries,
+                "Return only a QuoteResponse JSON object.",
+              ],
+            });
+            assistant = {
+              ...assistant,
+              jsonAssistantId: jsonAssistant.assistantId,
+            };
+          }
           if (mode === "demo")
             assistant.assistantId = `demo-assistant-${actionDigest(merchantId).slice(0, 24)}`;
           await store.saveAssistant(assistant);
@@ -255,6 +269,10 @@ export function createMerchantRuntime(
       },
     );
     await emit(result.events);
+    if (adapter instanceof RealBackboardAdapter) {
+      for (const document of await repository.listDocuments(merchantId))
+        await adapter.waitUntilDocumentIndexed(document.documentId);
+    }
     return result.assistant;
   }
 
@@ -287,12 +305,14 @@ export function createMerchantRuntime(
     merchantId: string;
     orderId: string;
     traceId: string;
+    assistantId?: string;
   }): Promise<OrderThread> {
     check();
     z.object({
       merchantId: z.string().min(1),
       orderId: z.string().min(1),
       traceId: z.string().min(1),
+      assistantId: z.string().min(1).optional(),
     }).parse(input);
     const result = await transaction(
       getPool(),
@@ -306,7 +326,7 @@ export function createMerchantRuntime(
           throw new Error("Merchant must be initialized before quoting");
         const thread = await adapter.createOrReuseOrderThread({
           ...input,
-          assistantId: assistant.assistantId,
+          assistantId: input.assistantId ?? assistant.assistantId,
         });
         if (mode === "demo")
           thread.threadId = `demo-thread-${actionDigest([input.merchantId, input.orderId]).slice(0, 24)}`;
@@ -443,6 +463,17 @@ export function createMerchantRuntime(
       const pendingEvents: Parameters<typeof persistMerchantEvent>[1][] = [];
       const assistant = await repository.getAssistant(request.merchantId);
       if (!assistant) throw new Error("Merchant must be initialized");
+      const jsonAssistantId =
+        assistant.jsonAssistantId ?? assistant.assistantId;
+      const jsonThread =
+        jsonAssistantId === assistant.assistantId
+          ? thread
+          : await ensureOrderThread({
+              merchantId: request.merchantId,
+              orderId: `${request.orderId}:json`,
+              traceId: request.traceId,
+              assistantId: jsonAssistantId,
+            });
       const memory = await repository.listMemory(request.merchantId);
       const context = {
         merchantId: request.merchantId,
@@ -498,10 +529,14 @@ export function createMerchantRuntime(
         for (let attempt = 0; attempt < 2; attempt++) {
           const result = await live.sendWithTools({
             ...context,
-            assistantId: assistant.assistantId,
+            assistantId: jsonAssistantId,
+            threadId: jsonThread.threadId,
             model: selection.modelId,
             signal: combined,
-            tools,
+            roundTimeoutMs: timeoutMs,
+            // Canonical tools already ran in groundQuote. Sending them again
+            // makes Backboard ignore json_output, so the model returns prose.
+            tools: [],
             responseSchema: QuoteResponseSchema,
             message: JSON.stringify({
               instruction:
@@ -540,9 +575,13 @@ export function createMerchantRuntime(
             request.merchantId,
           );
         }
-        if (candidate.status === "CAN_ACCEPT") response = grounded.quote;
-        else response = { ...candidate, reservationId: undefined };
-        if (grounded.quote.status === "DECLINE") response = grounded.quote;
+        // The JSON turn has no tools and no RAG. It cannot override a
+        // canonical CAN_ACCEPT with remembered capacity or stale policy.
+        response =
+          grounded.quote.status === "DECLINE" ||
+          grounded.quote.status === "CAN_ACCEPT"
+            ? grounded.quote
+            : { ...candidate, reservationId: undefined };
       }
       response = QuoteResponseSchema.parse({
         ...response,

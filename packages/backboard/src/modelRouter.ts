@@ -98,7 +98,8 @@ const LANE_REQUIREMENTS: Record<LaneId, (model: BackboardModel) => boolean> = {
   FAST_OPS: (model) => model.supportsTools && model.supportsJsonOutput,
   BULK_EXTRACTION: (model) =>
     model.supportsJsonOutput && model.contextWindow >= 64_000,
-  HIGH_REASONING: (model) => model.supportsTools && model.supportsThinking,
+  HIGH_REASONING: (model) =>
+    model.supportsTools && model.supportsThinking && model.supportsJsonOutput,
   VISION_OPTIONAL: (model) => model.supportsVision,
 };
 

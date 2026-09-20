@@ -136,6 +136,66 @@ describe("real Backboard provider wire boundary", () => {
         ],
       },
     });
+    expect(calls[0]?.body).toMatchObject({
+      json_output: false,
+      memory: "Auto",
+    });
+    expect(calls[0]?.body.tools).toHaveLength(1);
+  });
+
+  it("requests JSON only when no tools are sent, omitting the tools key", async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+        return Response.json({
+          thread_id: "thread",
+          status: "COMPLETED",
+          content: '{"ok":true}',
+        });
+      },
+    });
+    expect(
+      await adapter.sendWithTools({
+        merchantId: "merchant",
+        assistantId: "assistant",
+        threadId: "thread",
+        traceId: "trace",
+        message: "quote",
+        tools: [],
+        responseSchema: z.object({ ok: z.boolean() }),
+      }),
+    ).toMatchObject({ outcome: "COMPLETED", data: { ok: true } });
+    expect(calls[0]?.body).toMatchObject({
+      json_output: true,
+      memory: "off",
+    });
+    expect(calls[0]?.body).not.toHaveProperty("tools");
+  });
+
+  it("reads live completion text from message when content is null", async () => {
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async () =>
+        Response.json({
+          thread_id: "thread",
+          status: "COMPLETED",
+          content: null,
+          message: '{"ok":true}',
+        }),
+    });
+    expect(
+      await adapter.sendWithTools({
+        merchantId: "merchant",
+        assistantId: "assistant",
+        threadId: "thread",
+        traceId: "trace",
+        message: "quote",
+        tools: [],
+        responseSchema: z.object({ ok: z.boolean() }),
+      }),
+    ).toMatchObject({ outcome: "COMPLETED", data: { ok: true } });
   });
 
   it("rejects malformed JSON, missing IDs and error bodies without exposing provider secrets", async () => {
@@ -159,6 +219,22 @@ describe("real Backboard provider wire boundary", () => {
     await expect(adapter.createMerchantAssistant(identity)).rejects.toThrow(
       "Backboard API failed with 429",
     );
+    const missingTimestamp = new RealBackboardAdapter({
+      apiKey: "secret",
+      fetchImpl: async () =>
+        Response.json({
+          assistant_id: "assistant",
+          created_at: null,
+          private_reasoning: "secret-key-and-private-reasoning",
+        }),
+    });
+    try {
+      await missingTimestamp.createMerchantAssistant(identity);
+      throw new Error("expected invalid timestamp to fail");
+    } catch (error) {
+      expect(String(error)).toMatch(/created_at/);
+      expect(String(error)).not.toMatch(/secret-key-and-private-reasoning/);
+    }
   });
 
   it("aborts the HTTP request on timeout and explicit cancellation", async () => {
@@ -238,5 +314,84 @@ describe("real Backboard provider wire boundary", () => {
       stale: true,
       version: 2,
     });
+  });
+
+  it("polls document status until indexed and times out otherwise", async () => {
+    let statusCalls = 0;
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async (url) => {
+        expect(String(url)).toContain("/documents/document/status");
+        statusCalls += 1;
+        return Response.json({
+          document_id: "document",
+          filename: "policy.txt",
+          document_type: "txt",
+          status: statusCalls === 1 ? "processing" : "indexed",
+          created_at: timestamp,
+        });
+      },
+    });
+    await adapter.waitUntilDocumentIndexed("document", {
+      intervalMs: 0,
+      timeoutMs: 1_000,
+    });
+    expect(statusCalls).toBe(2);
+    const timedOut = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async () =>
+        Response.json({
+          document_id: "document",
+          filename: "policy.txt",
+          document_type: "txt",
+          status: "processing",
+          created_at: timestamp,
+        }),
+    });
+    await expect(
+      timedOut.waitUntilDocumentIndexed("document", {
+        intervalMs: 0,
+        timeoutMs: 20,
+      }),
+    ).rejects.toMatchObject({ code: "TIMEOUT" });
+  });
+
+  it("accepts documented add-memory 201 bodies that omit created_at", async () => {
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            message: "created",
+            memory_id: "mem-1",
+            content: "note",
+          }),
+          { status: 201 },
+        ),
+    });
+    const entry = await adapter.recordMerchantMemory({
+      merchantId: "merchant",
+      assistantId: "assistant",
+      note: "note",
+    });
+    expect(entry.memoryId).toBe("mem-1");
+    expect(Number.isFinite(Date.parse(entry.recordedAt))).toBe(true);
+  });
+
+  it("still refuses to invent historical timestamps when listing memories", async () => {
+    const adapter = new RealBackboardAdapter({
+      apiKey: "test",
+      fetchImpl: async () =>
+        Response.json({
+          memories: [{ memory_id: "mem-1", content: "note" }],
+        }),
+    });
+    await expect(
+      adapter.recallMerchantMemory({
+        merchantId: "merchant",
+        assistantId: "assistant",
+      }),
+    ).rejects.toThrow(/created_at/);
   });
 });

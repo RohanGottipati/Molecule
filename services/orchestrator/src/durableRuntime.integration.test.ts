@@ -3,7 +3,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DatabaseJobDecisionStore } from "@molecule/merchant-agents";
-import { MockShopifyAdapter } from "@molecule/shopify/catalog";
 import type { FastifyInstance } from "fastify";
 import {
   ContextReceiptSchema,
@@ -59,22 +58,6 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     await migrate();
     await seedDemo();
     await resetDemoData();
-    // This acceptance scenario requires a primary and a backup for 200 kits.
-    // Match the operational seed's Thread Forge capacity; the independent
-    // broad Shopify catalog deliberately has only 180 units at that supplier.
-    const getSnapshot = MockShopifyAdapter.prototype.getSnapshot;
-    vi.spyOn(MockShopifyAdapter.prototype, "getSnapshot").mockImplementation(
-      async function (this: MockShopifyAdapter, shop) {
-        const snapshot = await getSnapshot.call(this, shop);
-        if (snapshot.role === "threadforge") {
-          snapshot.capacity = snapshot.capacity.map((item) => ({
-            ...item,
-            quantity: 400,
-          }));
-        }
-        return snapshot;
-      },
-    );
     const root = fileURLToPath(new URL("../../../", import.meta.url));
     solver = spawn(
       `${root}/services/solver/.venv/bin/python`,

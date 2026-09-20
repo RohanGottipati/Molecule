@@ -294,12 +294,16 @@ is authoritative.
 
 ### Honest live acceptance gaps
 
-No live credentials were supplied. Provider tests use mock fetch; external
-assistant creation, models, document processing and provider memory remain
-unverified. Add-memory's documented response is an open object; Molecule
-requires a nonempty `id`/`memory_id` and valid `created_at` to persist provenance.
-List-memory permits absent/null timestamps in the provider schema; the adapter
-fails visibly rather than inventing a historical timestamp in that case.
+A credentialed 2026-09-20 smoke verified live assistant, document upload,
+indexing, memory create/list, and identity replay on a synthetic merchant.
+Add-memory's documented response is an open 201 object; live bodies include
+`memory_id` and omit `created_at`. Create records observation time locally.
+List-memory still fails visibly rather than inventing a historical timestamp.
+Documents must be `indexed` before messaging. Completions may use `message`
+while `content` is null. A document-free JSON protocol probe now passes.
+Merchant twins quote through a second document-free `jsonAssistantId` so
+corpus RAG cannot suppress `json_output`. The JSON turn cannot override a
+canonical CAN_ACCEPT with remembered prices.
 
 Backboard has no independent document-search endpoint matching the existing
 chunk/provenance interface. The real adapter keeps that operation unsupported.
@@ -392,3 +396,32 @@ wire observation and advertises JSON support only for explicit `true`; unknown
 support never makes a model eligible for JSON-required routing. Regression tests
 cover true, false, null, and malformed strings. No merchant operational facts
 are inferred from this provider capability metadata.
+
+## Live workflow verification — 2026-09-20
+
+`scripts/verify-backboard.ts` is read-only by default (`listModels` plus lane
+routing). Execution requires `--execute`, `--run-id=molecule-smoke-backboard-*`,
+`BACKBOARD_API_KEY`, and a dedicated local `molecule_backboard_smoke_*` journal
+database. It uses a synthetic merchant, never reserves capacity, never accepts
+jobs, and does not delete provider resources.
+
+The September 20 isolated run created a live assistant, uploaded a stale pricing
+document, recorded memory, and reused those identities on replay with zero
+additional creates. Provider add-memory returns HTTP 201 with `memory_id` and no
+`created_at`; the adapter records observation time locally and still refuses to
+invent timestamps when listing memories. Uploaded documents must reach
+`indexed` before `POST /threads/messages`; initialize now polls
+`GET /documents/{id}/status` after the identity transaction commits. Completions
+may put text in `message` while `content` is null. `json_output` is valid on
+send-message and forbidden on tool-outputs.
+
+Live quote protocol is not production quoting. Isolated run
+`molecule-smoke-backboard-20260920-jsoncap` passed a document-free JSON probe
+and an advisory CAN_ACCEPT at canonical CAD 12 + 10 setup. Backboard ignores
+`json_output` when tools, documents/RAG, or web search are active. The adapter
+now omits empty `tools` and sets `memory: "off"` for schema-backed calls. Live
+quotes send no tools on that JSON turn because canonical grounding already ran
+locally. Merchant twins keep corpus documents on `assistantId` and quote
+through a second document-free `jsonAssistantId`. The JSON turn cannot override
+a canonical CAN_ACCEPT with remembered prices. Retrieving documents still uses
+the local uploaded-text mirror.

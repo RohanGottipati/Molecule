@@ -824,6 +824,54 @@ describe("Realtime lifecycle without paid calls", () => {
     expect(peer.close).toHaveBeenCalled();
     expect(client.getSnapshot().state).toBe("idle");
   });
+  it.each(["Show my project status.", "Yes, approve the plan."])(
+    "requires app confirmation when a model calls approval after %j",
+    async (transcript) => {
+      const { client, channel, execute } = fixture();
+      await client.start();
+      channel.open();
+      channel.emit({
+        type: "input_audio_buffer.speech_started",
+        item_id: "turn",
+      });
+      channel.emit({
+        type: "input_audio_buffer.speech_stopped",
+        item_id: "turn",
+      });
+      channel.emit({
+        type: "conversation.item.input_audio_transcription.completed",
+        item_id: "turn",
+        transcript,
+      });
+      channel.emit({
+        type: "response.created",
+        response: { id: "response-approval" },
+      });
+      channel.emit({
+        type: "response.function_call_arguments.done",
+        response_id: "response-approval",
+        call_id: "call-approval",
+        name: "approve_action",
+        arguments: JSON.stringify({ planId: "plan-1", intentVersion: 1 }),
+      });
+      await vi.waitFor(() =>
+        expect(
+          channel.send.mock.calls.some(
+            ([raw]) =>
+              JSON.parse(String(raw)).item?.type === "function_call_output",
+          ),
+        ).toBe(true),
+      );
+      const output = channel.send.mock.calls
+        .map(([raw]) => JSON.parse(String(raw)))
+        .find((event) => event.item?.type === "function_call_output");
+      expect(JSON.parse(output.item.output)).toEqual({
+        error: "Review the plan and use Approve in the app.",
+      });
+      expect(execute).not.toHaveBeenCalled();
+      client.stop();
+    },
+  );
   it("executes a repeated tool call once, with the same stable backend action ID", async () => {
     const { client, channel, execute } = fixture();
     await client.start();

@@ -70,6 +70,24 @@ describe("bounded tool-call loop", () => {
     });
   });
 
+  it("extracts a JSON object from fenced live completions", async () => {
+    expect(
+      await runBoundedToolLoop({
+        client: {
+          start: async () => ({
+            status: "completed",
+            text: 'Here you go:\n```json\n{"available":4}\n```',
+          }),
+          submitToolOutputs: vi.fn(),
+        },
+        message: "quote",
+        tools: [],
+        context: { merchantId, threadId: "thread", traceId },
+        responseSchema: z.object({ available: z.number() }),
+      }),
+    ).toMatchObject({ outcome: "COMPLETED", data: { available: 4 } });
+  });
+
   it.each(["TIMEOUT", "ABORTED"] as const)(
     "preserves provider %s as timeout",
     async (code) => {

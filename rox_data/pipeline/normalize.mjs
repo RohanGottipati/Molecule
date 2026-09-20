@@ -10,7 +10,6 @@ import {
   BUSINESS_DAY_HOURS,
   CALENDAR_DAY_HOURS,
 } from "./config.mjs";
-import { shortId, stableJson, bumpStage, emitEvent } from "./db.mjs";
 
 const WORDS = {
   zero: 0,
@@ -99,20 +98,82 @@ export function parseNumber(raw) {
 
 /** Which period a capacity figure is expressed in, from whatever the document said. */
 export function detectPeriod(unitText, periodHint, rawText) {
-  const hay =
-    `${periodHint ?? ""} ${unitText ?? ""} ${rawText ?? ""}`.toLowerCase();
-  if (/\b(month|monthly|\/mo)\b/.test(hay)) return "month";
-  if (/\b(week|weekly|\/wk)\b/.test(hay)) return "week";
-  if (/\b(day|daily|\/d\b)\b/.test(hay)) return "day";
-  return null;
+  const explicit = String(periodHint ?? "").trim();
+  const unit = String(unitText ?? "").trim();
+  const hinted = capacityPeriod(explicit);
+  const stated = capacityPeriod(unit);
+  if (explicit && !hinted) return null;
+  if (unit && !stated && !/^(units?|pcs?|pieces?|kits?)$/i.test(unit))
+    return null;
+  if (hinted && stated && hinted !== stated) return null;
+  return hinted ?? stated ?? capacityPeriod(rawText);
 }
 
 export function detectCurrency(unitText, rawText) {
-  const hay = `${unitText ?? ""} ${rawText ?? ""}`.toUpperCase();
-  for (const code of ["CAD", "USD", "GBP", "EUR"])
-    if (hay.includes(code)) return code;
-  if (hay.includes("£")) return "GBP";
-  if (hay.includes("€")) return "EUR";
+  const text = String(unitText ?? "").trim() || String(rawText ?? "").trim();
+  const match =
+    /^(CAD|USD|GBP|EUR|£|€)(?:\s*(?:\/|per\s+)(?:units?|items?|each|ea))?$/i.exec(
+      text,
+    );
+  if (!match) return null;
+  return match[1] === "£"
+    ? "GBP"
+    : match[1] === "€"
+      ? "EUR"
+      : match[1].toUpperCase();
+}
+
+function capacityPeriod(text) {
+  const unit = String(text ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(
+      /^(?:units?|pcs?|pieces?|kits?|hoodies|bottles|packs?)\s*(?:\/|per\s+)\s*/,
+      "",
+    )
+    .replace(/^per\s+|^\//, "");
+  if (/^(?:d|days?|daily)$/.test(unit)) return "day";
+  if (/^(?:wk|weeks?|weekly)$/.test(unit)) return "week";
+  if (/^(?:mo|months?|monthly)$/.test(unit)) return "month";
+  return null;
+}
+
+function durationUnit(text) {
+  const unit = String(text ?? "")
+    .trim()
+    .toLowerCase();
+  if (/^(?:h|hours?|hrs?)$/.test(unit)) return "hours";
+  if (/^(?:business|working)\s+days?$/.test(unit)) return "business_days";
+  if (/^(?:calendar\s+)?days?$/.test(unit)) return "days";
+  return null;
+}
+
+// Evidence fallback accepts one amount with an adjacent, complete unit phrase.
+// Multiple numbers or mixed unit phrases cannot supply a missing typed unit.
+function unitNearAmount(n, value, evidence, parseUnit) {
+  for (const text of [String(value), String(evidence ?? "")]) {
+    const amounts = [...text.matchAll(/\d+(?:[.,]\d+)*/g)];
+    if (amounts.length !== 1 || parseNumber(amounts[0][0]) !== n) continue;
+    const amount = amounts[0];
+    const suffix = text
+      .slice(amount.index + amount[0].length)
+      .trim()
+      .replace(/[.!]$/, "");
+    const prefix = text
+      .slice(0, amount.index)
+      .trim()
+      .replace(
+        /^(?:(?:the\s+)?(?:unit price|price|lead time|capacity)(?:\s+is)?|we can produce)(?:\s+|$)/i,
+        "",
+      )
+      .trim();
+    const suffixUnit = parseUnit(suffix);
+    const prefixUnit = parseUnit(prefix);
+    if ((suffix && !suffixUnit) || (prefix && !prefixUnit)) continue;
+    if (suffixUnit && prefixUnit && suffixUnit !== prefixUnit) return null;
+    const unit = suffixUnit ?? prefixUnit;
+    if (unit) return unit;
+  }
   return null;
 }
 
@@ -143,9 +204,16 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
 
   const applied = [];
   if (fieldKind === "capacity") {
-    const p = detectPeriod(unit, period, evidence) ?? "day";
-    if (!detectPeriod(unit, period, evidence))
-      applied.push("assumed per-day (no period stated)");
+    const p = detectPeriod(
+      unit,
+      period,
+      unitNearAmount(n, value, evidence, capacityPeriod),
+    );
+    if (!p)
+      return {
+        ok: false,
+        reason: "Capacity period is missing, unsupported, or ambiguous",
+      };
     const perDay = p === "week" ? n / 7 : p === "month" ? n / 30 : n;
     if (p !== "day") applied.push(`${p} -> day`);
     return {
@@ -158,16 +226,22 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
   }
 
   if (fieldKind === "lead_time_hours") {
-    const hay = `${unit ?? ""} ${evidence ?? ""}`.toLowerCase();
+    const explicit = String(unit ?? "").trim();
+    const duration = explicit
+      ? durationUnit(explicit)
+      : unitNearAmount(n, value, evidence, durationUnit);
     let hours = n;
-    if (/business\s+day|working\s+day/.test(hay)) {
+    if (duration === "business_days") {
       hours = n * BUSINESS_DAY_HOURS;
       applied.push(`business days x${BUSINESS_DAY_HOURS}h`);
-    } else if (/\bdays?\b/.test(hay)) {
+    } else if (duration === "days") {
       hours = n * CALENDAR_DAY_HOURS;
       applied.push(`days x${CALENDAR_DAY_HOURS}h`);
-    } else if (!/\b(h|hour|hours|hrs?)\b/.test(hay))
-      applied.push("assumed hours (no unit stated)");
+    } else if (duration !== "hours")
+      return {
+        ok: false,
+        reason: "Lead-time unit is missing, unsupported, or ambiguous",
+      };
     return {
       ok: true,
       value: Math.round(hours * 100) / 100,
@@ -177,9 +251,14 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
   }
 
   if (fieldKind === "price") {
-    const currency = detectCurrency(unit, evidence) ?? "CAD";
-    if (!detectCurrency(unit, evidence))
-      applied.push("assumed CAD (store currency, none stated)");
+    const currency = String(unit ?? "").trim()
+      ? detectCurrency(unit)
+      : unitNearAmount(n, value, evidence, detectCurrency);
+    if (!currency)
+      return {
+        ok: false,
+        reason: "Price currency is missing, unsupported, or ambiguous",
+      };
     const rate = FX_TO_CAD[currency];
     if (!rate) return { ok: false, reason: `Unknown currency "${currency}"` };
     if (currency !== "CAD")
@@ -196,6 +275,9 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
 }
 
 export async function normalize(db, { runId, traceId, limit = null }) {
+  // Keep deterministic normalization usable without loading database drivers.
+  const { shortId, stableJson, bumpStage, emitEvent } =
+    await import("./db.mjs");
   const counts = {
     considered: 0,
     claimed: 0,

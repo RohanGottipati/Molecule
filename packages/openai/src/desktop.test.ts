@@ -33,6 +33,9 @@ describe("desktop provider adapter", () => {
       body.session.tools.map((tool: { name: string }) => tool.name),
     ).toEqual(DESKTOP_VOICE_TOOLS.map((tool) => tool.name));
     expect(JSON.stringify(body.session.tools)).not.toContain("shopify");
+    expect(
+      body.session.tools.map((tool: { name: string }) => tool.name),
+    ).not.toContain("approve_action");
     expect(JSON.stringify(body)).not.toContain("server-only-test-value");
   });
   it("uploads context through the adapter with a deterministic action key", async () => {

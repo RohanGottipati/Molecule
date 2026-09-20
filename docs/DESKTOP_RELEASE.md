@@ -12,6 +12,7 @@ Changes are limited to `apps/desktop/**`, `scripts/verify-desktop.mjs`, and this
 - IPC checks WebContents identity, main frame, and renderer origin. Service URLs require HTTPS or loopback HTTP without credentials, path, query, or fragment. Command Center links use the fixed configured origin and a UUID. Camera access is denied.
 - Settings update in memory only after atomic persistence succeeds; changing a shortcut follows successful persistence. Shortcut fallback, tray access, notification de-duplication, and persisted window position remain available.
 - Voice interruption suppresses stale output, playback completions, and tool continuations. Stopping during permission, capture, or negotiation cannot resurrect the session. Session grants use the project from the confirmed refresh. Reconnects release microphone tracks, audio contexts, peer/data-channel resources, playback, and timers.
+- Commerce approval requires reviewing the current plan and clicking Approve in the app. Realtime sessions do not expose `approve_action`, and the voice dispatcher rejects it even if the model emits an unadvertised call. Explicit app approval buttons retain their existing backend action path.
 - Provider details come from the canonical marketplace snapshot. Missing, malformed, or failed responses show unavailable status without disabling text actions. Graph layout preserves parallel branches and dependency order; it never certifies feasibility.
 
 ## Interfaces and wiring

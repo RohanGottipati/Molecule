@@ -1,5 +1,23 @@
 # Shopify release adapter
 
+## Live validation finding — 2026-09-20
+
+An actual development-store smoke test found that full SHA-256 action/trace tags
+were accepted on products but rejected by draft orders: Shopify returned a
+40-character tag limit. New tags use a short prefix and 128 hash bits (40
+characters); full action and trace IDs remain in durable receipts and draft
+custom attributes. Recovery/readback still recognizes legacy product tags.
+The deterministic HTTP provider now enforces the same draft tag limit.
+
+`scripts/verify-shopify-execution.mjs` is read-only by default. Execution requires
+an explicit configured store/run ID, provider-confirmed development-store status,
+write scopes, a CAD 1 quantity-one real-solver plan and a dedicated local
+`molecule_shopify_smoke_*` journal database. It retains one DRAFT/untracked product
+and two OPEN drafts, verifies them by native ID, then proves replay causes zero
+additional mutations. It does not pay, complete, publish, email, reserve
+inventory or delete. The September 20 run passed, including a fresh-process
+replay, after retrying the confirmed rejected draft with the same action ID.
+
 `@molecule/shopify` is a server-only ESM package for Node 22+. It imports runtime
 plans, receipts and events from `@molecule/contracts`. The adapter checks the
 `VALID` plan schema; it does not certify feasibility. The parent must authorize
@@ -353,6 +371,14 @@ populate the Reality database.
 
 ## Verification and live gaps
 
+Read-only live verification on 2026-09-19 found 23 variants without SKUs in one
+configured store (52 products, 166 variants). Shopify's
+[ProductVariant API](https://shopify.dev/docs/api/admin-graphql/2026-07/objects/ProductVariant)
+allows a nullable `sku`. Snapshot reads preserve missing SKUs as empty strings
+and retain each native `variantId`; they do not invent SKUs or discard variants.
+Missing SKUs must not block unrelated tracked-capacity ingestion. This applies
+only to read snapshots; product creation inputs still require nonempty SKUs.
+
 Run from the repository root:
 
 ```sh
@@ -419,6 +445,15 @@ The default clock is fixed at 2026-09-19T12:00:00Z; inject `now` when needed.
 Reset restores the same seed identifiers, and returned objects are isolated.
 Action keys bind to both operation and parsed inputs; conflicting reuse throws
 `ACTION_KEY_CONFLICT`. Inventory adjustment/reset are local fixture controls.
+
+Capacity snapshot `itemId` values use stable numeric
+`gid://shopify/InventoryItem/<id>` identities; they are distinct from product
+variant IDs. `demoAdjustInventory` accepts that inventory identity, and reset
+restores it. This matches the source identity produced from a numeric Shopify
+inventory webhook. A later observation supersedes an older snapshot from the
+same source; independent conflicting merchant evidence still remains conflicted.
+Local integration tests verify both single-source zero resolution and preserved
+cross-source conflict using signed synthetic webhook payloads.
 
 Catalog fixtures and CLI seeding share `packages/test-fixtures/src/seed-data.mjs`;
 `scripts/seed-data.mjs` preserves the CLI import surface. Existing release

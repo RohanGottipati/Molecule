@@ -243,73 +243,98 @@ describe("bounded Shopify transport", () => {
     );
   });
 
-  it("builds a capacity snapshot from fully paged tracked inventory", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
-      const body = String(init?.body);
-      if (body.includes("query Inventory")) {
-        return Response.json({
-          data: {
-            inventoryItem: {
-              id: "gid://shopify/InventoryItem/99",
-              tracked: true,
-              inventoryLevels: {
-                nodes: [
-                  {
-                    location: { id: "gid://shopify/Location/1", name: "Main" },
-                    quantities: [{ name: "available", quantity: 20 }],
-                  },
-                ],
-                pageInfo: { hasNextPage: false, endCursor: null },
-              },
-            },
-          },
-        });
-      }
-      return Response.json({
-        data: {
-          products: {
-            nodes: [
-              {
-                id: "gid://shopify/Product/1",
-                title: "Embroidery capacity",
-                handle: "stitchworks-capacity",
-                status: "ACTIVE",
-                vendor: "StitchWorks",
-                productType: "Capacity",
-                tags: ["capacity"],
-                variants: {
+  it.each(["CAPACITY", null, ""])(
+    "builds a capacity snapshot with SKU %j and preserves variant identity",
+    async (sku) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+        const body = String(init?.body);
+        if (body.includes("query Inventory")) {
+          return Response.json({
+            data: {
+              inventoryItem: {
+                id: "gid://shopify/InventoryItem/99",
+                tracked: true,
+                inventoryLevels: {
                   nodes: [
                     {
-                      id: "gid://shopify/ProductVariant/1",
-                      sku: "CAPACITY",
-                      price: "0.00",
-                      selectedOptions: [],
-                      inventoryItem: {
-                        id: "gid://shopify/InventoryItem/99",
-                        tracked: true,
+                      location: {
+                        id: "gid://shopify/Location/1",
+                        name: "Main",
                       },
+                      quantities: [{ name: "available", quantity: 20 }],
                     },
                   ],
                   pageInfo: { hasNextPage: false, endCursor: null },
                 },
               },
-            ],
-            pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          });
+        }
+        return Response.json({
+          data: {
+            products: {
+              nodes: [
+                {
+                  id: "gid://shopify/Product/1",
+                  title: "Embroidery capacity",
+                  handle: "stitchworks-capacity",
+                  status: "ACTIVE",
+                  vendor: "StitchWorks",
+                  productType: "Capacity",
+                  tags: ["capacity"],
+                  variants: {
+                    nodes: [
+                      {
+                        id: "gid://shopify/ProductVariant/1",
+                        sku,
+                        price: "0.00",
+                        selectedOptions: [],
+                        inventoryItem: {
+                          id: "gid://shopify/InventoryItem/99",
+                          tracked: true,
+                        },
+                      },
+                      {
+                        id: "gid://shopify/ProductVariant/2",
+                        sku: "",
+                        price: "1.00",
+                        selectedOptions: [],
+                        inventoryItem: {
+                          id: "gid://shopify/InventoryItem/100",
+                          tracked: false,
+                        },
+                      },
+                    ],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
           },
-        },
+        });
       });
-    });
 
-    const snapshot = await transport(fetch).getSnapshot("stitchworks-test");
+      const snapshot = await transport(fetch).getSnapshot("stitchworks-test");
 
-    expect(snapshot.capacity).toEqual([
-      {
-        shop: "stitchworks-test",
-        role: "stitchworks",
-        itemId: "gid://shopify/InventoryItem/99",
-        title: "Embroidery capacity",
-        quantity: 20,
-      },
-    ]);
-  });
+      expect(
+        snapshot.products[0]?.variants.map(({ variantId, sku }) => ({
+          variantId,
+          sku,
+        })),
+      ).toEqual([
+        { variantId: "gid://shopify/ProductVariant/1", sku: sku ?? "" },
+        { variantId: "gid://shopify/ProductVariant/2", sku: "" },
+      ]);
+      expect(snapshot.capacity).toEqual([
+        {
+          shop: "stitchworks-test",
+          role: "stitchworks",
+          itemId: "gid://shopify/InventoryItem/99",
+          title: "Embroidery capacity",
+          quantity: 20,
+        },
+      ]);
+    },
+  );
 });

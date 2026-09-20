@@ -26,6 +26,7 @@ import {
 } from "@molecule/db";
 
 import { catalogCandidates } from "./catalog.js";
+import { applyCapacityLimit } from "./capacity.js";
 
 import {
   ingestClaim,
@@ -149,11 +150,18 @@ function applyFacts(
         capability.pricing.unitPrice = fact.value;
       if (field === "setup_fee") capability.pricing.setupFee = fact.value;
       if (["capacity", "capacity_per_day", "inventory"].includes(field)) {
-        capability.capacity.available = Math.min(
-          capability.capacity.available ?? fact.value,
+        const result = applyCapacityLimit(
+          capability.capacity,
+          capability.quantity.unit,
+          field as "capacity" | "capacity_per_day" | "inventory",
           fact.value,
+          fact.normalizedUnit,
         );
-        if (field === "capacity_per_day") capability.capacity.period = "day";
+        if (result.ok) capability.capacity = result.capacity;
+        else {
+          blocked.push(`${fact.field}: ${result.reason}`);
+          unknownCapacity = true;
+        }
       }
       if (field === "lead_time_hours")
         capability.leadTime = {

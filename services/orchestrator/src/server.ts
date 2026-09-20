@@ -61,6 +61,7 @@ function shopifyWebhookStatus(error: ShopifyError): number {
 }
 
 export interface ServerDependencies {
+  readiness?: () => Promise<{ solver: boolean; persistence: boolean }>;
   catalogGallery?: () => Promise<import("@molecule/contracts").CatalogGallery>;
   config: Config;
   sessions: SessionRepository;
@@ -132,7 +133,14 @@ export async function buildServer(deps: ServerDependencies) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
-  app.get("/ready", async () => ({ status: "ready" }));
+  app.get("/ready", async (_request, reply) => {
+    const checks = await deps.readiness?.().catch(() => undefined);
+    const ready = checks?.solver === true && checks.persistence === true;
+    return reply.code(ready ? 200 : 503).send({
+      status: ready ? "ready" : "unavailable",
+      checks: checks ?? { solver: false, persistence: false },
+    });
+  });
   if (deps.shopifyWebhook) {
     app.post(
       SHOPIFY_WEBHOOK_PATH,
@@ -240,8 +248,11 @@ export async function buildServer(deps: ServerDependencies) {
   );
 
   app.post("/api/orders", async (request, reply) => {
+    const actionId = ActionIdSchema.parse(
+      request.headers["x-action-id"] ?? randomUUID(),
+    );
     const result = await chaosActions.run(
-      `order:create:${request.headers["x-action-id"] ?? randomUUID()}`,
+      `order:create:${actionId}`,
       {},
       OrderSessionSnapshotSchema.parse,
       async () => {

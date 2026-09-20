@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Rox track: messy-data ingestion agents. Deliberately outside the pnpm workspace so it installs standalone with npm.",
   "scripts": {
+    "test": "node --test pipeline/*.test.mjs",
     "generate": "node corpus/generate.mjs",
     "ingest": "node --env-file=../.env --env-file=../.env.local pipeline/run.mjs",
     "score": "node --env-file=../.env --env-file=../.env.local pipeline/score.mjs"
