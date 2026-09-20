@@ -647,7 +647,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
         /^(?:the\s+)?(?:recipient(?:['’]s|s['’]?)?\s+)?names?$/.test(clause)) ||
       /^fulfill?(?:ment)?$/.test(clause) ||
       /^(?:no|without|exclude)\s+(?:leather|polyester)$/.test(clause) ||
-      /^(?:actually\s+)?(?:budget|by|under|deliver|ship|individual|individually|named|embroider|embroidery|engrave|engraving|print|printing|logo|artwork|keep|make|qty|quantity|in|usd|cad)\b/.test(
+      /^(?:actually\s+)?(?:budget|by|under|deliver|ship|individual|individually|named|embroider|embroidery|engrave|engraving|print|printing|logo|artwork|keep|make|qty|quantity|in|usd|cad|priced?|pricing|currency|quoted?|bill(?:ed)?|pay(?:ing)?)\b/.test(
         clause,
       )
     )

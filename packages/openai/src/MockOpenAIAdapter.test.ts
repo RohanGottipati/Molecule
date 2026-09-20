@@ -69,6 +69,20 @@ describe("MockOpenAIAdapter", () => {
     }
   });
 
+  it("accepts natural currency phrasing as a recognised clause", async () => {
+    const result = await new MockOpenAIAdapter().compileIntent({
+      ...base,
+      text: "Order 50 black hoodies with embroidered logo, deliver by 2026-11-15, priced in CAD, budget 3000 CAD",
+    });
+
+    expect(result.status).toBe("READY");
+    if (result.status === "READY") {
+      expect(result.intent.quantity).toBe(50);
+      expect(result.intent.currency).toBe("CAD");
+      expect(result.intent.budgetMax).toBe(3000);
+    }
+  });
+
   it("surfaces missing facts instead of inventing them", async () => {
     const result = await new MockOpenAIAdapter().compileIntent({
       ...base,
