@@ -1,5 +1,11 @@
 # Codex Evidence
 
+## Parallel Codex sessions (2026-09-20)
+
+tmux grid of Codex CLI sessions used during the Hack the North build:
+
+![Parallel Codex CLI sessions in tmux](evidence/codex-parallel-sessions-2026-09-20.webp)
+
 ## Zero-capacity feasibility regression
 
 - Initial behavior or failing test: the first solver eligibility expression used Python truthiness for `capacity.available`. A canonical value of `0` therefore fell back to the requested quantity and could remain eligible.
