@@ -465,9 +465,16 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       "cap-pack-assembly",
       "cap-pack-fulfillment",
       "cap-snacks",
-      "cap-stitch-embroidery",
       "cap-thread-embroidery",
     ]);
+    expect(
+      (
+        await service.searchCandidates({
+          ...kitIntent(now),
+          deadline: new Date(now.getTime() + 11 * 86400000).toISOString(),
+        })
+      ).some((entry) => entry.capabilityId === "cap-stitch-embroidery"),
+    ).toBe(true);
     expect(await service.searchCandidates(kitIntent(now))).toEqual(candidates);
     expect(
       candidates.every(
@@ -548,7 +555,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       value: "polyester",
     });
     const candidates = await service.searchCandidates(intent, ["thread-forge"]);
-    expect(candidates).toHaveLength(8);
+    expect(candidates).toHaveLength(7);
     expect(
       candidates.some((entry) => entry.merchantId === "needle-north"),
     ).toBe(true);
@@ -568,7 +575,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       merchantId: "thread-forge",
       capabilityId: "cap-thread-embroidery",
       orderId: "held",
-      quantity: 400,
+      quantity: 201,
       actionKey: randomUUID(),
     });
     expect(
@@ -700,7 +707,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       payload: { intent: kitIntent(now) },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().candidates).toHaveLength(9);
+    expect(response.json().candidates).toHaveLength(8);
     expect(
       (
         await app.inject({

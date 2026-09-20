@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { ShopifyTransport } from "../../packages/shopify/dist/transport.js";
+import { PersistentFakeShopifyAdmin } from "../../packages/shopify/dist/fake/index.js";
 import { MERCHANT_IDS, roleForStore } from "../seed-data.mjs";
+import { DEMO_STORE_HANDLES } from "../../packages/test-fixtures/dist/index.js";
 
 export const API_VERSION = "2026-07";
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -22,10 +24,15 @@ export const maskUrl = (u) =>
 
 /** Store handles from SHOPIFY_STORES (bare handles or full domains). */
 export function storeHandles(only) {
-  const all = (process.env.SHOPIFY_STORES || "")
+  const configured = (process.env.SHOPIFY_STORES || "")
     .split(",")
     .map((s) => s.trim().replace(/\.myshopify\.com$/, ""))
     .filter(Boolean);
+  // Fake mode needs no environment at all, so it falls back to the deterministic demo world.
+  const all =
+    configured.length || process.env.SHOPIFY_MODE !== "fake"
+      ? configured
+      : [...DEMO_STORE_HANDLES];
   return only ? all.filter((s) => s === only || s.startsWith(only)) : all;
 }
 export const merchantIdForStore = (handle) =>
@@ -75,6 +82,23 @@ const transports = new Map();
 const { z } = createRequire(
   new URL("../../packages/shopify/package.json", import.meta.url),
 )("zod");
+
+/**
+ * With SHOPIFY_MODE=fake these scripts run against local synthetic stores instead of the dev
+ * stores: no credentials, no network. Everything below this seam is unchanged, so a fake run
+ * exercises the same sync, write-back and claim code as a live one.
+ *
+ * The fake is constructed lazily and shares one mutation overlay on disk, so an edit made by
+ * shopify-set-capacity.mjs is visible to the next shopify-sync.mjs process.
+ */
+export const FAKE_SHOPIFY = process.env.SHOPIFY_MODE === "fake";
+let fakeAdmin;
+export function fakeShopifyAdmin() {
+  if (!FAKE_SHOPIFY) return undefined;
+  fakeAdmin ??= new PersistentFakeShopifyAdmin({ stores: storeHandles() });
+  return fakeAdmin;
+}
+
 export async function gql(handle, query, variables = {}) {
   const domain = handle.endsWith(".myshopify.com")
     ? handle
@@ -84,15 +108,18 @@ export async function gql(handle, query, variables = {}) {
       domain,
       new ShopifyTransport({
         domain,
-        auth: process.env.SHOPIFY_ACCESS_TOKEN
-          ? { accessToken: process.env.SHOPIFY_ACCESS_TOKEN }
-          : {
-              clientId:
-                process.env.SHOPIFY_CLIENT_ID ||
-                process.env.SHOPIFY_API_KEY ||
-                "",
-              clientSecret: process.env.SHOPIFY_API_SECRET || "",
-            },
+        auth: FAKE_SHOPIFY
+          ? { accessToken: "shpat_fake_local" }
+          : process.env.SHOPIFY_ACCESS_TOKEN
+            ? { accessToken: process.env.SHOPIFY_ACCESS_TOKEN }
+            : {
+                clientId:
+                  process.env.SHOPIFY_CLIENT_ID ||
+                  process.env.SHOPIFY_API_KEY ||
+                  "",
+                clientSecret: process.env.SHOPIFY_API_SECRET || "",
+              },
+        ...(FAKE_SHOPIFY ? { fetch: fakeShopifyAdmin().fetch } : {}),
       }),
     );
   return transports

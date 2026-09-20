@@ -20,6 +20,7 @@
     "@molecule/openai": "workspace:*",
     "@molecule/service-reality": "workspace:*",
     "@molecule/shopify": "workspace:*",
+    "@molecule/test-fixtures": "workspace:*",
     "fastify": "5.12.5",
     "zod": "4.6.5"
   },

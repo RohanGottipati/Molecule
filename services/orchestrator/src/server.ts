@@ -21,10 +21,11 @@ import {
   ShopifyError,
   type WebhookOptions,
 } from "@molecule/shopify";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import { z } from "zod";
 
 import type { Config } from "./config.js";
+import type { StoreConsole } from "./storeConsole.js";
 import type { OpenAIClient, SolverClient } from "./clients.js";
 import { makeEvent, type EventStore } from "./events/EventStore.js";
 import type { SessionRepository } from "./repositories.js";
@@ -71,6 +72,7 @@ export interface ServerDependencies {
   openai: OpenAIClient;
   desktopStore?: ContextStore;
   marketplace?: () => Promise<MarketplaceSnapshot>;
+  storeConsole?: StoreConsole;
   applyChaos?: (request: ChaosRequest, traceId: string) => Promise<void>;
   resetDemo?: () => Promise<void>;
   shopifyWebhook?: {
@@ -242,6 +244,69 @@ export async function buildServer(deps: ServerDependencies) {
       return reply.code(503).send({ message: "Marketplace is unavailable" });
     return MarketplaceSnapshotSchema.parse(await deps.marketplace());
   });
+
+  // Store console. Read-only over the shopify_* mirror tables, so live and fake mode serve
+  // identical shapes. Customers and analytics are synthetic-only surfaces: see
+  // packages/contracts/src/shopify-console.ts.
+  const storeLimit = (value: unknown, fallback: number) => {
+    const parsed = Number(value ?? fallback);
+    return Number.isInteger(parsed) && parsed > 0 && parsed <= 500
+      ? parsed
+      : fallback;
+  };
+
+  const withStore = async <T>(
+    reply: FastifyReply,
+    shopDomain: string,
+    read: (console: StoreConsole) => Promise<T | undefined>,
+  ) => {
+    if (!deps.storeConsole)
+      return reply.code(503).send({ message: "Store console is unavailable" });
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shopDomain))
+      return reply.code(400).send({ message: "Invalid store domain" });
+    const result = await read(deps.storeConsole);
+    // An unmirrored store is genuinely absent, not an empty one. Say so.
+    if (!result) return reply.code(404).send({ message: "Unknown store" });
+    return result;
+  };
+
+  app.get("/api/stores", async (_request, reply) => {
+    if (!deps.storeConsole)
+      return reply.code(503).send({ message: "Store console is unavailable" });
+    return deps.storeConsole.list();
+  });
+
+  app.get<{ Params: { domain: string }; Querystring: { limit?: string } }>(
+    "/api/stores/:domain/catalog",
+    async (request, reply) =>
+      withStore(reply, request.params.domain, (console) =>
+        console.catalog(request.params.domain, storeLimit(request.query.limit, 100)),
+      ),
+  );
+
+  app.get<{ Params: { domain: string }; Querystring: { limit?: string } }>(
+    "/api/stores/:domain/orders",
+    async (request, reply) =>
+      withStore(reply, request.params.domain, (console) =>
+        console.orders(request.params.domain, storeLimit(request.query.limit, 50)),
+      ),
+  );
+
+  app.get<{ Params: { domain: string }; Querystring: { limit?: string } }>(
+    "/api/stores/:domain/customers",
+    async (request, reply) =>
+      withStore(reply, request.params.domain, (console) =>
+        console.customers(request.params.domain, storeLimit(request.query.limit, 50)),
+      ),
+  );
+
+  app.get<{ Params: { domain: string } }>(
+    "/api/stores/:domain/analytics",
+    async (request, reply) =>
+      withStore(reply, request.params.domain, (console) =>
+        console.analytics(request.params.domain),
+      ),
+  );
 
   app.post("/api/intents/compile", async (request) =>
     deps.openai.compileIntent(CompileIntentRequestSchema.parse(request.body)),

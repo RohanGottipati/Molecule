@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readConfig } from "./config.js";
 import {
   configuredShopifyDomains,
+  fakeShopifyConfiguration,
   liveShopifyConfiguration,
 } from "./shopifyConfig.js";
 
@@ -166,5 +167,61 @@ describe("live Shopify configuration", () => {
       readConfig({ SHOPIFY_MODE: "demo", SHOPIFY_SUPPLIER_STORES: "invalid" })
         .REAL_EXECUTION_ENABLED,
     ).toBe(false);
+  });
+});
+
+describe("fake Shopify configuration", () => {
+  const fake = {
+    SHOPIFY_MODE: "fake",
+    STORAGE_MODE: "postgres",
+    DATABASE_URL: "postgres://localhost/molecule",
+  };
+
+  it("needs no credentials and never enables real execution", () => {
+    const config = readConfig(fake);
+    expect(config.SHOPIFY_MODE).toBe("fake");
+    expect(config.REAL_EXECUTION_ENABLED).toBe(false);
+  });
+
+  it("refuses to run without the durable runtime", () => {
+    expect(() =>
+      readConfig({ SHOPIFY_MODE: "fake", STORAGE_MODE: "local" }),
+    ).toThrow("SHOPIFY_MODE=fake requires STORAGE_MODE=postgres");
+  });
+
+  it("refuses to be combined with real execution", () => {
+    expect(() =>
+      readConfig({ ...fake, REAL_EXECUTION_ENABLED: "true" }),
+    ).toThrow("cannot run with REAL_EXECUTION_ENABLED=true");
+  });
+
+  it("builds the same shape as the live configuration, with an injected fetch", () => {
+    const config = readConfig(fake);
+    const resolved = fakeShopifyConfiguration(config);
+
+    expect(resolved.snapshotStores.length).toBeGreaterThan(1);
+    expect(resolved.centralStore.domain).toMatch(/\.myshopify\.com$/);
+    expect(resolved.centralStore.fetch).toBe(resolved.admin.fetch);
+    expect(Object.keys(resolved.supplierStores).length).toBeGreaterThan(0);
+
+    for (const store of Object.values(resolved.supplierStores)) {
+      expect(store.domain).toMatch(/\.myshopify\.com$/);
+      expect(store.fetch).toBe(resolved.admin.fetch);
+      // The central storefront is never also a supplier.
+      expect(store.domain).not.toBe(resolved.centralStore.domain);
+    }
+  });
+
+  it("honours an explicit store list", () => {
+    const resolved = fakeShopifyConfiguration(
+      readConfig({
+        ...fake,
+        SHOPIFY_STORES: "basegoods-tyefhh8o,threadforge-eznglsyk",
+      }),
+    );
+    expect(resolved.snapshotStores).toEqual([
+      "basegoods-tyefhh8o.myshopify.com",
+      "threadforge-eznglsyk.myshopify.com",
+    ]);
   });
 });

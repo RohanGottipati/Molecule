@@ -12,6 +12,9 @@ const readPaths = [
   /^orders\/[^/]+(?:\/(?:events|messages|actions|capabilities))?$/,
   /^projects$/,
   /^projects\/[^/]+$/,
+  // Store console. The proxy is deny-by-default, so these stay invisible until listed here.
+  /^stores$/,
+  /^stores\/[a-z0-9][a-z0-9-]*\.myshopify\.com\/(?:catalog|orders|customers|analytics)$/,
 ];
 const writePaths = [
   /^orders$/,

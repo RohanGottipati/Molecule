@@ -27,7 +27,11 @@
     "verify:secrets": "node scripts/verify-no-client-secrets.mjs",
     "db:migrate": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/migrate.ts --seed-only",
-    "db:reset": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/reset.ts"
+    "db:reset": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/reset.ts",
+    "shopify:fake:sync": "SHOPIFY_MODE=fake node --env-file-if-exists=.env scripts/shopify-sync.mjs",
+    "shopify:fake:writeback": "SHOPIFY_MODE=fake node --env-file-if-exists=.env scripts/shopify-writeback.mjs",
+    "shopify:fake:capacity": "SHOPIFY_MODE=fake node --env-file-if-exists=.env scripts/shopify-set-capacity.mjs",
+    "shopify:fake:reset": "node scripts/shopify-fake-reset.mjs"
   },
   "devDependencies": {
     "@shopify/cli": "4.8.0",

@@ -8,10 +8,13 @@ import {
 
 export const views = [
   "command",
+  "projects",
   "merchants",
   "reality",
   "operations",
   "execution",
+  "stores",
+  "testing",
 ] as const;
 export type WorkspaceView = (typeof views)[number];
 export function parseView(value: string | null): WorkspaceView {
@@ -149,6 +152,14 @@ export function supplierAdminUrl(store: string, gid: string) {
     : undefined;
 }
 
+/** Admin link for a catalog variant. Same domain/GID guards as `supplierAdminUrl`. */
+export function variantAdminUrl(store: string, gid: string) {
+  const id = /^gid:\/\/shopify\/ProductVariant\/(\d+)$/.exec(gid)?.[1];
+  return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(store) && id
+    ? `https://${store}/admin/variants/${id}`
+    : undefined;
+}
+
 export function planDelta(
   previous: ProductionPlan | null,
   current: ProductionPlan | null,
@@ -208,8 +219,8 @@ export function graphPositions(plan: ProductionPlan) {
   for (const [level, nodes] of rows)
     nodes.forEach((id, index) =>
       positions.set(id, {
-        x: level * 400,
-        y: (index + (maxRows - nodes.length) / 2) * 175,
+        x: level * 540,
+        y: (index + (maxRows - nodes.length) / 2) * 230,
       }),
     );
   return positions;

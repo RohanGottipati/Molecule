@@ -3,13 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { dockProjectHref } from "../lib/navigation";
 import { useWorkspace } from "../lib/useWorkspace";
-import { dateLabel, type WorkspaceView } from "../lib/workspace";
+import { dateLabel } from "../lib/workspace";
 import { BriefComposer } from "./BriefComposer";
+import { HomePage } from "./HomePage";
+import { StoreConsole } from "./StoreConsole";
+import { TestingPlan } from "./TestingPlan";
 import { PlanReview } from "./PlanReview";
 import { ProductionConversation } from "./ProductionConversation";
 import { ProjectHome } from "./ProjectHome";
 import { ProjectStatus } from "./ProjectStatus";
-import { WorkspaceLink } from "./WorkspaceLink";
+import { Sidebar, sidebarDestinations } from "./Sidebar";
 import { WorkspaceNotices } from "./WorkspaceNotices";
 import {
   EventList,
@@ -20,39 +23,7 @@ import {
 import { useBriefDraft } from "./useBriefDraft";
 import { providerModeLabel } from "./workspacePresentation";
 
-const destinations: {
-  key: WorkspaceView;
-  label: string;
-  description: string;
-}[] = [
-  {
-    key: "command",
-    label: "Workspace",
-    description: "Your production brief, saved requests and current result.",
-  },
-  {
-    key: "merchants",
-    label: "Suppliers",
-    description: "Explore supplier capabilities and the evidence behind them.",
-  },
-  {
-    key: "reality",
-    label: "Sources",
-    description:
-      "Trace supplier facts to their sources, including gaps and conflicts.",
-  },
-  {
-    key: "operations",
-    label: "Activity",
-    description: "Confirmed project decisions and recorded outcomes.",
-  },
-  {
-    key: "execution",
-    label: "Plan & actions",
-    description:
-      "Review the solver’s plan, approve it and inspect commerce records.",
-  },
-];
+const SIDEBAR_COLLAPSED_KEY = "molecule.sidebarCollapsed";
 
 export function OrderWorkspace({
   initialOrderId,
@@ -64,12 +35,45 @@ export function OrderWorkspace({
   const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(
     null,
   );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+      if (stored === "1") setSidebarCollapsed(true);
+    } catch {
+      // Ignore storage failures (private browsing, disabled storage).
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSED_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures (private browsing, disabled storage).
+    }
+  }, [sidebarCollapsed]);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const sync = () => setIsNarrowViewport(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  // Below the mobile breakpoint the sidebar already becomes a static, full-width
+  // bar with its own layout, so the desktop icon-rail collapse is suppressed
+  // rather than persisted over it.
+  const sidebarIsCollapsed = sidebarCollapsed && !isNarrowViewport;
   const heading = useRef<HTMLHeadingElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const focusComposer = useRef(false);
   const destination =
-    destinations.find((item) => item.key === workspace.view) ??
-    destinations[0]!;
+    sidebarDestinations.find((item) => item.key === workspace.view) ??
+    sidebarDestinations[0]!;
+  const canvasView =
+    workspace.view === "testing" || workspace.view === "execution";
   const home = !workspace.orderId && workspace.view === "command";
   const projectTitle =
     workspace.order?.intent?.desiredOutputs
@@ -81,7 +85,7 @@ export function OrderWorkspace({
         : workspace.order
           ? "Production project"
           : "Project unavailable"
-      : "No active project");
+      : "Production workspace");
   const dockHref = workspace.orderId
     ? dockProjectHref(workspace.orderId)
     : undefined;
@@ -93,6 +97,37 @@ export function OrderWorkspace({
       }
     } else heading.current?.focus();
   }, [workspace.view, workspace.orderId, workspace.draftScope, draft.ready]);
+
+  // Auto-navigate to Plan & actions the first time a plan appears for the
+  // order being watched, so submitting a brief on Home lands the user on the
+  // plan without a manual sidebar click. Deliberately does not fire when an
+  // order is first observed with a plan already attached (page reload / deep
+  // link), and never fires twice for the same order, so it never fights a
+  // manual navigation elsewhere.
+  const priorPlanRef = useRef<{
+    orderId: string | null;
+    planId: string | null;
+  }>({ orderId: null, planId: null });
+  const autoNavigatedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const orderId = workspace.orderId;
+    const planId = workspace.order?.activePlan?.planId ?? null;
+    const prior = priorPlanRef.current;
+    if (prior.orderId !== orderId) {
+      priorPlanRef.current = { orderId, planId };
+      return;
+    }
+    if (
+      planId &&
+      !prior.planId &&
+      orderId &&
+      !autoNavigatedRef.current.has(orderId)
+    ) {
+      autoNavigatedRef.current.add(orderId);
+      if (workspace.view === "command") workspace.navigate("execution");
+    }
+    priorPlanRef.current = { orderId, planId };
+  }, [workspace.orderId, workspace.order?.activePlan?.planId, workspace.view]);
 
   function compose() {
     if (workspace.view === "command") textarea.current?.focus();
@@ -108,147 +143,100 @@ export function OrderWorkspace({
     } else compose();
   }
 
+  if (home)
+    return <HomePage workspace={workspace} draft={draft} textarea={textarea} />;
+
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell dashboard-shell ${canvasView ? "canvas-shell" : ""} ${sidebarIsCollapsed ? "sidebar-collapsed" : ""}`}
+    >
       <a className="skip-link" href="#main-content">
         Skip to workspace
       </a>
-      <aside className="sidebar">
-        <a href="/" className="brand" aria-label="Molecule projects">
-          <span className="brand-mark" aria-hidden="true">
-            m·
-          </span>
-          <span>molecule</span>
-        </a>
-        <nav aria-label="Main navigation">
-          <a
-            href="/"
-            className={`nav-item ${home ? "active" : ""}`}
-            aria-current={home ? "page" : undefined}
-          >
-            Projects
-          </a>
-          {destinations.map((item) => (
-            <WorkspaceLink
-              key={item.key}
-              orderId={workspace.orderId}
-              view={item.key}
-              onNavigate={
-                item.key === "command" && home ? compose : workspace.navigate
-              }
-              className={`nav-item ${!home && workspace.view === item.key ? "active" : ""}`}
-              current={!home && workspace.view === item.key}
-            >
-              {item.label}
-            </WorkspaceLink>
-          ))}
-          <a className="nav-item" href="/recipes">
-            Recipe gallery
-          </a>
-        </nav>
-        <div className="sidebar-footer">
-          <p>Brief → validated plan → approval → commerce records</p>
-          <p>No payment or physical delivery is confirmed here.</p>
-        </div>
-      </aside>
+      <Sidebar
+        workspace={workspace}
+        home={home}
+        compose={compose}
+        collapsed={sidebarIsCollapsed}
+        onCollapse={setSidebarCollapsed}
+      />
       <div className="main-shell">
-        <header className="topbar">
-          <div className="active-project">
-            <span className="eyebrow">ACTIVE PROJECT</span>
-            <strong>{projectTitle}</strong>
-            {workspace.orderId && (
-              <small>#{workspace.orderId.slice(0, 8)}</small>
-            )}
-          </div>
-          <div className="topbar-actions">
-            <span className="mode-tag">{providerModeLabel(workspace)}</span>
-            {dockHref && (
-              <a className="secondary" href={dockHref}>
-                Continue in dock
-              </a>
-            )}
-            <button className="secondary" type="button" onClick={startProject}>
-              New project
-            </button>
-          </div>
-        </header>
-        <main id="main-content" className="main-content" tabIndex={-1}>
-          <div className="page-heading">
-            <div>
-              <h1 ref={heading} tabIndex={-1}>
-                {home ? "Projects" : destination.label}
-              </h1>
-              <p>
-                {home
-                  ? "Bring a production brief. Return to the work already underway."
-                  : destination.description}
-              </p>
+        {!canvasView && (
+          <header className="topbar">
+            <div className="active-project">
+              <span className="eyebrow">
+                {workspace.orderId ? "PROJECT" : "MOLECULE"}
+              </span>
+              <strong>{projectTitle}</strong>
+              {workspace.orderId && (
+                <small>#{workspace.orderId.slice(0, 8)}</small>
+              )}
             </div>
-            {workspace.view !== "command" && (
-              <button className="secondary" type="button" onClick={compose}>
-                {workspace.canSubmitMessage
-                  ? "Return to brief"
-                  : "View brief & saved draft"}
+            <div className="topbar-actions">
+              <span className="mode-tag">{providerModeLabel(workspace)}</span>
+              {dockHref && (
+                <a className="secondary" href={dockHref}>
+                  Continue in dock
+                </a>
+              )}
+              <button
+                className="secondary"
+                type="button"
+                onClick={startProject}
+              >
+                New project
               </button>
-            )}
-          </div>
-          <WorkspaceNotices workspace={workspace} />
-          {workspace.orderId && (
+            </div>
+          </header>
+        )}
+        <main id="main-content" className="main-content" tabIndex={-1}>
+          {!canvasView && (
+            <div className="page-heading">
+              <div>
+                <h1 ref={heading} tabIndex={-1}>
+                  {home ? "Projects" : destination.label}
+                </h1>
+                <p>
+                  {home
+                    ? "Bring a production brief. Return to the work already underway."
+                    : destination.description}
+                </p>
+              </div>
+              {workspace.view !== "command" && (
+                <button className="secondary" type="button" onClick={compose}>
+                  {workspace.canSubmitMessage
+                    ? "Return to brief"
+                    : "View brief & saved draft"}
+                </button>
+              )}
+            </div>
+          )}
+          {!canvasView && <WorkspaceNotices workspace={workspace} />}
+          {workspace.orderId && workspace.view === "command" && (
             <ProjectStatus
               key={workspace.orderId}
               workspace={workspace}
               onCompose={compose}
             />
           )}
-          {workspace.view === "command" &&
-            (home ? (
-              <div className="home-layout">
-                <ProjectHome workspace={workspace} />
-                <section
-                  id="new-brief"
-                  className="new-project"
-                  aria-labelledby="new-project-title"
-                >
-                  <div className="intro-copy">
-                    <p className="eyebrow">NEW PRODUCTION PROJECT</p>
-                    <h2 id="new-project-title">
-                      Tell us what needs to be made.
-                    </h2>
-                    <p>
-                      Molecule turns quantities, deadlines and requirements into
-                      supplier quotes and a solver-validated production plan.
-                      Review it before approving commerce records.
-                    </p>
-                    <p className="muted small">
-                      A project is created only when you send the brief.
-                    </p>
-                  </div>
-                  <BriefComposer
-                    workspace={workspace}
-                    draft={draft}
-                    textarea={textarea}
-                  />
-                </section>
-              </div>
-            ) : (
-              <div className="workspace-conversation">
-                <ProductionConversation
-                  key={workspace.orderId}
-                  workspace={workspace}
-                />
-                <BriefComposer
-                  workspace={workspace}
-                  draft={draft}
-                  textarea={textarea}
-                />
-              </div>
-            ))}
+          {workspace.view === "command" && (
+            <div className="workspace-conversation">
+              <ProductionConversation
+                key={workspace.orderId}
+                workspace={workspace}
+              />
+              <BriefComposer
+                workspace={workspace}
+                draft={draft}
+                textarea={textarea}
+              />
+            </div>
+          )}
+          {workspace.view === "projects" && (
+            <ProjectHome workspace={workspace} />
+          )}
           {workspace.view === "merchants" && (
             <>
-              <p className="scope-note">
-                Marketplace supplier directory · shared across projects. Plan
-                &amp; actions shows this project&apos;s selected suppliers.
-              </p>
               <MerchantsView
                 marketplace={workspace.marketplace}
                 loading={workspace.marketplaceLoading}
@@ -272,7 +260,7 @@ export function OrderWorkspace({
                   </h2>
                   <span className="muted small">
                     {workspace.orderId
-                      ? "Saved server events"
+                      ? "Project history"
                       : "Open a project to see its activity"}
                   </span>
                 </div>
@@ -283,13 +271,13 @@ export function OrderWorkspace({
                 )}
               </section>
               <details className="operations-disclosure">
-                <summary>
-                  Marketplace operations &amp; provider health · all projects
-                </summary>
+                <summary>Provider health &amp; marketplace</summary>
                 <OperationsView marketplace={workspace.marketplace} />
               </details>
             </div>
           )}
+          {workspace.view === "stores" && <StoreConsole />}
+          {workspace.view === "testing" && <TestingPlan />}
           {workspace.view === "execution" && (
             <PlanReview
               key={`${workspace.orderId}:${workspace.order?.activePlan?.planId ?? "no-plan"}`}
@@ -305,56 +293,58 @@ export function OrderWorkspace({
               }}
             />
           )}
-          <footer className="workspace-footer">
-            <span>
-              {workspace.orderId
-                ? workspace.freshness === "fresh"
-                  ? "Project is up to date"
-                  : workspace.freshness === "stale"
-                    ? "Latest project read failed"
-                    : "Checking saved project…"
-                : "Production planning workspace"}
-            </span>
-            {workspace.orderId && (
-              <button
-                type="button"
-                className="text-button"
-                disabled={
-                  workspace.loading || workspace.freshness === "refreshing"
-                }
-                onClick={() => void workspace.refresh()}
-              >
-                Refresh project
-              </button>
-            )}
-            <details>
-              <summary>Connection &amp; project details</summary>
-              <p>
-                Recovery simulations:{" "}
-                {workspace.configLoading
-                  ? "checking configuration"
-                  : workspace.configError
-                    ? "configuration unavailable; controls disabled"
-                    : workspace.demoMode
-                      ? "enabled by server"
-                      : "disabled by server"}
-                .
-              </p>
-              <p>
-                Updates: {workspace.connection}.{" "}
-                {workspace.lastSyncedAt
-                  ? `Last read ${dateLabel(new Date(workspace.lastSyncedAt).toISOString(), true)}.`
-                  : ""}
-              </p>
+          {!canvasView && (
+            <footer className="workspace-footer">
+              <span>
+                {workspace.orderId
+                  ? workspace.freshness === "fresh"
+                    ? "Project is up to date"
+                    : workspace.freshness === "stale"
+                      ? "Latest project read failed"
+                      : "Checking saved project…"
+                  : "Production planning workspace"}
+              </span>
               {workspace.orderId && (
-                <p>
-                  Project <code>{workspace.orderId}</code> · trace{" "}
-                  <code>{workspace.order?.traceId ?? "Not loaded"}</code>
-                </p>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={
+                    workspace.loading || workspace.freshness === "refreshing"
+                  }
+                  onClick={() => void workspace.refresh()}
+                >
+                  Refresh project
+                </button>
               )}
-              {workspace.syncError && <p>{workspace.syncError}</p>}
-            </details>
-          </footer>
+              <details>
+                <summary>Connection details</summary>
+                <p>
+                  Recovery simulations:{" "}
+                  {workspace.configLoading
+                    ? "checking configuration"
+                    : workspace.configError
+                      ? "configuration unavailable; controls disabled"
+                      : workspace.demoMode
+                        ? "enabled by server"
+                        : "disabled by server"}
+                  .
+                </p>
+                <p>
+                  Updates: {workspace.connection}.{" "}
+                  {workspace.lastSyncedAt
+                    ? `Last read ${dateLabel(new Date(workspace.lastSyncedAt).toISOString(), true)}.`
+                    : ""}
+                </p>
+                {workspace.orderId && (
+                  <p>
+                    Project <code>{workspace.orderId}</code> · trace{" "}
+                    <code>{workspace.order?.traceId ?? "Not loaded"}</code>
+                  </p>
+                )}
+                {workspace.syncError && <p>{workspace.syncError}</p>}
+              </details>
+            </footer>
+          )}
         </main>
       </div>
     </div>

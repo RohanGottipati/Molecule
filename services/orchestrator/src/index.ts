@@ -11,6 +11,7 @@ import { closePool, getPool } from "@molecule/db";
 
 import { HttpSolverClient } from "./clients/HttpSolverClient.js";
 import { readConfig } from "./config.js";
+import { createStoreConsole } from "./storeConsole.js";
 import { LocalStore } from "./LocalStore.js";
 import { MockMerchantAgentClient } from "./mocks/MockMerchantAgentClient.js";
 import { MockRealityClient } from "./mocks/MockRealityClient.js";
@@ -82,12 +83,16 @@ export async function createApp() {
       },
       {
         name: "shopify",
-        mode: config.SHOPIFY_MODE,
+        // Fake mode reports `demo`, never `live`. The UI uses this to decide whether to show
+        // the "Demo commerce - synthetic records" banner, and that banner must stay on.
+        mode: config.SHOPIFY_MODE === "live" ? "live" : "demo",
         status: "ready",
         detail:
           config.SHOPIFY_MODE === "live"
             ? "Authorized Shopify adapter; credentials checked on commit"
-            : "Synthetic commerce; no external orders or charges",
+            : config.SHOPIFY_MODE === "fake"
+              ? "Local synthetic stores; no external orders or charges"
+              : "Synthetic commerce; no external orders or charges",
       },
       {
         name: "tiger",
@@ -170,6 +175,8 @@ export async function createApp() {
     resetDemo: durable?.reality.resetDemo,
     shopifyWebhook: durable?.shopifyWebhook,
     catalogGallery: durable ? catalogGallery : undefined,
+    // The console reads the Postgres mirror directly, so it needs the durable runtime.
+    storeConsole: durable ? createStoreConsole(config) : undefined,
   });
   app.addHook("onClose", async () => {
     await durable?.close();

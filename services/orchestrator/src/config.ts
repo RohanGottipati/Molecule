@@ -15,7 +15,7 @@ export const ConfigSchema = z.object({
   STORAGE_MODE: z.enum(["local", "postgres"]).default("local"),
   BACKBOARD_MODE: z.enum(["demo", "live"]).default("demo"),
   BACKBOARD_API_KEY: z.string().optional(),
-  SHOPIFY_MODE: z.enum(["demo", "live"]).default("demo"),
+  SHOPIFY_MODE: z.enum(["demo", "live", "fake"]).default("demo"),
   SHOPIFY_API_VERSION: z.literal("2026-07").default("2026-07"),
   SHOPIFY_STOREFRONT_DOMAIN: z.string().optional(),
   MOLECULE_STOREFRONT_DOMAIN: z.string().optional(),
@@ -48,6 +48,14 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     (config.BACKBOARD_MODE === "live" || config.SHOPIFY_MODE === "live")
   )
     throw new Error("Live providers require STORAGE_MODE=postgres");
+  // Fake mode drives the same durable pipeline as live (sync -> Postgres -> Reality), so it
+  // needs the durable runtime. It needs no credentials and never enables real execution.
+  if (config.SHOPIFY_MODE === "fake" && config.STORAGE_MODE !== "postgres")
+    throw new Error("SHOPIFY_MODE=fake requires STORAGE_MODE=postgres");
+  if (config.SHOPIFY_MODE === "fake" && config.REAL_EXECUTION_ENABLED)
+    throw new Error(
+      "SHOPIFY_MODE=fake cannot run with REAL_EXECUTION_ENABLED=true",
+    );
   if (config.STORAGE_MODE === "postgres" && !env.DATABASE_URL)
     throw new Error("DATABASE_URL is required when STORAGE_MODE=postgres");
   if (config.BACKBOARD_MODE === "live" && !config.BACKBOARD_API_KEY)
