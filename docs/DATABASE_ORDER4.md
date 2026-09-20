@@ -37,8 +37,9 @@ exact name, term overlap, then trigram similarity (minimum 0.25, minimum margin
 0.05). When the choice is not clear it leaves the capability empty and queues a
 `low_confidence_link` review item rather than guessing.
 
-`ROX_CAPACITY_POLICY=legacy` restores the old parsing. It exists only to
-reproduce historical synthetic scores.
+The old parser is reachable only inside `pipeline/compare-policies.mjs` to
+reproduce historical synthetic scores. Runtime ingestion has no legacy-policy
+environment switch.
 
 ## Measured effect (synthetic corpus, 334 capacity extractions)
 
@@ -65,11 +66,13 @@ wide because the benchmark pairs extractions to truth by value, which is
 ambiguous when two capabilities share a number (59 pairs). The gap is in the
 benchmark, not evidence about the pipeline.
 
-## Not done
+## Follow-up status
 
 - No real-document accuracy. Requires Order 3 inputs.
 - 154 unattributed extractions need merchant-alias resolution.
-- No run-specific resolution snapshot, so resolution/outlier accuracy is still uncertified.
+- Migration 022 and the ROX resolver now persist run-specific resolution
+  snapshots. New-run outlier accuracy is reproducible; historical runs without
+  those rows remain explicitly uncertified.
 - The extraction prompt is now `rox-extract-v4`; extractions made under v3 are
   not re-run, so live Tiger rows were not re-normalized.
 

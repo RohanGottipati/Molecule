@@ -128,6 +128,9 @@ importers:
       "@molecule/contracts":
         specifier: workspace:*
         version: link:../contracts
+      "@molecule/resolution":
+        specifier: workspace:*
+        version: link:../resolution
       pg:
         specifier: 8.13.1
         version: 8.13.1
@@ -174,6 +177,16 @@ importers:
         specifier: 5.0.1
         version: 5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.13))
 
+  packages/resolution:
+    dependencies:
+      "@molecule/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: 5.0.1
+        version: 5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.13))
+
   packages/shopify:
     dependencies:
       "@molecule/contracts":
@@ -201,6 +214,18 @@ importers:
       "@molecule/contracts":
         specifier: workspace:*
         version: link:../contracts
+
+  rox_data:
+    dependencies:
+      "@molecule/resolution":
+        specifier: workspace:*
+        version: link:../packages/resolution
+      openai:
+        specifier: ^6.10.0
+        version: 6.49.0(zod@4.6.5)
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
 
   services/merchant-agents:
     dependencies:
@@ -278,6 +303,9 @@ importers:
       "@molecule/events":
         specifier: workspace:*
         version: link:../../packages/events
+      "@molecule/resolution":
+        specifier: workspace:*
+        version: link:../../packages/resolution
       fastify:
         specifier: 5.12.5
         version: 5.12.5
@@ -3042,12 +3070,6 @@ packages:
         integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==,
       }
 
-  fast-json-stringify@6.4.0:
-    resolution:
-      {
-        integrity: sha512-ibRCQ0GZKJIQ+P3Et1h0LhPgp3PMTYk0MH8O+kW3lNYsvmaQww5Nn3f1jf73Q0jR1Yz3a1CDP4/NZD3vOajWJQ==,
-      }
-
   fast-json-stringify@7.0.1:
     resolution:
       {
@@ -3076,12 +3098,6 @@ packages:
     resolution:
       {
         integrity: sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg==,
-      }
-
-  fastify@5.1.0:
-    resolution:
-      {
-        integrity: sha512-0SdUC5AoiSgMSc2Vxwv3WyKzyGMDJRAW/PgNsK1kZrnkO6MeqUIW9ovVg9F2UGIqtIcclYMyeJa4rK6OZc7Jxg==,
       }
 
   fastify@5.12.5:
@@ -3148,13 +3164,6 @@ packages:
         integrity: sha512-dz4HxH6pOvbUzZpZ/yXhafjbR2I8cenK5xL0KtBFb7U2ADsR+OwXifnxZjij/pZWF775uSCMzWVd+jDik2H2IA==,
       }
     engines: { node: ">= 12" }
-
-  forwarded@0.2.0:
-    resolution:
-      {
-        integrity: sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==,
-      }
-    engines: { node: ">= 0.6" }
 
   fs-extra@10.1.0:
     resolution:
@@ -3330,13 +3339,6 @@ packages:
       {
         integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==,
       }
-
-  ipaddr.js@1.9.1:
-    resolution:
-      {
-        integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==,
-      }
-    engines: { node: ">= 0.10" }
 
   ipaddr.js@2.5.0:
     resolution:
@@ -3760,6 +3762,29 @@ packages:
       }
     engines: { node: ">=12" }
 
+  openai@6.49.0:
+    resolution:
+      {
+        integrity: sha512-aYCc0C6L864eR6WSYIwQGyXriw/nIyZx0ObvhzOEVuk0zoBDpynjSbrionWI7q65B5H8jJX0DXR9snEzM6bfPg==,
+      }
+    peerDependencies:
+      "@aws-sdk/credential-provider-node": ">=3.972.0 <4"
+      "@smithy/hash-node": ">=4.3.0 <5"
+      "@smithy/signature-v4": ">=5.4.0 <6"
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      "@aws-sdk/credential-provider-node":
+        optional: true
+      "@smithy/hash-node":
+        optional: true
+      "@smithy/signature-v4":
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   openai@7.19.0:
     resolution:
       {
@@ -3956,6 +3981,24 @@ packages:
       pg-native:
         optional: true
 
+  pg@8.23.0:
+    resolution:
+      {
+        integrity: sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg==,
+      }
+    engines: { node: ">= 16.0.0" }
+    peerDependencies:
+      pg-native: ">=3.0.1"
+    peerDependenciesMeta:
+      pg-native:
+        optional: true
+
+  pgpass@1.0.5:
+    resolution:
+      {
+        integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==,
+      }
+
   pgpass@1.0.6:
     resolution:
       {
@@ -3982,12 +4025,6 @@ packages:
       }
     engines: { node: ">=0.10.0" }
 
-  pino-abstract-transport@2.0.0:
-    resolution:
-      {
-        integrity: sha512-F63x5tizV6WCh4R6RHyi2Ml+M70DNRXt/+HANowMflpgGFMAym/VKm6G7ZOQRjqN7XbGxK1Lg9t6ZrtzOaivMw==,
-      }
-
   pino-abstract-transport@3.0.0:
     resolution:
       {
@@ -4004,13 +4041,6 @@ packages:
     resolution:
       {
         integrity: sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==,
-      }
-    hasBin: true
-
-  pino@9.14.0:
-    resolution:
-      {
-        integrity: sha512-8OEwKp5juEvb/MjpIc4hjqfgCNysrS94RIOMXYvpYCdm/jglrKEiAYmiumbmGhCvs+IcInsphYDFwqrjr7398w==,
       }
     hasBin: true
 
@@ -4138,13 +4168,6 @@ packages:
         integrity: sha512-y+WKFlBR8BGXnsNlIHFGPZmyDf3DFMoLhaflAnyZgV6rG6xu+JwesTo2Q9R6XwYmtmwAFCkAk3e35jEdoeh/3g==,
       }
     engines: { node: ">=10" }
-
-  proxy-addr@2.0.8:
-    resolution:
-      {
-        integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==,
-      }
-    engines: { node: ">= 0.10" }
 
   pump@3.0.4:
     resolution:
@@ -4315,12 +4338,6 @@ packages:
     resolution:
       {
         integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==,
-      }
-
-  secure-json-parse@2.7.0:
-    resolution:
-      {
-        integrity: sha512-6aU+Rwsezw7VR8/nyvKTx8QpWH9FrcYiXXlqC4z5d5XQBDRqtbfsRjnwGyqbi3gddNtWHuEk9OANUotL26qKUw==,
       }
 
   secure-json-parse@4.1.0:
@@ -4528,12 +4545,6 @@ packages:
         integrity: sha512-ulAk51I9UVUyJgxlv9M6lFot2WP3e7t8Kz9+IS6D4rVba1tR9kON+Ey69f+1R4Q8cd45Lod6a4IcJIxnzGc/zA==,
       }
     engines: { node: ">=18" }
-
-  thread-stream@3.2.0:
-    resolution:
-      {
-        integrity: sha512-zLBvqpwr4Esa0kRjcrzGU6zL25lePWaCLMx0RQFrmteozIfeNdaMLpG5U7PeHzvlFkAWaRKA9/KVW4F60iB+qw==,
-      }
 
   thread-stream@4.2.0:
     resolution:
@@ -6240,15 +6251,6 @@ snapshots:
 
   fast-deep-equal@3.1.3: {}
 
-  fast-json-stringify@6.4.0:
-    dependencies:
-      "@fastify/merge-json-schemas": 0.2.1
-      ajv: 8.20.0
-      ajv-formats: 3.0.1(ajv@8.20.0)
-      fast-uri: 3.1.8
-      json-schema-ref-resolver: 3.0.0
-      rfdc: 1.4.1
-
   fast-json-stringify@7.0.1:
     dependencies:
       "@fastify/merge-json-schemas": 0.2.1
@@ -6267,24 +6269,6 @@ snapshots:
   fast-uri@4.2.1: {}
 
   fastify-plugin@6.0.0: {}
-
-  fastify@5.1.0:
-    dependencies:
-      "@fastify/ajv-compiler": 4.0.6
-      "@fastify/error": 4.2.0
-      "@fastify/fast-json-stringify-compiler": 5.1.0
-      abstract-logging: 2.0.1
-      avvio: 9.3.0
-      fast-json-stringify: 6.4.0
-      find-my-way: 9.9.0
-      light-my-request: 6.6.0
-      pino: 9.14.0
-      process-warning: 4.0.1
-      proxy-addr: 2.0.8
-      rfdc: 1.4.1
-      secure-json-parse: 2.7.0
-      semver: 7.8.5
-      toad-cache: 3.7.4
 
   fastify@5.12.5:
     dependencies:
@@ -6340,8 +6324,6 @@ snapshots:
       fs-extra: 10.1.0
     transitivePeerDependencies:
       - supports-color
-
-  forwarded@0.2.0: {}
 
   fs-extra@10.1.0:
     dependencies:
@@ -6468,8 +6450,6 @@ snapshots:
       wrappy: 1.0.2
 
   inherits@2.0.4: {}
-
-  ipaddr.js@1.9.1: {}
 
   ipaddr.js@2.5.0: {}
 
@@ -6682,6 +6662,10 @@ snapshots:
     dependencies:
       mimic-fn: 4.0.0
 
+  openai@6.49.0(zod@4.6.5):
+    optionalDependencies:
+      zod: 4.6.5
+
   openai@7.19.0(undici@7.29.1)(zod@4.6.5):
     optionalDependencies:
       undici: 7.29.1
@@ -6742,6 +6726,10 @@ snapshots:
     dependencies:
       pg: 8.13.1
 
+  pg-pool@3.14.0(pg@8.23.0):
+    dependencies:
+      pg: 8.23.0
+
   pg-protocol@1.16.0: {}
 
   pg-types@2.2.0:
@@ -6772,6 +6760,20 @@ snapshots:
     optionalDependencies:
       pg-cloudflare: 1.4.0
 
+  pg@8.23.0:
+    dependencies:
+      pg-connection-string: 2.14.0
+      pg-pool: 3.14.0(pg@8.23.0)
+      pg-protocol: 1.16.0
+      pg-types: 2.2.0
+      pgpass: 1.0.5
+    optionalDependencies:
+      pg-cloudflare: 1.4.0
+
+  pgpass@1.0.5:
+    dependencies:
+      split2: 4.2.0
+
   pgpass@1.0.6: {}
 
   picocolors@1.1.1: {}
@@ -6779,10 +6781,6 @@ snapshots:
   picomatch@4.0.7: {}
 
   pify@2.3.0: {}
-
-  pino-abstract-transport@2.0.0:
-    dependencies:
-      split2: 4.2.0
 
   pino-abstract-transport@3.0.0:
     dependencies:
@@ -6803,20 +6801,6 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.0
-
-  pino@9.14.0:
-    dependencies:
-      "@pinojs/redact": 0.4.0
-      atomic-sleep: 1.0.0
-      on-exit-leak-free: 2.1.2
-      pino-abstract-transport: 2.0.0
-      pino-std-serializers: 7.1.0
-      process-warning: 5.1.0
-      quick-format-unescaped: 4.0.4
-      real-require: 0.2.0
-      safe-stable-stringify: 2.5.0
-      sonic-boom: 4.2.1
-      thread-stream: 3.2.0
 
   plist@3.1.1:
     dependencies:
@@ -6874,11 +6858,6 @@ snapshots:
     dependencies:
       err-code: 2.0.3
       retry: 0.12.0
-
-  proxy-addr@2.0.8:
-    dependencies:
-      forwarded: 0.2.0
-      ipaddr.js: 1.9.1
 
   pump@3.0.4:
     dependencies:
@@ -7010,8 +6989,6 @@ snapshots:
 
   scheduler@0.28.0: {}
 
-  secure-json-parse@2.7.0: {}
-
   secure-json-parse@4.1.0: {}
 
   semver-compare@1.0.0: {}
@@ -7122,10 +7099,6 @@ snapshots:
   supports-preserve-symlinks-flag@1.0.0: {}
 
   system-architecture@0.1.0: {}
-
-  thread-stream@3.2.0:
-    dependencies:
-      real-require: 0.2.0
 
   thread-stream@4.2.0:
     dependencies:

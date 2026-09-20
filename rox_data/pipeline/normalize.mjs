@@ -9,7 +9,6 @@ import {
   FX_TO_CAD,
   BUSINESS_DAY_HOURS,
   CALENDAR_DAY_HOURS,
-  CAPACITY_POLICY,
 } from "./config.mjs";
 import { interpretCapacity } from "./capacity.mjs";
 import { shortId, stableJson, bumpStage, emitEvent } from "./db.mjs";
@@ -51,7 +50,6 @@ export function normalizeFact({
   effectiveUntil,
   observedAt,
   ambiguity,
-  capacityPolicy = CAPACITY_POLICY,
 }) {
   const spec = FIELD_REGISTRY[fieldKind];
   if (!spec)
@@ -62,7 +60,7 @@ export function normalizeFact({
 
   // Strict capacity handling runs before the generic parse: a range or "up to"
   // must reach review with its reason, not be read as a bare number or as junk.
-  if (fieldKind === "capacity" && capacityPolicy !== "legacy")
+  if (fieldKind === "capacity")
     return interpretCapacity({
       value,
       unit,

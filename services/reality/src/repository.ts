@@ -6,25 +6,28 @@ import {
   insertClaim,
   listMerchantClaims,
   persistEvent,
+  resolveMerchant,
   transaction,
   type DbClient,
 } from "@molecule/db";
+
+export { resolveMerchant };
 
 import {
   stableJson,
   toCanonicalClaim,
   type RawClaimInput,
 } from "./ingestion.js";
-import { explainResolution, resolveClaims } from "./resolution.js";
+import { resolveMerchantFields, type ResolvedFact } from "./resolution.js";
 
-export interface ResolvedFact {
-  field: string;
-  status: "resolved" | "conflicted" | "unknown";
-  value: unknown;
-  normalizedUnit?: CanonicalClaim["normalizedUnit"];
-  winningClaimId?: string;
-  explanation: string;
-}
+/**
+ * Per-field resolution lives in `@molecule/resolution` so the reservation guard
+ * in `@molecule/db` answers "what is true for this merchant" with exactly the
+ * same code as candidate search.
+ */
+export const resolveMerchantClaims = resolveMerchantFields<CanonicalClaim>;
+
+export type { ResolvedFact };
 
 export class ClaimIngestionError extends Error {
   constructor(
@@ -34,199 +37,6 @@ export class ClaimIngestionError extends Error {
     super(message);
     this.name = "ClaimIngestionError";
   }
-}
-
-export function resolveMerchantClaims(
-  claims: CanonicalClaim[],
-  now: Date,
-): {
-  field: string;
-  fieldClaims: CanonicalClaim[];
-  result: ReturnType<typeof resolveClaims>;
-  explanation: string;
-  winner: CanonicalClaim | undefined;
-  fact: ResolvedFact;
-}[] {
-  const claimsByField = new Map<string, CanonicalClaim[]>();
-  for (const claim of claims) {
-    const entries = claimsByField.get(claim.field) ?? [];
-    entries.push(claim);
-    claimsByField.set(claim.field, entries);
-  }
-  return [...claimsByField]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([field, fieldClaims]) => {
-      // Reconsider losing sources as their relative freshness changes, but
-      // never revive an older observation from the same source stream.
-      const sourceKey = (claim: CanonicalClaim) =>
-        JSON.stringify([claim.source.kind, claim.source.reference]);
-      const observedAt = (claim: CanonicalClaim) =>
-        Date.parse(claim.observedAt ?? claim.ingestedAt);
-      const newestBySource = new Map<string, number>();
-      for (const claim of fieldClaims) {
-        if (claim.resolutionStatus === "quarantined") continue;
-        const key = sourceKey(claim);
-        newestBySource.set(
-          key,
-          Math.max(newestBySource.get(key) ?? -Infinity, observedAt(claim)),
-        );
-      }
-      const result = resolveClaims(
-        fieldClaims.map((claim) => ({
-          ...claim,
-          resolutionStatus:
-            claim.resolutionStatus !== "quarantined" &&
-            observedAt(claim) < newestBySource.get(sourceKey(claim))!
-              ? "superseded"
-              : claim.resolutionStatus === "superseded"
-                ? "active"
-                : claim.resolutionStatus,
-        })),
-        now,
-      );
-      const explanation = explainResolution(result);
-      const winner =
-        result.status === "resolved" ? result.winner.claim : undefined;
-      return {
-        field,
-        fieldClaims,
-        result,
-        explanation,
-        winner,
-        fact: {
-          field,
-          status: result.status,
-          value: winner?.normalizedValue,
-          normalizedUnit: winner?.normalizedUnit,
-          winningClaimId: winner?.claimId,
-          explanation,
-        },
-      };
-    });
-}
-
-export async function resolveMerchant(
-  merchantId: string,
-  traceId: string,
-  client: DbClient,
-  now = new Date(),
-): Promise<ResolvedFact[]> {
-  await client.query(
-    "select merchant_id from merchants where merchant_id=$1 for update",
-    [merchantId],
-  );
-  const claims = await listMerchantClaims(merchantId, client);
-  const facts: ResolvedFact[] = [];
-  for (const {
-    field,
-    fieldClaims,
-    result,
-    explanation,
-    winner,
-    fact,
-  } of resolveMerchantClaims(claims, now)) {
-    facts.push(fact);
-    const signature = stableJson({
-      status: result.status,
-      winner: winner?.claimId,
-      value: winner?.normalizedValue,
-      claims: fieldClaims.map((claim) => claim.claimId).sort(),
-    });
-    const previous = await client.query<{ signature: string }>(
-      "select scores->>'signature' as signature from canonical_resolutions where merchant_id=$1 and field=$2",
-      [merchantId, field],
-    );
-    if (field === "status") {
-      const status =
-        result.status === "resolved" &&
-        (winner?.normalizedValue === "online" ||
-          winner?.normalizedValue === "offline")
-          ? winner.normalizedValue
-          : "unknown";
-      await client.query(
-        "update merchants set status=$2,updated_at=now() where merchant_id=$1 and status is distinct from $2",
-        [merchantId, status],
-      );
-    }
-    if (previous.rows[0]?.signature === signature) continue;
-    if (result.status !== "unknown") {
-      for (const entry of result.allScored) {
-        await client.query(
-          "update canonical_claims set resolution_status=$2 where claim_id=$1",
-          [
-            entry.claim.claimId,
-            result.status === "conflicted"
-              ? "conflicted"
-              : entry.claim.claimId === winner?.claimId
-                ? "active"
-                : "superseded",
-          ],
-        );
-      }
-    }
-    await client.query(
-      `update claim_conflicts set status='resolved',resolved_claim_id=$3,resolved_at=now()
-      where merchant_id=$1 and field=$2 and status='conflicted'`,
-      [merchantId, field, winner?.claimId ?? null],
-    );
-    if (result.status === "conflicted") {
-      await client.query(
-        `insert into claim_conflicts(merchant_id,field,claim_ids) values($1,$2,$3)`,
-        [
-          merchantId,
-          field,
-          result.contenders.map((entry) => entry.claim.claimId),
-        ],
-      );
-    }
-    await client.query(
-      `insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
-      values($1,$2,$3,$4,$5,$6,$7) on conflict(merchant_id,field) do update set
-      status=excluded.status,winning_claim_id=excluded.winning_claim_id,value=excluded.value,
-      explanation=excluded.explanation,scores=excluded.scores,updated_at=now()`,
-      [
-        merchantId,
-        field,
-        result.status,
-        winner?.claimId ?? null,
-        JSON.stringify(winner?.normalizedValue ?? null),
-        explanation,
-        JSON.stringify({
-          signature,
-          claims:
-            result.status === "unknown"
-              ? []
-              : result.allScored.map((entry) => ({
-                  claimId: entry.claim.claimId,
-                  score: entry.score,
-                  recencyScore: entry.recencyScore,
-                })),
-        }),
-      ],
-    );
-    await persistEvent(
-      {
-        eventId: effectId(
-          `resolution:${merchantId}:${field}:${signature}:${now.toISOString()}:${traceId}`,
-        ),
-        traceId,
-        merchantId,
-        eventType: `reality.claim.${result.status}`,
-        severity: result.status === "resolved" ? "INFO" : "WARN",
-        source: "rox",
-        ts: now.toISOString(),
-        payload: {
-          field,
-          status: result.status,
-          value: winner?.normalizedValue,
-          winningClaimId: winner?.claimId,
-          explanation,
-        },
-      },
-      client,
-    );
-  }
-  return facts;
 }
 
 export async function ingestClaim(
@@ -306,11 +116,35 @@ export async function ingestClaim(
           result.claim.source.reference,
         ],
       );
-    } else
+    } else {
+      if (result.disposition === "needs_review")
+        await connection.query(
+          `insert into rox_review_queue
+             (task_id,kind,merchant_id,field,detail,proposed_action)
+           values($1,'quarantine',$2,$3,$4,$5)
+           on conflict(task_id) do nothing`,
+          [
+            `ingest-review:${checksum}`,
+            input.merchantId,
+            input.field,
+            {
+              artifactId,
+              code: result.code ?? "needs_review",
+              reason: result.reason,
+              sourceReference: input.sourceReference,
+              evidenceText: input.evidenceText ?? null,
+            },
+            {
+              action: "ask_supplier_to_clarify",
+              requiresApproval: true,
+            },
+          ],
+        );
       await connection.query(
         "insert into quarantined_claims(quarantine_id,artifact_id,reason) values($1,$2,$3)",
         [artifactId, artifactId, result.reason],
       );
+    }
     await persistEvent(
       {
         eventId: effectId(`ingest:${artifactId}`),
@@ -318,7 +152,9 @@ export async function ingestClaim(
         merchantId: input.merchantId,
         eventType: result.ok
           ? "reality.claim.ingested"
-          : "reality.claim.quarantined",
+          : result.disposition === "needs_review"
+            ? "reality.claim.needs_review"
+            : "reality.claim.quarantined",
         severity: result.ok ? "INFO" : "WARN",
         source: "rox",
         ts: new Date().toISOString(),
@@ -328,7 +164,11 @@ export async function ingestClaim(
           field: input.field,
           ...(result.ok
             ? { claimId: result.claim.claimId }
-            : { reason: result.reason }),
+            : {
+                reason: result.reason,
+                disposition: result.disposition ?? "quarantine",
+                code: result.code,
+              }),
         },
       },
       connection,

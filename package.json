@@ -23,6 +23,7 @@
     "verify:desktop": "node --import tsx scripts/verify-desktop.mjs",
     "verify:voice": "node --import tsx scripts/verify-voice.mjs",
     "verify:kit": "node --import tsx scripts/verify-kit.mjs",
+    "verify:golden": "node --import tsx scripts/verify-golden.mjs",
     "verify:durable": "pnpm --filter @molecule/orchestrator exec vitest run src/durableRuntime.integration.test.ts",
     "verify:secrets": "node scripts/verify-no-client-secrets.mjs",
     "db:migrate": "node --env-file-if-exists=.env --import tsx packages/db/src/scripts/migrate.ts",

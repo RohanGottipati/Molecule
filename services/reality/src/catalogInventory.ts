@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { effectId, persistEvent, transaction } from "@molecule/db";
-import { ingestClaim, resolveMerchant } from "./repository.js";
+import { ingestClaim } from "./repository.js";
 
 export interface CatalogInventoryObservation {
   shop: string;
@@ -43,6 +43,7 @@ export async function observeCatalogInventory(
       kind: string;
       available: string;
       observed_at: Date;
+      source_reference: string;
       status: string;
     }>(
       `
@@ -69,21 +70,11 @@ export async function observeCatalogInventory(
       Number(resource.available) === available
     )
       return { status: "unchanged", ...ids };
-    const status =
-      observedAt.getTime() === resource.observed_at.getTime()
-        ? "conflicted"
-        : "known";
-    const observationKey = createHash("sha256")
-      .update(JSON.stringify([source, input.observedAt, available, status]))
-      .digest("hex");
-    await client.query(
-      "update catalog_resource_state set available=$2,observed_at=$3,source_reference=$4,status=$5 where resource_id=$1",
-      [resource.resource_id, available, observedAt, source, status],
-    );
+    const field = `resource.${resource.resource_id}.${resource.kind === "inventory" ? "inventory" : "capacity"}`;
     await ingestClaim(
       {
         merchantId: resource.merchant_id,
-        field: `resource.${resource.resource_id}.${resource.kind === "inventory" ? "inventory" : "capacity"}`,
+        field,
         rawValue: available,
         sourceKind: "shopify",
         sourceReference: source,
@@ -95,9 +86,110 @@ export async function observeCatalogInventory(
       input.traceId,
       client,
     );
-    await resolveMerchant(resource.merchant_id, input.traceId, client);
+
+    // The claim is only a proposal. `ingestClaim` resolves the merchant in the
+    // same transaction; only the winning resolved value may cross into the
+    // mutable catalog state served to candidate search. A conflict changes the
+    // status (so the resource is excluded) but preserves the last known-good
+    // value, timestamp and source for reconciliation.
+    const resolution = await client.query<{
+      status: "resolved" | "conflicted" | "unknown";
+      value: unknown;
+      scores: { signature?: string };
+      observed_at: Date | null;
+      source_reference: string | null;
+    }>(
+      `select r.status,r.value,r.scores,c.observed_at,c.source_reference
+       from canonical_resolutions r
+       left join canonical_claims c on c.claim_id=r.winning_claim_id
+       where r.merchant_id=$1 and r.field=$2`,
+      [resource.merchant_id, field],
+    );
+    const verdict = resolution.rows[0];
+    if (!verdict) throw new Error("MISSING_INVENTORY_RESOLUTION");
+    const resolvedAvailable = Number(verdict.value);
+    if (
+      verdict.status === "resolved" &&
+      (!Number.isFinite(resolvedAvailable) || resolvedAvailable < 0)
+    )
+      throw new Error("INVALID_RESOLVED_INVENTORY");
+    const status = verdict.status === "resolved" ? "known" : verdict.status;
+    const observationKey = createHash("sha256")
+      .update(
+        JSON.stringify([
+          resource.resource_id,
+          field,
+          verdict.scores?.signature,
+          status,
+        ]),
+      )
+      .digest("hex");
+    if (verdict.status === "resolved") {
+      await client.query(
+        "update catalog_resource_state set available=$2,observed_at=$3,source_reference=$4,status='known' where resource_id=$1",
+        [
+          resource.resource_id,
+          resolvedAvailable,
+          verdict.observed_at ?? observedAt,
+          verdict.source_reference ?? source,
+        ],
+      );
+    } else {
+      await client.query(
+        "update catalog_resource_state set status=$2 where resource_id=$1",
+        [resource.resource_id, status],
+      );
+      const review = await client.query(
+        `insert into rox_review_queue
+           (task_id,kind,merchant_id,field,detail,proposed_action)
+         values ($1,$2,$3,$4,$5,$6)
+         on conflict(task_id) do nothing
+         returning task_id`,
+        [
+          `catalog-resolution:${observationKey}`,
+          verdict.status === "conflicted" ? "conflict" : "missing_fact",
+          resource.merchant_id,
+          field,
+          {
+            resourceId: resource.resource_id,
+            status: verdict.status,
+            resolutionSignature: verdict.scores?.signature ?? null,
+            lastKnownGood: {
+              available: Number(resource.available),
+              observedAt: resource.observed_at.toISOString(),
+              sourceReference: resource.source_reference,
+            },
+          },
+          {
+            action: "reconcile_catalog_inventory",
+            requiresApproval: true,
+          },
+        ],
+      );
+      if (review.rowCount)
+        await persistEvent(
+          {
+            eventId: effectId(`rox-review:${observationKey}`),
+            traceId: input.traceId,
+            merchantId: resource.merchant_id,
+            eventType: "rox.review.queued",
+            source: "rox",
+            severity: "WARN",
+            ts: new Date().toISOString(),
+            payload: {
+              taskId: `catalog-resolution:${observationKey}`,
+              resourceId: resource.resource_id,
+              field,
+              status: verdict.status,
+            },
+          },
+          client,
+        );
+    }
     const changed =
-      status !== resource.status || available !== Number(resource.available);
+      status !== resource.status ||
+      (verdict.status === "resolved" &&
+        resolvedAvailable !== Number(resource.available));
     if (changed) {
       await client.query(
         `insert into catalog_recovery_requests(order_id,resource_id,observation_key)
@@ -123,7 +215,11 @@ export async function observeCatalogInventory(
         payload: {
           ...ids,
           observationKey,
-          available,
+          available:
+            verdict.status === "resolved"
+              ? resolvedAvailable
+              : Number(resource.available),
+          proposedAvailable: available,
           status,
           sourceReference: source,
           observedAt: input.observedAt,

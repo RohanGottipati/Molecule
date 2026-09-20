@@ -159,7 +159,10 @@ export function VoiceOrb({
     gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT_SRC));
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error("voice-orb program link failed", gl.getProgramInfoLog(program));
+      console.error(
+        "voice-orb program link failed",
+        gl.getProgramInfoLog(program),
+      );
       return;
     }
     gl.useProgram(program);
@@ -182,9 +185,7 @@ export function VoiceOrb({
       pulse: gl.getUniformLocation(program, "uPulse"),
     };
 
-    const reduceMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    );
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     let raf = 0;
     let clock = 0;

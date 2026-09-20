@@ -1,14 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   closePool,
@@ -28,33 +20,15 @@ import {
 } from "./index.js";
 
 const database = process.env.TEST_DATABASE_URL;
-const capacityClaim = "demo:cap-thread-embroidery:capacity";
 describe.skipIf(!database)("real PostgreSQL operational store", () => {
-  let seededCapacity: { normalized_value: unknown; normalized_unit: unknown };
   beforeAll(async () => {
     process.env.DATABASE_URL = database;
     process.env.DEMO_MODE = "true";
     await migrate();
     await seedDemo();
-    seededCapacity = (
-      await getPool().query(
-        "select normalized_value,normalized_unit from canonical_claims where claim_id=$1",
-        [capacityClaim],
-      )
-    ).rows[0];
   });
   beforeEach(async () => {
     await resetDemoData();
-  });
-  afterEach(async () => {
-    await getPool().query(
-      "update canonical_claims set normalized_value=$2::jsonb,normalized_unit=$3 where claim_id=$1",
-      [
-        capacityClaim,
-        JSON.stringify(seededCapacity.normalized_value),
-        seededCapacity.normalized_unit,
-      ],
-    );
   });
   afterAll(closePool);
 
@@ -187,30 +161,50 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     await expect(
       reserveCapacity({ ...input(), traceId: " " }),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
-    await getPool()
-      .query(`insert into canonical_resolutions(merchant_id,field,status,explanation,scores)
-      values('thread-forge','cap-thread-embroidery.capacity_per_day','unknown','Unverified daily capacity','{}')`);
-    await expect(reserveCapacity(input())).rejects.toMatchObject({
-      code: "UNAVAILABLE",
-    });
-    await getPool()
-      .query(`update canonical_resolutions set status='resolved',value='50'
-      where merchant_id='thread-forge' and field='cap-thread-embroidery.capacity_per_day'`);
-    expect(await reserveCapacity(input())).toEqual({
-      ok: false,
-      reason: "insufficient_capacity",
-      available: 50,
-    });
+    // The guard resolves `canonical_claims` rather than reading the
+    // `canonical_resolutions` snapshot, so the fact is driven by a claim here.
+    // A snapshot-only fixture used to pass while a merchant whose claims said 0
+    // was still reservable.
+    const claim = `test:cap-thread-embroidery:daily:${randomUUID()}`;
+    const insert = (value: string) =>
+      getPool().query(
+        `insert into canonical_claims(claim_id,merchant_id,field,normalized_value,normalized_unit,
+          source_kind,source_reference,observed_at,ingested_at,source_authority,extraction_confidence,
+          resolution_status,evidence_text)
+        values($1,'thread-forge','cap-thread-embroidery.capacity_per_day',$2::jsonb,'units','note',
+          $1,now(),now(),0.99,1,'active','Scoped daily capacity under test')`,
+        [claim, value],
+      );
+    try {
+      // jsonb null, not SQL NULL: the column is NOT NULL, and a JSON null is
+      // how the schema represents "a source spoke but said nothing usable".
+      await insert("null");
+      await expect(reserveCapacity(input())).rejects.toMatchObject({
+        code: "UNAVAILABLE",
+      });
+      await getPool().query(
+        "update canonical_claims set normalized_value='50'::jsonb where claim_id=$1",
+        [claim],
+      );
+      expect(await reserveCapacity(input())).toEqual({
+        ok: false,
+        reason: "insufficient_capacity",
+        available: 50,
+      });
+    } finally {
+      await getPool().query("delete from canonical_claims where claim_id=$1", [
+        claim,
+      ]);
+    }
   });
 
   it("compares reservation capacity on the winning claim's daily time basis", async () => {
     await getPool()
       .query(`update capabilities set capability_json=jsonb_set(capability_json,'{capacity}',
       '{"available":700,"maximum":1400,"period":"week"}') where capability_id='cap-thread-embroidery'`);
-    await getPool().query(
-      "update canonical_claims set normalized_value='200',normalized_unit='units/day' where claim_id=$1",
-      [capacityClaim],
-    );
+    await getPool()
+      .query(`update canonical_claims set normalized_value='200',normalized_unit='units/day'
+      where claim_id='demo:cap-thread-embroidery:capacity'`);
     const inserted = await getPool()
       .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
       select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
@@ -238,29 +232,39 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
       maximum: 1400,
       period: "week",
     });
+    await getPool().query(`update canonical_claims c
+      set normalized_value=baseline.capability_json #> '{capacity,available}',normalized_unit=null
+      from demo_capability_baselines baseline
+      where c.claim_id='demo:cap-thread-embroidery:capacity'
+        and baseline.capability_id='cap-thread-embroidery'`);
   });
 
   it("refuses incompatible winning capacity units before creating a hold", async () => {
-    await getPool().query(
-      "update canonical_claims set normalized_unit='kg/day' where claim_id=$1",
-      [capacityClaim],
-    );
-    const inserted = await getPool()
-      .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
-      select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
-      from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'
-      on conflict(merchant_id,field) do update set winning_claim_id=excluded.winning_claim_id,value=excluded.value,status='resolved'`);
-    expect(inserted.rowCount).toBe(1);
-    await expect(reserveCapacity(input())).rejects.toMatchObject({
-      code: "UNAVAILABLE",
-    });
-    expect(
-      (
-        await getPool().query(
-          `select count(*) as count from reservations where status='active'`,
-        )
-      ).rows[0].count,
-    ).toBe("0");
+    try {
+      await getPool()
+        .query(`update canonical_claims set normalized_unit='kg/day'
+        where claim_id='demo:cap-thread-embroidery:capacity'`);
+      const inserted = await getPool()
+        .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
+        select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
+        from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'
+        on conflict(merchant_id,field) do update set winning_claim_id=excluded.winning_claim_id,value=excluded.value,status='resolved'`);
+      expect(inserted.rowCount).toBe(1);
+      await expect(reserveCapacity(input())).rejects.toMatchObject({
+        code: "UNAVAILABLE",
+      });
+      expect(
+        (
+          await getPool().query(
+            `select count(*) as count from reservations where status='active'`,
+          )
+        ).rows[0].count,
+      ).toBe("0");
+    } finally {
+      await getPool()
+        .query(`update canonical_claims set normalized_unit='units/day'
+        where claim_id='demo:cap-thread-embroidery:capacity'`);
+    }
   });
 
   it("releases and expires holds without reviving inactive retries", async () => {
@@ -365,6 +369,10 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
       ).rows.map((row) => [row.claim_id, row.resolution_status]),
     );
     expect(statuses).toEqual({ [older]: "superseded", [newer]: "active" });
+    await getPool().query(
+      "delete from canonical_resolutions where winning_claim_id = any($1::text[])",
+      [[older, newer]],
+    );
     await getPool().query(
       "delete from canonical_claims where claim_id = any($1::text[])",
       [[older, newer]],

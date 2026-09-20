@@ -1,9 +1,10 @@
-import type {
-  MoleculeEvent,
-  OrderSessionSnapshot,
-  ProductionPlan,
-  ProjectSummary,
-  AssetRef,
+import {
+  GOLDEN_PATH_PROMPT,
+  type MoleculeEvent,
+  type OrderSessionSnapshot,
+  type ProductionPlan,
+  type ProjectSummary,
+  type AssetRef,
 } from "@molecule/contracts";
 import { isUnresolved, type DraftScope } from "../lib/persistence";
 import type { ConversationEntry, Workspace } from "../lib/useWorkspace";
@@ -11,8 +12,7 @@ import { executionAssessment } from "../lib/decisionExecution";
 import type { PlanSelection } from "../lib/decisionPlan";
 import { planDelta, processingStates, stateLabels } from "../lib/workspace";
 
-export const productionExample =
-  "Make 200 premium black onboarding kits by next Friday under CAD 7,000. No leather. Each kit needs a hoodie with logo embroidery, a named engraved bottle, vegan snacks and individual packaging.";
+export const productionExample = GOLDEN_PATH_PROMPT;
 
 export function providerModeLabel(
   workspace: Pick<

@@ -16,6 +16,32 @@ import { open } from "node:fs/promises";
 import { canonicalExpected } from "./evaluate.mjs";
 import { normalizeFact, parseNumber } from "./normalize.mjs";
 
+/** Historical unsafe behavior, retained only for offline policy comparison. */
+export function normalizeLegacyCapacity({ value, unit, period, evidence }) {
+  const number = parseNumber(value);
+  if (number === null || number < 0)
+    return { ok: false, disposition: "quarantine", code: "unreadable" };
+  const text = `${period ?? ""} ${unit ?? ""} ${evidence ?? ""}`.toLowerCase();
+  const statedPeriod = /\b(month|monthly|\/mo)\b/.test(text)
+    ? "month"
+    : /\b(week|weekly|\/wk)\b/.test(text)
+      ? "week"
+      : "day";
+  const days = statedPeriod === "week" ? 7 : statedPeriod === "month" ? 30 : 1;
+  return {
+    ok: true,
+    value: Math.round((number / days) * 100) / 100,
+    unit: "units/day",
+    statedPeriod,
+    applied:
+      statedPeriod === "day" && !/\b(day|daily|\/d)\b/.test(text)
+        ? ["assumed per-day (no period stated)"]
+        : statedPeriod === "day"
+          ? []
+          : [`${statedPeriod} -> day`],
+  };
+}
+
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
     const [k, ...v] = a.replace(/^--/, "").split("=");
@@ -61,7 +87,10 @@ export function comparePolicies(snapshot) {
       ambiguity: x.ambiguity,
     };
     const outcome = (policy) => {
-      const r = normalizeFact({ ...input, capacityPolicy: policy });
+      const r =
+        policy === "legacy"
+          ? normalizeLegacyCapacity(input)
+          : normalizeFact(input);
       if (!r.ok)
         return {
           kind: r.disposition ?? "quarantine",

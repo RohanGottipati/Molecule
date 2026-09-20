@@ -92,6 +92,7 @@ export async function extract(
     limit = null,
     dry = false,
     client: suppliedClient,
+    sourcePromptVersion = null,
   },
 ) {
   const client =
@@ -110,17 +111,27 @@ export async function extract(
     injections: 0,
     errors: 0,
     cost_usd: 0,
+    prompt_version: EXTRACT_PROMPT_VERSION,
+    reextract_from_prompt: sourcePromptVersion,
   };
 
   // Stratified selection: proportional across artifact types, deterministic order,
-  // and never re-extracts an artifact this run already handled.
+  // and never re-extracts an artifact this run already handled. A prompt
+  // migration selects only artifacts with candidates from the requested old
+  // prompt and no completed attempt under the current prompt. The attempt row,
+  // rather than an extraction row, matters because a correct empty response is
+  // still a completed v4 re-extraction.
   const { rows: types } = await db.query(
     `select split_part(source_path, '/', 1) as type, count(*)::int as n
        from raw_artifacts
       where batch_id = $1 and parse_status = 'parsed'
         and not exists (select 1 from rox_artifact_attempts a where a.artifact_id = raw_artifacts.artifact_id and a.run_id = $2)
+        and ($3::text is null or (
+          exists (select 1 from rox_extractions old where old.artifact_id = raw_artifacts.artifact_id and old.prompt_version = $3)
+          and not exists (select 1 from rox_artifact_attempts current where current.artifact_id = raw_artifacts.artifact_id and current.prompt_version = $4)
+        ))
       group by 1 order by 1`,
-    [batchId, runId],
+    [batchId, runId, sourcePromptVersion, EXTRACT_PROMPT_VERSION],
   );
   const total = types.reduce((s, t) => s + t.n, 0);
   const selected = [];
@@ -131,8 +142,19 @@ export async function extract(
          from raw_artifacts
         where batch_id = $1 and parse_status = 'parsed' and split_part(source_path, '/', 1) = $2
           and not exists (select 1 from rox_artifact_attempts a where a.artifact_id = raw_artifacts.artifact_id and a.run_id = $3)
-        order by artifact_id limit $4`,
-      [batchId, t.type, runId, quota],
+          and ($4::text is null or (
+            exists (select 1 from rox_extractions old where old.artifact_id = raw_artifacts.artifact_id and old.prompt_version = $4)
+            and not exists (select 1 from rox_artifact_attempts current where current.artifact_id = raw_artifacts.artifact_id and current.prompt_version = $5)
+          ))
+        order by artifact_id limit $6`,
+      [
+        batchId,
+        t.type,
+        runId,
+        sourcePromptVersion,
+        EXTRACT_PROMPT_VERSION,
+        quota,
+      ],
     );
     selected.push(...rows);
   }
@@ -145,6 +167,8 @@ export async function extract(
       payload: {
         runId,
         stage: "extract",
+        promptVersion: EXTRACT_PROMPT_VERSION,
+        reextractFromPrompt: sourcePromptVersion,
         artifactIds: work.map((a) => a.artifact_id),
       },
     });
@@ -242,13 +266,15 @@ export async function extract(
         // otherwise a resumed run pays the model again for every document that
         // was right to stay silent.
         await db.query(
-          `insert into rox_artifact_attempts (run_id, artifact_id, candidates, injection)
-           values ($1,$2,$3,$4) on conflict (run_id, artifact_id) do nothing`,
+          `insert into rox_artifact_attempts
+             (run_id, artifact_id, candidates, injection, prompt_version)
+           values ($1,$2,$3,$4,$5) on conflict (run_id, artifact_id) do nothing`,
           [
             runId,
             artifact.artifact_id,
             (parsed.candidates ?? []).length,
             injection,
+            EXTRACT_PROMPT_VERSION,
           ],
         );
 

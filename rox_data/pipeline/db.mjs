@@ -6,6 +6,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { stableJson } from "@molecule/resolution";
+
 import { BUDGET_USD, FALLBACK_PRICES } from "./config.mjs";
 
 const require = createRequire(
@@ -110,18 +112,8 @@ export async function transaction(pool, fn) {
   }
 }
 
-/** Canonical JSON, identical to services/reality/src/ingestion.ts stableJson. */
-export function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, e]) => e !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, e]) => `${JSON.stringify(k)}:${stableJson(e)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
+/** Canonical JSON. Shared with the Reality service via @molecule/resolution. */
+export { stableJson };
 
 // ------------------------------------------------------------------ runs
 

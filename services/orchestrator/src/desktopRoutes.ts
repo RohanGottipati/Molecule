@@ -13,6 +13,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ActionLedger } from "./ActionLedger.js";
+import { demoResetAvailable } from "./demoAuthorization.js";
 import { RequestProblem } from "./errors.js";
 import { makeEvent } from "./events/EventStore.js";
 import { LocalStore } from "./LocalStore.js";
@@ -40,8 +41,13 @@ export function registerDesktopRoutes(
         .map((item) => item.asset),
     };
   };
-  app.get("/api/desktop/config", async () => ({
+  app.get("/api/desktop/config", async (request) => ({
     demoMode: deps.config.DEMO_MODE,
+    demoResetAvailable: demoResetAvailable(
+      deps.config,
+      deps.resetDemo,
+      request,
+    ),
     mockProviders: {
       openai: deps.config.USE_MOCK_OPENAI,
       reality: deps.config.STORAGE_MODE === "local" || deps.config.DEMO_MODE,

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { dockProjectHref } from "../lib/navigation";
 import { useWorkspace } from "../lib/useWorkspace";
 import { dateLabel } from "../lib/workspace";
+import { BriefClarificationDialog } from "./BriefClarificationDialog";
 import { BriefComposer } from "./BriefComposer";
 import { HomePage } from "./HomePage";
 import { TestingPlan } from "./TestingPlan";
@@ -99,21 +100,25 @@ export function OrderWorkspace({
 
   // Auto-navigate to Plan & actions the first time a plan appears for the
   // order being watched, so submitting a brief on Home lands the user on the
-  // plan without a manual sidebar click. Deliberately does not fire when an
-  // order is first observed with a plan already attached (page reload / deep
-  // link), and never fires twice for the same order, so it never fights a
-  // manual navigation elsewhere.
+  // plan without a manual sidebar click. Only fires once a loaded snapshot of
+  // the order was seen without a plan, so a page reload or deep link whose
+  // first loaded snapshot already carries a plan stays on the requested view.
+  // Never fires twice for the same order.
   const priorPlanRef = useRef<{
     orderId: string | null;
     planId: string | null;
-  }>({ orderId: null, planId: null });
+    loaded: boolean;
+  }>({ orderId: null, planId: null, loaded: false });
   const autoNavigatedRef = useRef<Set<string>>(new Set());
+  const loadedOrderId = workspace.order?.orderId ?? null;
+  const activePlanId = workspace.order?.activePlan?.planId ?? null;
   useEffect(() => {
     const orderId = workspace.orderId;
-    const planId = workspace.order?.activePlan?.planId ?? null;
+    const loaded = orderId !== null && loadedOrderId === orderId;
+    const planId = loaded ? activePlanId : null;
     const prior = priorPlanRef.current;
-    if (prior.orderId !== orderId) {
-      priorPlanRef.current = { orderId, planId };
+    if (prior.orderId !== orderId || !prior.loaded) {
+      priorPlanRef.current = { orderId, planId, loaded };
       return;
     }
     if (
@@ -125,8 +130,8 @@ export function OrderWorkspace({
       autoNavigatedRef.current.add(orderId);
       if (workspace.view === "command") workspace.navigate("execution");
     }
-    priorPlanRef.current = { orderId, planId };
-  }, [workspace.orderId, workspace.order?.activePlan?.planId, workspace.view]);
+    priorPlanRef.current = { orderId, planId, loaded };
+  }, [workspace.orderId, loadedOrderId, activePlanId, workspace.view]);
 
   function compose() {
     if (workspace.view === "command") textarea.current?.focus();
@@ -189,6 +194,7 @@ export function OrderWorkspace({
           </header>
         )}
         <main id="main-content" className="main-content" tabIndex={-1}>
+          <BriefClarificationDialog draft={draft} />
           {!canvasView && (
             <div className="page-heading">
               <div>
@@ -278,7 +284,7 @@ export function OrderWorkspace({
           {workspace.view === "testing" && <TestingPlan />}
           {workspace.view === "execution" && (
             <PlanReview
-              key={`${workspace.orderId}:${workspace.order?.activePlan?.planId ?? "no-plan"}`}
+              key={workspace.orderId ?? "no-project"}
               workspace={workspace}
               onCompose={compose}
               onSuggest={(value) => {

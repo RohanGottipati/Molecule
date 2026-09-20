@@ -10,8 +10,7 @@ export type SidebarIconName =
 
 const paths: Record<SidebarIconName, string> = {
   home: "m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10",
-  workspace:
-    "M4 5h16v11H8l-4 4V5Z",
+  workspace: "M4 5h16v11H8l-4 4V5Z",
   projects:
     "M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z",
   suppliers:

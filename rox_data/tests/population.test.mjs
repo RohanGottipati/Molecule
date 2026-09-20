@@ -10,6 +10,8 @@ function mockDatabase() {
       calls.push({ sql, params });
       if (sql.includes("as type, count"))
         return { rows: [{ type: "tickets", n: 1 }] };
+      if (sql.includes("returning cost_usd"))
+        return { rows: [{ cost_usd: 0, budget_usd: 50 }] };
       if (sql.includes("select artifact_id, source_path"))
         return {
           rows: [
@@ -39,7 +41,13 @@ test("regex baseline records empty documents and declares population first", asy
   const attempt = calls.find((c) =>
     c.sql.includes("insert into rox_artifact_attempts"),
   );
-  assert.deepEqual(attempt.params, ["r", "empty", 0, false]);
+  assert.deepEqual(attempt.params, [
+    "r",
+    "empty",
+    0,
+    false,
+    "regex-baseline-v1",
+  ]);
 });
 test("failed provider call is included in durable selection before extraction", async () => {
   const { db, calls } = mockDatabase();
@@ -67,4 +75,42 @@ test("failed provider call is included in durable selection before extraction", 
     !calls.some((c) => c.sql.includes("insert into rox_artifact_attempts")),
   );
   assert(calls.some((c) => c.params.includes("rox.evaluation.population")));
+});
+
+test("prompt migration selects old artifacts and records a current-version attempt", async () => {
+  const { db, calls } = mockDatabase();
+  const provider = {
+    responses: {
+      create: async () => ({
+        output_text: JSON.stringify({
+          merchantHint: "",
+          documentDate: "",
+          injectionDetected: false,
+          injectionNote: "",
+          candidates: [],
+        }),
+        usage: {},
+      }),
+    },
+  };
+  await extract(db, {
+    runId: "r",
+    batchId: "b",
+    traceId: "trace",
+    sourcePromptVersion: "rox-extract-v3",
+    client: provider,
+  });
+  const selection = calls.find((c) => c.sql.includes("as type, count"));
+  assert.match(selection.sql, /old\.prompt_version = \$3/);
+  assert.match(selection.sql, /current\.prompt_version = \$4/);
+  assert.deepEqual(selection.params, [
+    "b",
+    "r",
+    "rox-extract-v3",
+    "rox-extract-v4",
+  ]);
+  const attempt = calls.find((c) =>
+    c.sql.includes("insert into rox_artifact_attempts"),
+  );
+  assert.deepEqual(attempt.params, ["r", "empty", 0, false, "rox-extract-v4"]);
 });

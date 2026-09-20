@@ -125,6 +125,23 @@ test("claimed evidence is checked against source; no resolution invented", () =>
   assert.equal(r.metrics.claimed_evidence_missing_pct, 100);
   assert.equal(r.metrics.outlier_containment_pct, null);
 });
+test("outlier containment reads only the frozen run resolution snapshot", () => {
+  const s = fixture();
+  s.truth[0].true_value.isOutlier = true;
+  s.resolutions = [
+    {
+      merchant_id: "m",
+      field: "cap.capacity",
+      status: "resolved",
+      value: 999,
+    },
+  ];
+  assert.equal(evaluate(s).metrics.outlier_containment_pct, 100);
+  s.resolutions[0].value = 200;
+  const accepted = evaluate(s);
+  assert.equal(accepted.metrics.outlier_containment_pct, 0);
+  assert.equal(accepted.counts.outliers.accepted, 1);
+});
 test("reject foreign population and ambiguous source paths", () => {
   const s = fixture();
   s.extractions[0].source_path = "elsewhere";

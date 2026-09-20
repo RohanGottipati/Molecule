@@ -77,17 +77,22 @@ function applyFacts(
   for (const fact of facts) {
     const prefix = `${capability.capabilityId}.`;
     const inventory = fact.field === `inventory.${capability.capabilityId}`;
+    const resource = /^resource\.(.+)\.(inventory|capacity)$/.exec(fact.field);
+    const scopedResource = resource?.[1] === capability.capabilityId;
     if (
       fact.field.includes(".") &&
       !fact.field.startsWith(prefix) &&
-      !inventory
+      !inventory &&
+      !scopedResource
     )
       continue;
     const field = inventory
       ? "inventory"
-      : fact.field.startsWith(prefix)
-        ? fact.field.slice(prefix.length)
-        : fact.field;
+      : scopedResource
+        ? resource[2]!
+        : fact.field.startsWith(prefix)
+          ? fact.field.slice(prefix.length)
+          : fact.field;
     if (
       ![
         "price",
@@ -450,7 +455,14 @@ export function createRealityService(
         blocked.push("Price is unknown");
       if (capability.capacity.available === undefined)
         blocked.push("Capacity is unknown");
-      if (capability.capacity.available !== undefined)
+      // Periodic capacity is a production rate, not a one-time stock balance.
+      // Existing unscheduled holds cannot be subtracted from every future
+      // period here; the solver certifies whether the dated work fits. For
+      // non-periodic inventory, active holds do reduce what can be offered.
+      if (
+        capability.capacity.available !== undefined &&
+        capability.capacity.period === undefined
+      )
         capability.capacity.available = Math.max(
           0,
           capability.capacity.available -
@@ -534,16 +546,8 @@ export function createRealityService(
                 cap.capacity.available < quantity) ||
               quantity < cap.quantity.min ||
               quantity > cap.quantity.max ||
-              Math.max(
-                hours(cap),
-                candidate.risk?.p95Hours ?? 0,
-                cap.kind !== "SUPPLY" &&
-                  cap.capacity.period &&
-                  cap.capacity.available > 0
-                  ? (quantity / cap.capacity.available) *
-                      { hour: 1, day: 24, week: 168 }[cap.capacity.period]
-                  : 0,
-              ) > remainingHours
+              Math.max(hours(cap), candidate.risk?.p95Hours ?? 0) >
+                remainingHours
             )
               continue;
             candidates.push(candidate);

@@ -82,24 +82,13 @@ export const FALLBACK_PRICES = {
 /** Evidence is mandatory: a candidate the model cannot cite is dropped. */
 export const REQUIRE_EVIDENCE = true;
 
-/** Resolution weights, mirrored from services/reality/src/resolution.ts. */
-export const RESOLUTION_WEIGHTS = {
-  authority: 0.35,
-  recency: 0.3,
-  confidence: 0.25,
-  corroboration: 0.1,
-};
-export const CONFLICT_MARGIN = 0.08;
-export const RECENCY_HALF_LIFE_DAYS = 7;
-
-/** Entity resolution bands: above `link` we merge, below `review` we reject. */
-export const ENTITY_THRESHOLDS = { link: 0.9, review: 0.55 };
-
 /**
- * How capacity figures with no stated period, ranges, bounds, hourly rates and
- * out-of-window dates are handled.
- *   strict - (default) anything the source does not support goes to review.
- *   legacy - the pre-Order-4 behaviour: assume per-day, drop hedges. Kept only to
- *            reproduce historical synthetic scores; never use it for real data.
+ * Resolution constants come from the shared resolver, not a local copy, so the
+ * pipeline and the Reality service cannot disagree about what is true.
  */
-export const CAPACITY_POLICY = process.env.ROX_CAPACITY_POLICY ?? "strict";
+export {
+  CONFLICT_MARGIN_THRESHOLD as CONFLICT_MARGIN,
+  ENTITY_THRESHOLDS,
+  RECENCY_HALF_LIFE_DAYS,
+  RESOLUTION_WEIGHTS,
+} from "@molecule/resolution";

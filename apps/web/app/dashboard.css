@@ -55,7 +55,9 @@
   border: 1px solid #ffffff;
   border-radius: 28px;
   box-shadow: 0 6px 26px #24365404;
-  transition-duration: 200ms;
+  transition:
+    width 320ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    padding 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .dashboard-shell .sidebar.collapsed {
   width: calc(var(--sidebar-width-collapsed) - 22px);
@@ -103,6 +105,10 @@
   padding: 12px;
   gap: 11px;
   font-weight: 500;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
 .dashboard-shell .nav-item:hover {
   color: var(--accent);
@@ -119,7 +125,7 @@
 }
 .dashboard-shell .main-shell {
   padding: 20px 24px 24px 8px;
-  transition-duration: 200ms;
+  transition: margin-left 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .dashboard-shell .topbar {
   min-height: 70px;
@@ -861,6 +867,42 @@
   outline: 2px solid #2762e9;
   outline-offset: 3px;
 }
+/* Headings receive focus programmatically after navigation so screen
+   readers announce the new view; they are not tab stops, so the heavy
+   keyboard ring only reads as a glitch. */
+.dashboard-shell :is(main, h1, h2, h3)[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+@keyframes dashboard-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dashboard-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.dashboard-shell:not(.canvas-shell) .main-content > :not(.workspace-footer) {
+  animation: dashboard-view-enter 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.dashboard-shell.canvas-shell .canvas-plan {
+  animation: dashboard-fade-in 220ms ease-out both;
+}
+.dashboard-shell .graph-detail-panel {
+  animation: dashboard-view-enter 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.dashboard-shell .canvas-actions-inspector .decision-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .dashboard-shell .decision-approval-cta {
   background: var(--accent);
   border-color: var(--accent);
@@ -979,8 +1021,18 @@
   color: var(--accent);
 }
 .dashboard-shell .home-hero {
+  position: relative;
   max-width: 960px;
   gap: 32px;
+}
+/* Anchored below the composer so feedback never shifts the centered card. */
+.dashboard-shell .home-hero .composer-feedback {
+  position: absolute;
+  inset: 100% 0 auto;
+  margin-top: 14px;
+  padding: 0;
+  color: #1d6b3f;
+  animation: dashboard-fade-in 200ms ease-out both;
 }
 .dashboard-shell .home-card {
   border: 1px solid #242424;

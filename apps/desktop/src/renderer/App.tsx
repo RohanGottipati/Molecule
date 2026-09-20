@@ -30,6 +30,9 @@ export function App() {
   const submitted = useRef(new Set<string>());
   const selection = useRef(0);
   const compact = state.mode === "compact";
+  useEffect(() => {
+    if (compact) setHome(false);
+  }, [compact]);
   const voiceActive = !["idle", "error"].includes(audio.state);
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => store.error(error));
@@ -243,6 +246,7 @@ export function App() {
           title={compact ? "Show conversation" : "Collapse conversation"}
           onClick={() => {
             setShowSettings(false);
+            setHome(false);
             run(store.mode(compact ? "conversation" : "compact"));
           }}
         >

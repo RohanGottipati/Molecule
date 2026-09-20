@@ -3,93 +3,50 @@
 // if the top two distinct values are within the conflict margin the field stays
 // conflicted, which is a valid answer rather than a failure.
 //
-// The weights mirror services/reality/src/resolution.ts so the Rox pipeline and
-// the Reality service cannot disagree about what is true.
+// The scoring itself lives in @molecule/resolution and is the same code the
+// Reality service runs. This file used to carry a hand-copied implementation
+// that had already drifted: it compared candidate values while ignoring the
+// unit, so "40 units/day" and "40 units/week" were treated as corroboration.
+// Do not reintroduce a local copy.
 
 import {
+  CONFLICT_MARGIN_THRESHOLD,
   RESOLUTION_WEIGHTS,
-  CONFLICT_MARGIN,
-  RECENCY_HALF_LIFE_DAYS,
-} from "./config.mjs";
+  claimFromRow,
+  resolveClaims,
+} from "@molecule/resolution";
 import { shortId, stableJson, bumpStage, emitEvent } from "./db.mjs";
 
-export function recencyScore(observedAt, now) {
-  const ageDays = Math.max(
-    0,
-    (now.getTime() - new Date(observedAt).getTime()) / 86400000,
-  );
-  return Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
-}
-
-/** Agreement from a different source is worth more than repetition from the same one. */
-export function corroboration(claim, all) {
-  const agreeing = new Set(
-    all
-      .filter(
-        (o) =>
-          o.claim_id !== claim.claim_id &&
-          o.source_reference !== claim.source_reference &&
-          stableJson(o.normalized_value) === stableJson(claim.normalized_value),
-      )
-      .map((o) => o.source_reference),
-  ).size;
-  return agreeing === 0 ? 0 : 1 - 1 / (agreeing + 1);
-}
-
-export function scoreClaims(claims, now = new Date()) {
-  return claims
-    .map((c) => {
-      const recency = recencyScore(c.observed_at ?? c.ingested_at, now);
-      const score =
-        RESOLUTION_WEIGHTS.authority * Number(c.source_authority) +
-        RESOLUTION_WEIGHTS.recency * recency +
-        RESOLUTION_WEIGHTS.confidence * Number(c.extraction_confidence) +
-        RESOLUTION_WEIGHTS.corroboration * corroboration(c, claims);
-      return { claim: c, score, recency };
-    })
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        String(a.claim.claim_id).localeCompare(String(b.claim.claim_id)),
-    );
-}
-
-export function decide(scored) {
-  if (!scored.length) return { status: "unknown" };
-  const top = scored[0];
-  const runnerUp = scored.find(
-    (s) =>
-      stableJson(s.claim.normalized_value) !==
-      stableJson(top.claim.normalized_value),
-  );
-  if (!runnerUp || top.score - runnerUp.score >= CONFLICT_MARGIN) {
-    return { status: "resolved", winner: top, runnerUp };
-  }
-  return { status: "conflicted", contenders: [top, runnerUp] };
-}
-
-export function explain(decision, scored) {
-  if (decision.status === "unknown")
+/**
+ * Rox keeps its own wording because the report and review queue quote it, but
+ * it explains the shared resolver's decision rather than recomputing one.
+ */
+export function explain(result) {
+  if (result.status === "unknown")
     return "No active claims for this field. Status: unknown.";
-  if (decision.status === "conflicted") {
-    const list = decision.contenders
-      .map(
-        (c) =>
-          `${JSON.stringify(c.claim.normalized_value)} ${c.claim.normalized_unit ?? ""} from ${c.claim.source_kind} (${c.claim.source_reference}, score ${c.score.toFixed(3)})`,
-      )
-      .join(" vs ");
-    return `Conflicted: no value cleared the ${CONFLICT_MARGIN} margin. ${list}. ${scored.length} active claims.`;
+  const describe = (entry) =>
+    `${JSON.stringify(entry.claim.normalizedValue)} ${entry.claim.normalizedUnit ?? ""} from ${entry.claim.source.kind} (${entry.claim.source.reference}, score ${entry.score.toFixed(3)})`;
+  if (result.status === "conflicted") {
+    return `Conflicted: no value cleared the ${CONFLICT_MARGIN_THRESHOLD} margin. ${result.contenders
+      .map(describe)
+      .join(" vs ")}. ${result.allScored.length} active claims.`;
   }
-  const w = decision.winner;
+  const w = result.winner;
   const parts = [
-    `${RESOLUTION_WEIGHTS.authority}*authority(${Number(w.claim.source_authority).toFixed(2)})`,
-    `${RESOLUTION_WEIGHTS.recency}*recency(${w.recency.toFixed(2)})`,
-    `${RESOLUTION_WEIGHTS.confidence}*confidence(${Number(w.claim.extraction_confidence).toFixed(2)})`,
+    `${RESOLUTION_WEIGHTS.authority}*authority(${w.claim.sourceAuthority.toFixed(2)})`,
+    `${RESOLUTION_WEIGHTS.recency}*recency(${w.recencyScore.toFixed(2)})`,
+    `${RESOLUTION_WEIGHTS.confidence}*confidence(${w.claim.extractionConfidence.toFixed(2)})`,
   ].join(" + ");
-  const margin = decision.runnerUp
-    ? ` Beat ${JSON.stringify(decision.runnerUp.claim.normalized_value)} by ${(w.score - decision.runnerUp.score).toFixed(3)}.`
+  const runnerUp = result.losers.find(
+    (entry) =>
+      entry.claim.normalizedUnit !== w.claim.normalizedUnit ||
+      stableJson(entry.claim.normalizedValue) !==
+        stableJson(w.claim.normalizedValue),
+  );
+  const margin = runnerUp
+    ? ` Beat ${JSON.stringify(runnerUp.claim.normalizedValue)} by ${(w.score - runnerUp.score).toFixed(3)}.`
     : " No competing value.";
-  return `Resolved to ${JSON.stringify(w.claim.normalized_value)} ${w.claim.normalized_unit ?? ""} from ${w.claim.source_kind} (${w.claim.source_reference}), score ${w.score.toFixed(3)} = ${parts}.${margin}`;
+  return `Resolved to ${JSON.stringify(w.claim.normalizedValue)} ${w.claim.normalizedUnit ?? ""} from ${w.claim.source.kind} (${w.claim.source.reference}), score ${w.score.toFixed(3)} = ${parts}.${margin}`;
 }
 
 export async function resolve(db, { runId, traceId, all = false }) {
@@ -105,10 +62,11 @@ export async function resolve(db, { runId, traceId, all = false }) {
   // Fields this run touched, unless asked for a full re-resolution.
   const { rows: fields } = await db.query(
     all
-      ? `select distinct merchant_id, field from canonical_claims where resolution_status in ('active','conflicted')`
+      ? `select distinct merchant_id, field from canonical_claims where resolution_status in ('active','conflicted') and resolution_note is null`
       : `select distinct c.merchant_id, c.field
            from canonical_claims c
           where c.resolution_status in ('active','conflicted')
+            and c.resolution_note is null
             and exists (select 1 from rox_extractions x where x.run_id = $1 and x.claim_id = c.claim_id)`,
     all ? [] : [runId],
   );
@@ -117,18 +75,59 @@ export async function resolve(db, { runId, traceId, all = false }) {
     counts.fields += 1;
     const { rows: claims } = await db.query(
       `select * from canonical_claims
-        where merchant_id = $1 and field = $2 and resolution_status in ('active','conflicted')`,
+        where merchant_id = $1 and field = $2
+          and resolution_status in ('active','conflicted')
+          and resolution_note is null`,
       [merchant_id, field],
     );
-    const scored = scoreClaims(claims, now);
-    const decision = decide(scored);
-    const explanation = explain(decision, scored);
+    const decision = resolveClaims(claims.map(claimFromRow), now);
+    const scored = decision.status === "unknown" ? [] : decision.allScored;
+    const explanation = explain(decision);
     const value =
       decision.status === "resolved"
-        ? decision.winner.claim.normalized_value
+        ? decision.winner.claim.normalizedValue
         : null;
     const winner =
-      decision.status === "resolved" ? decision.winner.claim.claim_id : null;
+      decision.status === "resolved" ? decision.winner.claim.claimId : null;
+    const normalizedUnit =
+      decision.status === "resolved"
+        ? (decision.winner.claim.normalizedUnit ?? null)
+        : null;
+    const frozenScores = scored.map((s) => ({
+      claimId: s.claim.claimId,
+      value: s.claim.normalizedValue,
+      unit: s.claim.normalizedUnit ?? null,
+      source: s.claim.source.kind,
+      reference: s.claim.source.reference,
+      authority: s.claim.sourceAuthority,
+      confidence: s.claim.extractionConfidence,
+      recency: Number(s.recencyScore.toFixed(4)),
+      score: Number(s.score.toFixed(4)),
+    }));
+
+    // This is the evaluation authority for the run. It is insert-only: a
+    // resumed stage may fill missing fields but cannot rewrite decisions that
+    // were already observed under this run ID.
+    await db.query(
+      `insert into rox_resolution_snapshots
+         (run_id,merchant_id,field,status,winning_claim_id,value,normalized_unit,
+          explanation,scores,claim_ids,resolved_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       on conflict(run_id,merchant_id,field) do nothing`,
+      [
+        runId,
+        merchant_id,
+        field,
+        decision.status,
+        winner,
+        value === null ? null : JSON.stringify(value),
+        normalizedUnit,
+        explanation,
+        JSON.stringify(frozenScores),
+        scored.map((s) => s.claim.claimId),
+        now,
+      ],
+    );
 
     const { rows: before } = await db.query(
       `select status, value from canonical_resolutions where merchant_id = $1 and field = $2`,
@@ -147,19 +146,7 @@ export async function resolve(db, { runId, traceId, all = false }) {
         winner,
         value === null ? null : JSON.stringify(value),
         explanation,
-        JSON.stringify(
-          scored.map((s) => ({
-            claimId: s.claim.claim_id,
-            value: s.claim.normalized_value,
-            unit: s.claim.normalized_unit,
-            source: s.claim.source_kind,
-            reference: s.claim.source_reference,
-            authority: Number(s.claim.source_authority),
-            confidence: Number(s.claim.extraction_confidence),
-            recency: Number(s.recency.toFixed(4)),
-            score: Number(s.score.toFixed(4)),
-          })),
-        ),
+        JSON.stringify(frozenScores),
       ],
     );
 
@@ -176,7 +163,7 @@ export async function resolve(db, { runId, traceId, all = false }) {
       await db.query(
         `update canonical_claims set resolution_status = 'conflicted'
           where claim_id = any($1::text[]) and resolution_status = 'active'`,
-        [decision.contenders.map((c) => c.claim.claim_id)],
+        [decision.contenders.map((c) => c.claim.claimId)],
       );
       await db.query(
         `insert into claim_conflicts (conflict_id, merchant_id, field, claim_ids, status)
@@ -186,7 +173,7 @@ export async function resolve(db, { runId, traceId, all = false }) {
           shortId("conflict", merchant_id, field),
           merchant_id,
           field,
-          scored.map((s) => s.claim.claim_id),
+          scored.map((s) => s.claim.claimId),
         ],
       );
       await emitEvent(db, {
@@ -196,7 +183,7 @@ export async function resolve(db, { runId, traceId, all = false }) {
         merchantId: merchant_id,
         payload: {
           field,
-          values: decision.contenders.map((c) => c.claim.normalized_value),
+          values: decision.contenders.map((c) => c.claim.normalizedValue),
         },
       });
     } else if (decision.status === "resolved") {

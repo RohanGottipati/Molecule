@@ -98,13 +98,13 @@ on conflict(claim_id) do nothing;
 insert into canonical_claims(claim_id,merchant_id,field,normalized_value,normalized_unit,source_kind,
   source_reference,observed_at,ingested_at,source_authority,extraction_confidence,resolution_status,evidence_text)
 values
-('demo:stitch:web','stitch-works','capacity_per_day','100','units','shopify','demo:web:stitch-works',
+('demo:stitch:web','stitch-works','cap-stitch-embroidery.capacity_per_day','100','units','shopify','demo:web:stitch-works',
  '2026-08-20T00:00:00Z','2026-09-19T00:00:00Z',0.5,0.6,'active','Synthetic website: up to 100/day'),
-('demo:stitch:document','stitch-works','capacity_per_day','50','units','document','demo:document:stitch-works',
+('demo:stitch:document','stitch-works','cap-stitch-embroidery.capacity_per_day','50','units','document','demo:document:stitch-works',
  '2026-09-09T00:00:00Z','2026-09-19T00:00:00Z',0.6,0.7,'active','Synthetic document: 50/day'),
-('demo:stitch:outage','stitch-works','capacity_per_day','20','units','note','demo:note:machine-2-down',
+('demo:stitch:outage','stitch-works','cap-stitch-embroidery.capacity_per_day','20','units','note','demo:note:machine-2-down',
  '2026-09-18T00:00:00Z','2026-09-19T00:00:00Z',0.99,1,'active','Synthetic fresh outage note: machine #2 down; 20/day'),
-('demo:stitch:invalid','stitch-works','capacity_per_day','"about a lot, ask us"',null,'csv','demo:csv:row-14',
+('demo:stitch:invalid','stitch-works','cap-stitch-embroidery.capacity_per_day','"about a lot, ask us"',null,'csv','demo:csv:row-14',
  '2026-09-18T00:00:00Z','2026-09-19T00:00:00Z',0.3,0.2,'quarantined','Malformed capacity; never used')
 on conflict(claim_id) do nothing;
 

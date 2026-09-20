@@ -102,7 +102,16 @@ if (args.snapshot) {
     ).rows;
     const attempts = (
       await db.query(
-        "select artifact_id,candidates,injection from rox_artifact_attempts where run_id=$1 order by artifact_id",
+        "select artifact_id,candidates,injection,prompt_version from rox_artifact_attempts where run_id=$1 order by artifact_id",
+        [args.run],
+      )
+    ).rows;
+    const resolutions = (
+      await db.query(
+        `select merchant_id,field,status,winning_claim_id,value,normalized_unit,
+                explanation,scores,claim_ids,resolved_at
+           from rox_resolution_snapshots where run_id=$1
+          order by merchant_id,field`,
         [args.run],
       )
     ).rows;
@@ -117,6 +126,7 @@ if (args.snapshot) {
       extractions,
       quarantined,
       attempts,
+      resolutions,
       config: { businessDayHours: BUSINESS_DAY_HOURS, fxToCad: FX_TO_CAD },
     };
     await db.query("COMMIT");
@@ -136,6 +146,7 @@ const sourceFiles = [
   "db.mjs",
   "config.mjs",
   "score.mjs",
+  "resolve.mjs",
 ];
 const sourceHashes = Object.fromEntries(
   await Promise.all(

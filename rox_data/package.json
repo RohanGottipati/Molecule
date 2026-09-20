@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Rox track: messy-data ingestion agents. Deliberately outside the pnpm workspace so it installs standalone with npm.",
+  "description": "Rox track: messy-data ingestion agents. A workspace package so it shares @molecule/resolution and @molecule/contracts instead of re-implementing them.",
   "scripts": {
     "generate": "node corpus/generate.mjs",
     "ingest": "node --env-file=../.env --env-file=../.env.local pipeline/run.mjs",
@@ -12,6 +12,7 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@molecule/resolution": "workspace:*",
     "openai": "^6.10.0",
     "pg": "^8.16.3"
   }

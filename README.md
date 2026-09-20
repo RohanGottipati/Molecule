@@ -42,8 +42,19 @@ Ask for “200 premium black onboarding kits by next Friday under CAD 7000, no l
 ```bash
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 pnpm solver:lint && pnpm solver:test
-pnpm verify:secrets && pnpm verify:desktop && pnpm verify:kit
+pnpm verify:secrets && pnpm verify:desktop && pnpm verify:kit && pnpm verify:golden
 ```
+
+### Golden path
+
+One brief is pinned rather than modelled so a demonstration is deterministic end to end. With `DEMO_MODE=true` the compiler answers `GOLDEN_PATH_PROMPT` (the example brief in the web composer; see `packages/contracts/src/goldenPath.ts`) and its correction “No polyester.” from a fixed intent with zero clarification questions — every other brief still goes through the configured OpenAI adapter. Discovery, merchant quotes, CP-SAT certification, approval and synthetic Shopify execution run unchanged; the solver stays the only feasibility authority. The expected outcome (nine accepted quotes, a seven-node plan at CAD 6,380 under the CAD 7,000 budget, `thread-forge` embroidery, `laser-lab` engraving, `pack-ship` assembly and fulfillment, nine succeeded execution actions) is pinned in `services/orchestrator/src/demo/goldenPath.ts`.
+
+```bash
+pnpm verify:golden                                   # boots solver + orchestrator, runs brief → plan → correction → approve → receipt
+MOLECULE_URL=http://127.0.0.1:3001 pnpm verify:golden # same run against a stack started with pnpm dev
+```
+
+“Next Friday” resolves to the coming Friday, or the one after when fewer than 72 hours remain, so the pinned plan is always feasible.
 
 Database adapter and durable runtime acceptance commands are in [the runbook](docs/RELEASE.md). Browser interaction, physical macOS permissions, live voice, and paid provider acceptance are separate from these automated checks.
 
@@ -79,6 +90,8 @@ scripts                  Bootstrap, provider verification, demo, and load tools
 Read [`AGENTS.md`](AGENTS.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/CONTRACTS.md`](docs/CONTRACTS.md) before implementation. Owner-specific scopes live in [`docs/TASKS`](docs/TASKS).
 
 For the desktop application, permissions, setup, API boundaries, demo instructions, and verification limitations, see [`docs/DESKTOP.md`](docs/DESKTOP.md).
+
+For the Hack the North track dossier (Shopify, Rox, Backboard, Tiger Data, OpenAI), the one-prompt golden-path demo, and the evidence behind every claim, see [`docs/HACK_THE_NORTH_TRACKS.md`](docs/HACK_THE_NORTH_TRACKS.md).
 
 ## Core rules
 

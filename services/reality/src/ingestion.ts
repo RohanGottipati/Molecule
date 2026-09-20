@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { CanonicalClaimSchema, type CanonicalClaim } from "@molecule/contracts";
+import { interpretCapacity, stableJson } from "@molecule/resolution";
+
+export { stableJson };
 
 export interface RawClaimInput {
   merchantId: string;
@@ -16,7 +19,13 @@ export interface RawClaimInput {
 }
 
 export type NormalizeResult =
-  { ok: true; value: unknown; unit?: string } | { ok: false; reason: string };
+  | { ok: true; value: unknown; unit?: string }
+  | {
+      ok: false;
+      reason: string;
+      disposition?: "needs_review" | "quarantine";
+      code?: string;
+    };
 
 /**
  * Normalizes a raw extracted value for a known numeric field. Anything that
@@ -33,6 +42,7 @@ export type NormalizeResult =
 export function normalizeValue(
   field: string,
   rawValue: unknown,
+  context: Pick<RawClaimInput, "evidenceText" | "observedAt"> = {},
 ): NormalizeResult {
   field = field.startsWith("inventory.")
     ? "inventory"
@@ -47,6 +57,23 @@ export function normalizeValue(
     "capacity",
     "inventory",
   ]);
+
+  if (field === "capacity" || field === "capacity_per_day") {
+    const result = interpretCapacity({
+      value: rawValue,
+      unit: typeof rawValue === "string" ? rawValue : undefined,
+      evidence: context.evidenceText,
+      observedAt: context.observedAt,
+    });
+    return result.ok
+      ? { ok: true, value: result.value, unit: result.unit }
+      : {
+          ok: false,
+          reason: result.reason,
+          disposition: result.disposition,
+          code: result.code,
+        };
+  }
 
   if (!numericFields.has(field)) {
     if (rawValue === null || rawValue === undefined)
@@ -106,7 +133,9 @@ export function normalizeValue(
 export function toCanonicalClaim(
   input: RawClaimInput,
   now: Date = new Date(),
-): { ok: true; claim: CanonicalClaim } | { ok: false; reason: string } {
+):
+  | { ok: true; claim: CanonicalClaim }
+  | Extract<NormalizeResult, { ok: false }> {
   if (
     !input ||
     [input.merchantId, input.field, input.sourceReference].some(
@@ -115,9 +144,18 @@ export function toCanonicalClaim(
   ) {
     return { ok: false, reason: "Invalid claim metadata" };
   }
-  const normalized = normalizeValue(input.field, input.rawValue);
+  if (["capacity", "capacity_per_day", "inventory"].includes(input.field)) {
+    return {
+      ok: false,
+      reason:
+        "Operational capacity fields require a capability or resource scope",
+      disposition: "quarantine",
+      code: "unscoped_operational_field",
+    };
+  }
+  const normalized = normalizeValue(input.field, input.rawValue, input);
   if (!normalized.ok) {
-    return { ok: false, reason: normalized.reason };
+    return normalized;
   }
 
   if (
@@ -164,16 +202,4 @@ export function toCanonicalClaim(
     return { ok: false, reason: "Invalid claim metadata" };
   }
   return { ok: true, claim: parsed.data };
-}
-
-export function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
 }

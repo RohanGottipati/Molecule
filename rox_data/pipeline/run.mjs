@@ -6,7 +6,8 @@
 //   node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --stages=extract --limit=50
 //   node --env-file=../.env --env-file=../.env.local pipeline/run.mjs            # all stages
 //
-// Flags: --stages=a,b  --limit=N  --batch=<id>  --dry  --budget=<usd>  --run=<runId>
+// Flags: --stages=a,b  --limit=N  --batch=<id>  --dry  --budget=<usd>
+//        --run=<runId>  --reextract-prompt=<old prompt version>
 
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -22,6 +23,7 @@ import {
 } from "./db.mjs";
 import { BUDGET_USD, MODELS } from "./config.mjs";
 import { intake } from "./intake.mjs";
+import { EXTRACT_PROMPT_VERSION } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(
@@ -37,6 +39,15 @@ const ALL_STAGES = ["intake", "extract", "link", "normalize", "resolve", "act"];
 const stages = args.stages ? String(args.stages).split(",") : ALL_STAGES;
 const limit = args.limit ? Number(args.limit) : null;
 const corpus = args.corpus ? String(args.corpus) : join(HERE, "..", "corpus");
+const reextractPrompt = args["reextract-prompt"]
+  ? String(args["reextract-prompt"])
+  : null;
+if (reextractPrompt && !stages.includes("extract"))
+  throw new Error("--reextract-prompt requires the extract stage");
+if (reextractPrompt === EXTRACT_PROMPT_VERSION)
+  throw new Error(
+    `--reextract-prompt must name an older prompt, not current ${EXTRACT_PROMPT_VERSION}`,
+  );
 
 const manifest = JSON.parse(
   await readFile(join(corpus, "manifest.json"), "utf8"),
@@ -79,7 +90,11 @@ const runId = args.run
       batchId,
       seed: manifest.seed,
       mode: args.dry ? "dry" : "real",
-      models: MODELS,
+      models: {
+        ...MODELS,
+        extractPrompt: EXTRACT_PROMPT_VERSION,
+        ...(reextractPrompt ? { reextractFromPrompt: reextractPrompt } : {}),
+      },
       budget: Number(args.budget ?? BUDGET_USD),
     });
 
@@ -89,7 +104,13 @@ console.log(
 await emitEvent(db, {
   traceId,
   type: "rox.run.started",
-  payload: { runId, batchId, stages },
+  payload: {
+    runId,
+    batchId,
+    stages,
+    extractPrompt: EXTRACT_PROMPT_VERSION,
+    reextractFromPrompt: reextractPrompt,
+  },
 });
 
 const t0 = Date.now();
@@ -117,6 +138,7 @@ try {
         traceId,
         limit,
         dry: Boolean(args.dry),
+        sourcePromptVersion: stage === "extract" ? reextractPrompt : null,
       });
     }
     console.log(

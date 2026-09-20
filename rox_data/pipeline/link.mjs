@@ -428,11 +428,14 @@ async function dedupeMerchants(db, runId) {
 }
 
 export async function link(db, { runId, batchId, traceId, limit = null }) {
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 60_000,
-    maxRetries: 2,
-  });
+  const offline = process.env.ROX_LINK_OFFLINE === "true";
+  const client = offline
+    ? null
+    : new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        timeout: 60_000,
+        maxRetries: 2,
+      });
   const counts = {
     extractions: 0,
     exact: 0,
@@ -467,7 +470,10 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
       ],
     });
   }
-  counts.indexed = await ensureAliasIndex(db, client, runId, candidates);
+  counts.indexed = offline
+    ? 0
+    : await ensureAliasIndex(db, client, runId, candidates);
+  if (offline) counts.degraded = "deterministic_tiers_only";
 
   const { rows: pending } = await db.query(
     `select x.extraction_id, x.merchant_hint, x.field, x.raw_value, a.source_path, a.content_text
@@ -493,11 +499,15 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
       tri = await trigramMatch(db, alias, candidates);
       if (tri && tri.score >= 0.55 && tri.margin >= 0.1) decision = tri;
     }
-    if (!decision) {
+    if (!decision && !offline) {
       vec = await vectorMatch(db, client, runId, alias);
       if (vec && vec.score >= 0.78 && vec.margin >= 0.03) decision = vec;
     }
-    if (!decision && ((vec?.score ?? 0) >= 0.45 || (tri?.score ?? 0) >= 0.3)) {
+    if (
+      !decision &&
+      !offline &&
+      ((vec?.score ?? 0) >= 0.45 || (tri?.score ?? 0) >= 0.3)
+    ) {
       const top = [...(vec?.top ?? []), ...(tri?.top ?? [])];
       const shortlist = [...new Set(top.map((t) => t.merchantId))]
         .slice(0, 4)

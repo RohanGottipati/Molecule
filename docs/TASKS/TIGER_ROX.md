@@ -22,7 +22,7 @@ The foundation exists. Follow [DATABASE_ROX.md](../DATABASE_ROX.md) in order:
 - [x] Audit source/synthetic provenance, duplicate signatures and database health; see [Order 1](../DATABASE_ORDER1.md). Unlabelled provenance and candidate duplicates remain review items.
 - [x] Repair scoring population, matching and units; persist frozen, versioned local evidence. Unsupported historical resolution scoring is disabled.
 - [x] Select the narrow apparel scenario and its uncertainty/action boundary; see [Order 2](../DATABASE_ORDER2.md).
-- [ ] Add run-specific resolution snapshots before certifying resolution/outlier accuracy.
+- [x] Add run-specific resolution snapshots before certifying resolution/outlier accuracy. New runs freeze insert-only decisions; historical runs without snapshots stay explicitly uncertified.
 - [ ] Establish a human-labelled real-document holdout for one operational scenario; the private validator exists, but authorized inputs and reviews are still required ([Order 3](../DATABASE_ORDER3.md)).
 - [x] Strict capacity normalization and supplier attribution implemented and tested on the synthetic corpus; **not yet validated on real documents**, so not benchmark-driven ([Order 4](../DATABASE_ORDER4.md)).
 - [ ] Integrate shared contracts/resolver and complete approved, idempotent actions. Decision rule and approval-gated proposals done; the trigger into `Orchestrator.recoverResource` needs an orchestrator endpoint ([Order 5](../DATABASE_ORDER5.md)).

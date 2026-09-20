@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeFact, parseNumber } from "../pipeline/normalize.mjs";
+import { normalizeLegacyCapacity } from "../pipeline/compare-policies.mjs";
 
 const cap = (o) =>
   normalizeFact({ fieldKind: "capacity", unit: "", period: "", ...o });
@@ -13,20 +14,18 @@ test("strict is the default: a bare number is not promoted to per-day", () => {
 });
 
 test("legacy policy reproduces the historical per-day assumption, and says so", () => {
-  const r = cap({
+  const r = normalizeLegacyCapacity({
     value: "400",
     evidence: "about 400",
-    capacityPolicy: "legacy",
   });
   assert.equal(r.ok, true);
   assert.equal(r.value, 400);
   assert.match(r.applied.join(), /assumed per-day/);
   // Legacy also keeps the known-unsafe behaviour of reading "up to N" as N.
   assert.equal(
-    cap({
+    normalizeLegacyCapacity({
       value: "up to 400",
       evidence: "up to 400 a day",
-      capacityPolicy: "legacy",
     }).value,
     400,
   );

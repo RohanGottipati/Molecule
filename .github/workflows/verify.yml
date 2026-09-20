@@ -37,7 +37,7 @@ jobs:
       - run: pnpm bootstrap
       - run: pnpm format && pnpm lint && pnpm typecheck && pnpm test
       - run: pnpm build && pnpm solver:lint && pnpm solver:test
-      - run: pnpm verify:secrets && pnpm verify:desktop && pnpm verify:kit
+      - run: pnpm verify:secrets && pnpm verify:desktop && pnpm verify:kit && pnpm verify:golden
       - name: Database adapters
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/molecule

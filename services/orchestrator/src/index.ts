@@ -1,6 +1,10 @@
 import { pathToFileURL } from "node:url";
 
-import { MockOpenAIAdapter, RealOpenAIAdapter } from "@molecule/openai";
+import {
+  GoldenPathOpenAIAdapter,
+  MockOpenAIAdapter,
+  RealOpenAIAdapter,
+} from "@molecule/openai";
 import {
   MarketplaceSnapshotSchema,
   OperationsMetricsSchema,
@@ -31,7 +35,7 @@ export async function createApp() {
   const store = durable?.store ?? local;
   const sessions = store;
   const events = store;
-  const openai = config.USE_MOCK_OPENAI
+  const compiler = config.USE_MOCK_OPENAI
     ? new MockOpenAIAdapter()
     : new RealOpenAIAdapter({
         apiKey: config.OPENAI_API_KEY!,
@@ -39,6 +43,9 @@ export async function createApp() {
         realtimeModel: config.OPENAI_REALTIME_MODEL,
         transcriptionModel: config.OPENAI_TRANSCRIPTION_MODEL,
       });
+  const openai = config.DEMO_MODE
+    ? new GoldenPathOpenAIAdapter(compiler)
+    : compiler;
   const solver = new HttpSolverClient(config.SOLVER_URL);
   const orchestrator = new Orchestrator({
     sessions,
@@ -68,9 +75,12 @@ export async function createApp() {
         name: "openai",
         mode: config.USE_MOCK_OPENAI ? "demo" : "live",
         status: "ready",
-        detail: config.USE_MOCK_OPENAI
-          ? "Deterministic intent compiler"
-          : "OpenAI configured; credentials checked on request",
+        detail: [
+          config.USE_MOCK_OPENAI
+            ? "Deterministic intent compiler"
+            : "OpenAI configured; credentials checked on request",
+          ...(config.DEMO_MODE ? ["golden-path brief pinned"] : []),
+        ].join("; "),
       },
       {
         name: "backboard",

@@ -10,6 +10,13 @@
 //   2. With several capabilities, the best trigram score won with no check that
 //      it beat the runner-up.
 
+import {
+  CAPABILITY_MIN_MARGIN,
+  CAPABILITY_MIN_SIMILARITY,
+} from "@molecule/resolution";
+
+export { CAPABILITY_MIN_MARGIN, CAPABILITY_MIN_SIMILARITY };
+
 const STOP = new Set([
   "units",
   "unit",
@@ -98,9 +105,6 @@ const compact = (s) =>
   String(s ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
-
-export const CAPABILITY_MIN_SIMILARITY = 0.25;
-export const CAPABILITY_MIN_MARGIN = 0.05;
 
 /**
  * @param own      this supplier's capabilities [{capability_id,name,description}]

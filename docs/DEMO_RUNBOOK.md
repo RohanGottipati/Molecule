@@ -4,6 +4,17 @@
 
 Before a demo, reset the deterministic seed world and verify OpenAI, Backboard, Tiger Data, and all configured Shopify stores. Never expose provider credentials in logs or UI.
 
+## Golden path
+
+Run with `DEMO_MODE=true` and submit the composer's example brief verbatim
+(`GOLDEN_PATH_PROMPT` in `@molecule/contracts`). The compiler returns the pinned
+intent with zero clarification questions, nine merchants accept, CP-SAT certifies a
+seven-node plan at CAD 6,380 under the CAD 7,000 budget, and approval completes the
+synthetic Shopify execution. The correction step uses exactly “No polyester.”
+Rehearse with `pnpm verify:golden` (or `MOLECULE_URL=... pnpm verify:golden`
+against the running stack); it fails loudly on any deviation from that outcome.
+Any other wording falls through to the normal compiler and may ask questions.
+
 ## Five-minute flow
 
 1. Capture a request and one hard-constraint correction; show the typed intent changing.

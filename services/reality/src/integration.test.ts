@@ -182,7 +182,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
   );
 
   it("does not let a global capacity override a stricter scoped capacity", async () => {
-    await ingestClaim(
+    const result = await ingestClaim(
       {
         merchantId: "thread-forge",
         field: "capacity",
@@ -194,6 +194,10 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       },
       "capacity-limits",
     );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "unscoped_operational_field",
+    });
     const candidate = (await service.searchCandidates(kitIntent(now))).find(
       (entry) => entry.capabilityId === "cap-thread-embroidery",
     );
@@ -210,6 +214,9 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     async (field) => {
       // Replace this synthetic fixture's original capacity source with explicit
       // daily evidence; the next beforeEach restores the deterministic seed.
+      await getPool().query(
+        "delete from canonical_resolutions where winning_claim_id='demo:cap-thread-embroidery:capacity'",
+      );
       await getPool().query(
         "delete from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'",
       );
@@ -287,20 +294,21 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     const first = await ingestClaim(
       {
         merchantId: "base-goods",
-        field: "capacity_per_day",
+        field: "cap-base-hoodie.capacity_per_day",
         rawValue: 20,
         sourceKind: "shopify",
         sourceReference,
         observedAt: "2026-09-19T12:00:00.000Z",
         sourceAuthority: 0.9,
         extractionConfidence: 1,
+        evidenceText: "Shopify capacity is 20 units/day",
       },
       "shopify-first-observation",
     );
     const newest = await ingestClaim(
       {
         merchantId: "base-goods",
-        field: "capacity_per_day",
+        field: "cap-base-hoodie.capacity_per_day",
         rawValue: 0,
         sourceKind: "shopify",
         sourceReference,
@@ -313,13 +321,14 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     const delayed = await ingestClaim(
       {
         merchantId: "base-goods",
-        field: "capacity_per_day",
+        field: "cap-base-hoodie.capacity_per_day",
         rawValue: 10,
         sourceKind: "shopify",
         sourceReference,
         observedAt: "2026-09-19T12:00:30.000Z",
         sourceAuthority: 0.9,
         extractionConfidence: 1,
+        evidenceText: "Shopify capacity is 10 units/day",
       },
       "shopify-delayed-observation",
     );
@@ -378,8 +387,8 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
           claims: [
             {
               merchantId: "base-goods",
-              field: "capacity",
-              rawValue: 1000,
+              field: "cap-base-hoodie.capacity",
+              rawValue: "1000 units/day",
               sourceKind: "api",
               sourceReference,
               sourceAuthority: 1,
@@ -408,8 +417,8 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     const traceId = randomUUID();
     const claim = {
       merchantId: "base-goods",
-      field: "capacity",
-      rawValue: 1000,
+      field: "cap-base-hoodie.capacity",
+      rawValue: "1000 units/day",
       sourceKind: "api",
       sourceReference: `demo:chaos:batch:${randomUUID()}`,
       sourceAuthority: 1,
@@ -456,16 +465,9 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       "cap-pack-assembly",
       "cap-pack-fulfillment",
       "cap-snacks",
+      "cap-stitch-embroidery",
       "cap-thread-embroidery",
     ]);
-    expect(
-      (
-        await service.searchCandidates({
-          ...kitIntent(now),
-          deadline: new Date(now.getTime() + 11 * 86400000).toISOString(),
-        })
-      ).some((entry) => entry.capabilityId === "cap-stitch-embroidery"),
-    ).toBe(true);
     expect(await service.searchCandidates(kitIntent(now))).toEqual(candidates);
     expect(
       candidates.every(
@@ -546,7 +548,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       value: "polyester",
     });
     const candidates = await service.searchCandidates(intent, ["thread-forge"]);
-    expect(candidates).toHaveLength(7);
+    expect(candidates).toHaveLength(8);
     expect(
       candidates.some((entry) => entry.merchantId === "needle-north"),
     ).toBe(true);
@@ -566,7 +568,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       merchantId: "thread-forge",
       capabilityId: "cap-thread-embroidery",
       orderId: "held",
-      quantity: 201,
+      quantity: 400,
       actionKey: randomUUID(),
     });
     expect(
@@ -698,7 +700,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       payload: { intent: kitIntent(now) },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().candidates).toHaveLength(8);
+    expect(response.json().candidates).toHaveLength(9);
     expect(
       (
         await app.inject({
