@@ -87,6 +87,7 @@ export function useWorkspace(initialOrderId?: string) {
   const [marketplaceError, setMarketplaceError] = useState<string | null>(null);
   const [marketplaceLoading, setMarketplaceLoading] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
+  const [demoResetAvailable, setDemoResetAvailable] = useState(false);
   const demoEnabled = useRef(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -195,6 +196,7 @@ export function useWorkspace(initialOrderId?: string) {
     configRead.current = readDemoConfiguration((state) => {
       if (!mounted.current) return;
       setDemoMode(state.enabled);
+      setDemoResetAvailable(state.resetAvailable);
       demoEnabled.current = state.enabled;
       setConfigLoading(state.loading);
       setConfigError(state.error);
@@ -599,6 +601,7 @@ export function useWorkspace(initialOrderId?: string) {
     marketplaceError,
     marketplaceLoading,
     demoMode,
+    demoResetAvailable,
     configError,
     configLoading,
     busy: operation !== null,
