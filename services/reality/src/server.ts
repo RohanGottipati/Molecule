@@ -9,13 +9,13 @@ import type { RawClaimInput } from "./ingestion.js";
 import { ingestClaim, resolveMerchant } from "./repository.js";
 import { createRealityService, realityHealth } from "./service.js";
 
-export function createRealityApp() {
+export function createRealityApp(options: { now?: () => Date } = {}) {
   const app = Fastify({
     logger: false,
     bodyLimit: 1_048_576,
     ajv: { customOptions: { coerceTypes: false } },
   });
-  const service = createRealityService();
+  const service = createRealityService(options);
   app.get("/health", realityHealth);
   app.get("/api/reality/merchants", () => service.listMerchants());
   app.post<{ Body: { intent: ProductIntent; excludedMerchantIds?: string[] } }>(

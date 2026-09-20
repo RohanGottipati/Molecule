@@ -55,13 +55,31 @@ export function resolveMerchantClaims(
   return [...claimsByField]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([field, fieldClaims]) => {
+      // Reconsider losing sources as their relative freshness changes, but
+      // never revive an older observation from the same source stream.
+      const sourceKey = (claim: CanonicalClaim) =>
+        JSON.stringify([claim.source.kind, claim.source.reference]);
+      const observedAt = (claim: CanonicalClaim) =>
+        Date.parse(claim.observedAt ?? claim.ingestedAt);
+      const newestBySource = new Map<string, number>();
+      for (const claim of fieldClaims) {
+        if (claim.resolutionStatus === "quarantined") continue;
+        const key = sourceKey(claim);
+        newestBySource.set(
+          key,
+          Math.max(newestBySource.get(key) ?? -Infinity, observedAt(claim)),
+        );
+      }
       const result = resolveClaims(
         fieldClaims.map((claim) => ({
           ...claim,
           resolutionStatus:
-            claim.resolutionStatus === "superseded"
-              ? "active"
-              : claim.resolutionStatus,
+            claim.resolutionStatus !== "quarantined" &&
+            observedAt(claim) < newestBySource.get(sourceKey(claim))!
+              ? "superseded"
+              : claim.resolutionStatus === "superseded"
+                ? "active"
+                : claim.resolutionStatus,
         })),
         now,
       );

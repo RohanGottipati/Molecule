@@ -9,11 +9,12 @@ import {
   migrate,
   reserveCapacity,
   seedDemo,
+  transaction,
 } from "@molecule/db";
 import { kitIntent } from "@molecule/test-fixtures";
 
 import { stableJson } from "./ingestion.js";
-import { ingestClaim } from "./repository.js";
+import { ingestClaim, resolveMerchant } from "./repository.js";
 import { createRealityApp } from "./server.js";
 import { createRealityService } from "./service.js";
 
@@ -140,6 +141,11 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
             status === "resolved" ? "active" : "unknown",
           ],
         );
+        // Direct SQL bypasses ingestion, which normally persists resolutions.
+        // Candidate reads intentionally do not mutate the database.
+        await transaction((client) =>
+          resolveMerchant("base-goods", "inventory-fixture", client, now),
+        );
         const candidates = await service.searchCandidates(kitIntent(now));
         expect(
           candidates.some((entry) => entry.capabilityId === "cap-base-hoodie"),
@@ -221,7 +227,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
   });
 
   it("supersedes older observations from one operational source without erasing them", async () => {
-    const sourceReference = `shopify:inventory:${randomUUID()}`;
+    const sourceReference = `demo:chaos:shopify:inventory:${randomUUID()}`;
     const first = await ingestClaim(
       {
         merchantId: "base-goods",
@@ -384,7 +390,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     }
   });
 
-  it("returns every kit component, two embroidery options, evidence and risk without certifying a plan", async () => {
+  it("returns every kit component and daily-capacity options for solver certification", async () => {
     const candidates = await service.searchCandidates(kitIntent(now));
     expect(candidates.map((entry) => entry.capabilityId).sort()).toEqual([
       "cap-base-bottle",
@@ -394,6 +400,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       "cap-pack-assembly",
       "cap-pack-fulfillment",
       "cap-snacks",
+      "cap-stitch-embroidery",
       "cap-thread-embroidery",
     ]);
     expect(await service.searchCandidates(kitIntent(now))).toEqual(candidates);
@@ -405,7 +412,9 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       ),
     ).toBe(true);
     const cost = candidates
-      .filter((entry) => entry.merchantId !== "needle-north")
+      .filter(
+        (entry) => !["needle-north", "stitch-works"].includes(entry.merchantId),
+      )
       .reduce(
         (total, entry) =>
           total +
@@ -414,7 +423,16 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
         0,
       );
     expect(cost).toBe(6395);
-    const merchants = await service.listMerchants();
+    const demoIds = new Set(
+      (
+        await getPool().query<{ merchant_id: string }>(
+          "select merchant_id from merchants where demo_tag='MOLECULE_DEMO'",
+        )
+      ).rows.map(({ merchant_id }) => merchant_id),
+    );
+    const merchants = (await service.listMerchants()).filter(({ merchantId }) =>
+      demoIds.has(merchantId),
+    );
     expect(merchants).toHaveLength(7);
     expect(
       merchants.every(
@@ -465,7 +483,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       value: "polyester",
     });
     const candidates = await service.searchCandidates(intent, ["thread-forge"]);
-    expect(candidates).toHaveLength(7);
+    expect(candidates).toHaveLength(8);
     expect(
       candidates.some((entry) => entry.merchantId === "needle-north"),
     ).toBe(true);
@@ -485,7 +503,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       merchantId: "thread-forge",
       capabilityId: "cap-thread-embroidery",
       orderId: "held",
-      quantity: 201,
+      quantity: 400,
       actionKey: randomUUID(),
     });
     expect(
@@ -602,14 +620,14 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
   });
 
   it("serves validated HTTP requests without listening at import time", async () => {
-    const app = createRealityApp();
+    const app = createRealityApp({ now: () => now });
     const response = await app.inject({
       method: "POST",
       url: "/api/candidates/search",
       payload: { intent: kitIntent(now) },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().candidates).toHaveLength(8);
+    expect(response.json().candidates).toHaveLength(9);
     expect(
       (
         await app.inject({

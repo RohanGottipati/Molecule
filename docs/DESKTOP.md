@@ -402,10 +402,24 @@ views with the same evidence detail panel.
 The integrated checkout passed repository formatting, lint, typecheck, all 850
 available JavaScript tests, all 90 solver tests, production builds, the client
 secret scan, and both real-solver/mock-provider desktop and kit acceptance.
-Database-dependent tests were skipped locally because no test database was
-available. Shared-database suites now run files serially to prevent one catalog
+Database-dependent tests were initially skipped; the final integration also
+passed 29 database, 8 event-store, 60 Reality, 93 merchant-agent, 82 Shopify,
+and 7 durable orchestration tests against isolated PostgreSQL 16 with pgvector.
+Shared-database suites now run files serially to prevent one catalog
 fixture replacing another's active version; concurrent reservation checks
 inside each test remain concurrent.
+
+The database run exposed and repaired source-stream supersession: older
+observations cannot become current again during read-only merchant resolution.
+Displayed evidence statuses now match the resolved snapshot. Candidate reads
+remain read-only; test fixtures that edit claims directly explicitly resolve
+them before asserting persisted reservation behavior.
+
+Durable recovery acceptance uses an explicit 400-unit Thread Forge mock
+snapshot matching the operational seed. The separate broad Shopify fixture
+reports 180 units, which cannot satisfy a 200-unit quote under the current
+reservation model. Passing the recovery fixture does not certify that the
+unaltered broad catalog can fulfill that request.
 
 Ten native mock Realtime sessions and two live OpenAI sessions passed again
 against the merged client, including completed playback and teardown. Physical
