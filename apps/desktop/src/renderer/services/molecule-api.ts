@@ -51,6 +51,7 @@ const guidance: Record<ApiFailure["code"], string> = {
   INVALID_TRANSITION:
     "The project cannot accept this action now. Refresh its status.",
   CHAOS_DISABLED: "Supplier-offline controls require demo mode.",
+  VOICE_UNAVAILABLE: "Voice is unavailable right now. Keep using text.",
   INTERNAL:
     "The service could not complete this action. Refresh and review its outcome.",
 };

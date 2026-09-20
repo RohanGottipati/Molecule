@@ -63,9 +63,7 @@ export function createStoreConsole(config: Config): StoreConsole {
   const provenance: StoreProvenance =
     config.SHOPIFY_MODE === "live" ? "provider_backed" : "synthetic";
 
-  async function merchantFor(
-    shopDomain: string,
-  ): Promise<string | undefined> {
+  async function merchantFor(shopDomain: string): Promise<string | undefined> {
     const result = await getPool().query<{ merchant_id: string }>(
       "select merchant_id from shopify_products where shop_domain=$1 limit 1",
       [shopDomain],
