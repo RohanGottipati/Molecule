@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ActiveProjectSchema,
+  DashboardRequestSchema,
+} from "../shared/bridge.js";
+import {
   allowsMediaRequest,
   clampPosition,
   dashboardUrl,
+  isPlainEscape,
   projectFromLink,
   registerShortcut,
   toggleWindow,
@@ -11,9 +16,67 @@ import {
   isTrustedFrame,
   allowsIpcSender,
   allowsMediaCheck,
+  overlaySize,
 } from "./policy.js";
 
 describe("desktop platform policy", () => {
+  it("accepts only UUID/null selection and exact supported dashboard views", () => {
+    const projectId = "bc812dea-31c8-4258-a81d-08c7eeb14b97";
+    expect(ActiveProjectSchema.parse(null)).toBeNull();
+    expect(ActiveProjectSchema.parse(projectId)).toBe(projectId);
+    for (const value of ["", "../../secret", undefined, { projectId }])
+      expect(ActiveProjectSchema.safeParse(value).success).toBe(false);
+    for (const view of [
+      "command",
+      "merchants",
+      "reality",
+      "operations",
+      "execution",
+    ] as const)
+      expect(dashboardUrl("https://molecule.example", projectId, view)).toBe(
+        `https://molecule.example/projects/${projectId}?view=${view}`,
+      );
+    expect(
+      DashboardRequestSchema.safeParse({ projectId, view: "https://evil" })
+        .success,
+    ).toBe(false);
+    expect(
+      DashboardRequestSchema.safeParse({ projectId, url: "https://evil" })
+        .success,
+    ).toBe(false);
+    expect(() =>
+      dashboardUrl("https://molecule.example", undefined, "execution"),
+    ).toThrow("project");
+  });
+  it("focuses a visible dock behind another app, then hides on repeat activation", () => {
+    let focused = false;
+    const window = {
+      isVisible: () => true,
+      isFocused: () => focused,
+      show: vi.fn(() => {
+        focused = true;
+      }),
+      hide: vi.fn(),
+    };
+    toggleWindow(window);
+    expect(window.show).toHaveBeenCalledOnce();
+    expect(window.hide).not.toHaveBeenCalled();
+    toggleWindow(window);
+    expect(window.hide).toHaveBeenCalledOnce();
+  });
+  it("fits every dock mode into a smaller or rotated display", () => {
+    for (const mode of ["compact", "conversation", "company", "alert"]) {
+      const area = { x: -320, y: 20, width: 320, height: 580 };
+      const size = overlaySize(mode, area);
+      const position = clampPosition({ x: 5000, y: 5000 }, size, area);
+      expect(size.width).toBeLessThanOrEqual(area.width);
+      expect(size.height).toBeLessThanOrEqual(area.height);
+      expect(position.x + size.width).toBeLessThanOrEqual(area.x + area.width);
+      expect(position.y + size.height).toBeLessThanOrEqual(
+        area.y + area.height,
+      );
+    }
+  });
   it.each([
     "https://user:secret@example.com",
     "http://example.com",
@@ -94,7 +157,7 @@ describe("desktop platform policy", () => {
       );
     },
   );
-  it("registers a toggle and falls back if Option+Space is owned", () => {
+  it("registers a toggle and falls back if Shift+Escape is owned", () => {
     const window = {
       isVisible: () => visible,
       show: vi.fn(() => {
@@ -109,17 +172,23 @@ describe("desktop platform policy", () => {
     const registry = {
       register: vi.fn((key: string, action: () => void) => {
         callback = action;
-        return key !== "Alt+Space";
+        return key !== "Shift+Escape";
       }),
       unregister: vi.fn(),
     };
     expect(
-      registerShortcut(registry, "Alt+Space", () => toggleWindow(window)),
+      registerShortcut(registry, "Shift+Escape", () => toggleWindow(window)),
     ).toBe("CommandOrControl+Shift+M");
     callback();
     expect(visible).toBe(true);
     callback();
     expect(visible).toBe(false);
+  });
+  it("keeps plain Escape for hiding without consuming Shift+Escape", () => {
+    expect(isPlainEscape({ type: "keyDown", key: "Escape" })).toBe(true);
+    expect(isPlainEscape({ type: "keyDown", key: "Escape", shift: true })).toBe(
+      false,
+    );
   });
   it("opens only a fixed web origin and validated project path", () => {
     const id = "bc812dea-31c8-4258-a81d-08c7eeb14b97";

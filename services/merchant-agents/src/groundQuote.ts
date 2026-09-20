@@ -13,6 +13,7 @@ import { z } from "zod";
 type Constraint = z.infer<typeof ConstraintSchema>;
 
 function matches(actual: unknown, constraint: Constraint): boolean {
+  if (actual === null || actual === undefined) return false;
   const expected = constraint.value;
   const equal = (a: unknown, b: unknown) =>
     typeof a === "string" && typeof b === "string"
@@ -35,7 +36,10 @@ function matches(actual: unknown, constraint: Constraint): boolean {
             typeof expected === "string" &&
             actual.toLowerCase().includes(expected.toLowerCase());
     case "not_contains":
-      return !matches(actual, { ...constraint, operator: "contains" });
+      return (
+        (Array.isArray(actual) || typeof actual === "string") &&
+        !matches(actual, { ...constraint, operator: "contains" })
+      );
     case "lt":
       return (
         typeof actual === "number" &&
@@ -135,6 +139,11 @@ export async function groundQuote(
     );
   }
   const capability = cap.data;
+  const constraints = [...request.constraints, ...capability.hardRules];
+  const operationalField = (field: string) =>
+    field.startsWith(`${capability.capabilityId}.`)
+      ? field.slice(capability.capabilityId.length + 1)
+      : field;
   const { claims } = z
     .object({ claims: z.array(CanonicalClaimSchema) })
     .parse(await call("get_canonical_claims", { fields: [] }));
@@ -142,12 +151,12 @@ export async function groundQuote(
     (claim) =>
       capability.sourceClaimIds.includes(claim.claimId) ||
       request.relevantClaimFields.includes(claim.field) ||
-      request.constraints.some(
+      constraints.some(
         (constraint) =>
           constraint.field === claim.field ||
           constraint.field.split(".").at(-1) === claim.field,
       ) ||
-      /capacity|price|pricing|policy|lead.?time|inventory|available|offline/i.test(
+      /capacity|price|pricing|setup.?fee|currency|status|policy|lead.?time|inventory|available|offline/i.test(
         claim.field,
       ),
   );
@@ -168,6 +177,9 @@ export async function groundQuote(
     relevant.some(
       (claim) =>
         claim.merchantId !== request.merchantId ||
+        (claim.resolutionStatus === "active" &&
+          (claim.normalizedValue === null ||
+            claim.normalizedValue === undefined)) ||
         ["unknown", "conflicted", "quarantined"].includes(
           claim.resolutionStatus,
         ),
@@ -204,8 +216,12 @@ export async function groundQuote(
     relevant.some(
       (claim) =>
         claim.resolutionStatus === "active" &&
-        ((claim.field === "offline" && claim.normalizedValue === true) ||
-          (claim.field === "available" && claim.normalizedValue === false)),
+        ((operationalField(claim.field) === "offline" &&
+          claim.normalizedValue === true) ||
+          (operationalField(claim.field) === "available" &&
+            claim.normalizedValue === false) ||
+          (operationalField(claim.field) === "status" &&
+            claim.normalizedValue !== "online")),
     )
   )
     return decline("Merchant is offline.");
@@ -231,27 +247,53 @@ export async function groundQuote(
   }
   if (capability.pricing.currency !== request.currency)
     return decline("Canonical price currency differs from the order.");
+  let evidenceCapacity = Number.POSITIVE_INFINITY;
   for (const claim of relevant.filter(
     (item) => item.resolutionStatus === "active",
   )) {
+    const field = operationalField(claim.field);
     if (
-      ["capacity", "capacity.available", "capacity_per_day"].includes(
-        claim.field,
-      ) &&
-      (typeof claim.normalizedValue !== "number" ||
-        claim.normalizedValue < request.quantity)
+      ["capacity", "capacity.available", "capacity_per_day"].includes(field)
     ) {
-      return decline(
-        "Active capacity evidence does not cover the requested quantity.",
-      );
+      if (
+        typeof claim.normalizedValue !== "number" ||
+        claim.normalizedValue < request.quantity
+      ) {
+        return decline(
+          "Active capacity evidence does not cover the requested quantity.",
+        );
+      }
+      evidenceCapacity = Math.min(evidenceCapacity, claim.normalizedValue);
     }
     if (
-      ["unitPrice", "pricing.unitPrice", "unit_price"].includes(claim.field) &&
+      ["price", "unitPrice", "pricing.unitPrice", "unit_price"].includes(
+        field,
+      ) &&
       claim.normalizedValue !== calculated.unitPrice
     ) {
       return decline(
         "Canonical capability price disagrees with active price evidence.",
       );
+    }
+    if (
+      (["setup_fee", "setupFee", "pricing.setupFee"].includes(field) &&
+        claim.normalizedValue !== calculated.setupFee) ||
+      (["currency", "pricing.currency"].includes(field) &&
+        claim.normalizedValue !== calculated.currency)
+    )
+      return decline("Canonical pricing disagrees with active evidence.");
+    if (field === "lead_time_hours") {
+      const multiplier = {
+        minutes: 1 / 60,
+        hours: 1,
+        days: 24,
+        business_hours: undefined,
+      }[capability.leadTime.unit];
+      if (
+        multiplier === undefined ||
+        claim.normalizedValue !== capability.leadTime.max * multiplier
+      )
+        return decline("Canonical lead time disagrees with active evidence.");
     }
   }
   let stockLimit = Number.POSITIVE_INFINITY;
@@ -280,7 +322,7 @@ export async function groundQuote(
     }
     stockLimit = inventory.available;
   }
-  for (const constraint of [...request.constraints, ...capability.hardRules]) {
+  for (const constraint of constraints) {
     const values =
       constraint.field === "quantity"
         ? [request.quantity]
@@ -350,6 +392,7 @@ export async function groundQuote(
           capacity.available,
           capability.capacity.available,
           stockLimit,
+          evidenceCapacity,
         ),
       ),
       completionEstimate: completion.toISOString(),

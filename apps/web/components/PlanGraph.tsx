@@ -12,11 +12,13 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useNodesState,
   type Edge,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { planSelection, type PlanSelection } from "../lib/decisionPlan";
 import { dateLabel, graphPositions, humanize, money } from "../lib/workspace";
 
 type PlanNodeData = {
@@ -65,6 +67,7 @@ export function PlanGraph({
   candidates,
   offlineMerchants,
   onSelect,
+  onSelectContext,
 }: {
   plan: ProductionPlan;
   previousPlan: ProductionPlan | null;
@@ -72,6 +75,7 @@ export function PlanGraph({
   candidates: CandidateCapability[];
   offlineMerchants: Set<string>;
   onSelect: (node: ProductionPlan["nodes"][number]) => void;
+  onSelectContext?: (selection: PlanSelection) => void;
 }) {
   const { nodes, edges } = useMemo(() => {
     const positions = graphPositions(plan);
@@ -140,7 +144,16 @@ export function PlanGraph({
                 ? "Replacement"
                 : "Selected",
           unavailable: old || offline,
-          onSelect: () => onSelect(node),
+          onSelect: () => {
+            onSelect(node);
+            onSelectContext?.(
+              planSelection(
+                old && previousPlan ? previousPlan : plan,
+                node.nodeId,
+                plan.planId,
+              ),
+            );
+          },
         },
       };
     };
@@ -163,10 +176,30 @@ export function PlanGraph({
       labelBgBorderRadius: 4,
     }));
     return { nodes, edges };
-  }, [plan, previousPlan, merchants, candidates, offlineMerchants, onSelect]);
+  }, [
+    plan,
+    previousPlan,
+    merchants,
+    candidates,
+    offlineMerchants,
+    onSelect,
+    onSelectContext,
+  ]);
+  const [renderedNodes, setRenderedNodes, onNodesChange] = useNodesState(nodes);
+  useEffect(() => {
+    setRenderedNodes((current) => {
+      const measurements = new Map(
+        current.map((node) => [node.id, node.measured]),
+      );
+      return nodes.map((node) => ({
+        ...node,
+        measured: measurements.get(node.id),
+      }));
+    });
+  }, [nodes, setRenderedNodes]);
 
   return (
-    <>
+    <div className="decision-plan-graph">
       <div
         className="graph"
         role="region"
@@ -178,7 +211,8 @@ export function PlanGraph({
           fitViewOptions={{ padding: 0.16 }}
           minZoom={0.25}
           maxZoom={1.4}
-          nodes={nodes}
+          nodes={renderedNodes}
+          onNodesChange={onNodesChange}
           edges={edges}
           nodeTypes={nodeTypes}
           nodesDraggable={false}
@@ -209,7 +243,12 @@ export function PlanGraph({
               <button
                 type="button"
                 className="text-button"
-                onClick={() => onSelect(node)}
+                onClick={() => {
+                  onSelect(node);
+                  onSelectContext?.(
+                    planSelection(plan, node.nodeId, plan.planId),
+                  );
+                }}
               >
                 {humanize(node.kind)} ·{" "}
                 {merchants.find(
@@ -232,8 +271,45 @@ export function PlanGraph({
             </li>
           ))}
         </ol>
+        {previousPlan &&
+          previousPlan.planId !== plan.planId &&
+          previousPlan.nodes.some((node) =>
+            offlineMerchants.has(node.merchantId),
+          ) && (
+            <>
+              <h3>Previous plan · offline suppliers</h3>
+              <ul>
+                {previousPlan.nodes
+                  .filter((node) => offlineMerchants.has(node.merchantId))
+                  .map((node) => (
+                    <li key={node.nodeId}>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => {
+                          onSelect(node);
+                          onSelectContext?.(
+                            planSelection(
+                              previousPlan,
+                              node.nodeId,
+                              plan.planId,
+                            ),
+                          );
+                        }}
+                      >
+                        {merchants.find(
+                          (merchant) => merchant.merchantId === node.merchantId,
+                        )?.name ?? node.merchantId}{" "}
+                        · {money(node.totalCost, previousPlan.currency)} ·
+                        previous plan
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
       </details>
-    </>
+    </div>
   );
 }
 
@@ -397,9 +473,7 @@ export function ProductionTimelineView({
         );
         return (
           <div className="timeline-row" key={node.nodeId}>
-            <span className="timeline-date">
-              {dateLabel(node.completesAt)}
-            </span>
+            <span className="timeline-date">{dateLabel(node.completesAt)}</span>
             <span className="timeline-rail" aria-hidden="true">
               <span
                 className={`timeline-dot ${resolved.offline ? "offline" : ""}`}

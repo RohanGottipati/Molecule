@@ -24,3 +24,6 @@ __pycache__/
 .molecule-data/
 apps/desktop/release/
 artifacts/voice/
+
+# This workspace uses pnpm; keep incidental npm installs out of commits.
+/package-lock.json

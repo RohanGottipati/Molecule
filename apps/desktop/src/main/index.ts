@@ -14,7 +14,12 @@ import {
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { OverlayModeSchema, SettingsSchema } from "../shared/bridge.js";
+import {
+  ActiveProjectSchema,
+  DashboardRequestSchema,
+  OverlayModeSchema,
+  SettingsPatchSchema,
+} from "../shared/bridge.js";
 import {
   allowsMediaRequest,
   allowsMediaCheck,
@@ -54,6 +59,7 @@ let overlay: OverlayWindow;
 let shortcut: string | null = null;
 let tray: Tray;
 let pendingProject: string | null = null;
+let activeProject: string | null = null;
 let rendererReady = false;
 let screenContext: ScreenContext | undefined;
 app.on("open-url", (event, url) => {
@@ -139,6 +145,10 @@ else
       if (app.isPackaged) app.setAsDefaultProtocolClient("molecule");
       overlay.window.webContents.on("did-start-loading", () => {
         rendererReady = false;
+        activeProject = null;
+      });
+      overlay.window.webContents.on("render-process-gone", () => {
+        activeProject = null;
       });
       const toggle = () => toggleWindow(overlay);
       shortcut = registerShortcut(
@@ -192,16 +202,29 @@ else
       handle("desktop:mode", (mode) =>
         overlay.setMode(OverlayModeSchema.parse(mode)),
       );
-      handle("desktop:dashboard", (id) =>
-        shell.openExternal(dashboardUrl(webUrl, z.uuid().optional().parse(id))),
-      );
+      handle("desktop:active-project", (value) => {
+        activeProject = ActiveProjectSchema.parse(value);
+      });
+      handle("desktop:dashboard", (value) => {
+        const request =
+          typeof value === "string" || value === undefined
+            ? { projectId: z.uuid().optional().parse(value) }
+            : DashboardRequestSchema.parse(value);
+        return shell.openExternal(
+          dashboardUrl(webUrl, request.projectId, request.view),
+        );
+      });
       handle("desktop:settings", async (value) => {
-        const next = SettingsSchema.parse(value);
+        const next = SettingsPatchSchema.parse(value);
         const previousShortcut = settings.get().shortcut;
-        await settings.save(next);
-        if (next.shortcut !== previousShortcut) {
+        await settings.update(next);
+        if (next.shortcut !== undefined && next.shortcut !== previousShortcut) {
           if (shortcut) globalShortcut.unregister(shortcut);
-          shortcut = registerShortcut(globalShortcut, next.shortcut, toggle);
+          shortcut = registerShortcut(
+            globalShortcut,
+            settings.get().shortcut,
+            toggle,
+          );
         }
         return bootstrap();
       });
@@ -233,7 +256,7 @@ else
         pendingProject =
           argv.map(projectFromLink).find((id) => id !== null) ?? null;
         overlay.show();
-        revealProject();
+        if (rendererReady) revealProject();
       });
       const startVoice = () => {
         overlay.show();
@@ -267,7 +290,7 @@ else
             label: "Open Command Center",
             click: () => {
               void shell.openExternal(
-                dashboardUrl(webUrl, settings.get().lastProjectId),
+                dashboardUrl(webUrl, activeProject ?? undefined),
               );
             },
           },

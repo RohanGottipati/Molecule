@@ -1,41 +1,49 @@
 "use client";
 
 import type {
-  AssetRef,
   MarketplaceSnapshot,
-  MoleculeEvent,
   OrderSessionSnapshot,
   ProductionPlan,
 } from "@molecule/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   approvePlan,
+  cancelPlanning,
   createOrder,
   fileMetadata,
-  getContexts,
-  getDemoMode,
+  getActionStatus,
   getMarketplace,
-  getOrder,
-  submitMessage,
+  resetDemoMarketplace,
+  submitMessagePayload,
   triggerChaos,
   uploadContext,
 } from "./api";
-import { subscribeEvents } from "./events";
+import { readDemoConfiguration } from "./configuration";
+import { parseWorkspaceLocation, projectHref } from "./navigation";
 import {
-  mergeContexts,
-  mergeEvents,
-  mergeSnapshot,
-  parseView,
-  type WorkspaceView,
-} from "./workspace";
+  isUnresolved,
+  newDraftScope,
+  readDraft,
+  readPending,
+  saveDraft,
+  savePending,
+  type DraftScope,
+  type PendingAction,
+} from "./persistence";
+import {
+  conversationEntries,
+  reconcileAction,
+  resumeCreatedAction,
+  safeCapabilities,
+} from "./synchronization";
+import { useProjectDiscovery } from "./useProjectDiscovery";
+import { useProjectSync } from "./useProjectSync";
+import { mergeSnapshot, type WorkspaceView } from "./workspace";
 
-export type ConversationEntry = {
-  id: string;
-  text: string;
-  status: "sending" | "confirmed" | "unconfirmed";
-};
-export type Connection =
-  "idle" | "connecting" | "connected" | "reconnecting" | "invalid";
+export type { ConversationEntry } from "./synchronization";
+export type { Connection } from "./useProjectSync";
+export type WorkspaceOperation =
+  "brief" | "approval" | "recovery" | "upload" | "cancel" | "reset" | null;
 
 function message(cause: unknown) {
   return cause instanceof Error
@@ -43,10 +51,10 @@ function message(cause: unknown) {
     : "The request could not be completed.";
 }
 
-async function digest(value: string) {
+async function digest(value: ArrayBuffer | string) {
   const hash = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(value),
+    typeof value === "string" ? new TextEncoder().encode(value) : value,
   );
   return [...new Uint8Array(hash)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -56,33 +64,67 @@ async function digest(value: string) {
 export function useWorkspace(initialOrderId?: string) {
   const [orderId, setOrderId] = useState<string | null>(initialOrderId ?? null);
   const activeId = useRef<string | null>(initialOrderId ?? null);
+  const generation = useRef(0);
   const orderRef = useRef<OrderSessionSnapshot | null>(null);
-  const createKey = useRef<string | null>(null);
-  const pending = useRef(false);
   const [order, setOrder] = useState<OrderSessionSnapshot | null>(null);
   const [previousPlan, setPreviousPlan] = useState<ProductionPlan | null>(null);
   const [view, setView] = useState<WorkspaceView>("command");
-  const [events, setEvents] = useState<MoleculeEvent[]>([]);
-  const [contexts, setContexts] = useState<AssetRef[]>([]);
-  const [conversation, setConversation] = useState<ConversationEntry[]>([]);
+  const scopeRef = useRef<DraftScope>(
+    initialOrderId ? `project:${initialOrderId}` : "new:uninitialized",
+  );
+  const [draftScope, setDraftScope] = useState(scopeRef.current);
+  const actionRef = useRef<PendingAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(
+    null,
+  );
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [operation, setOperation] = useState<WorkspaceOperation>(null);
+  const operationRef = useRef<WorkspaceOperation>(null);
+  const [error, setError] = useState<string | null>(null);
   const [marketplace, setMarketplace] = useState<MarketplaceSnapshot | null>(
     null,
   );
   const [marketplaceError, setMarketplaceError] = useState<string | null>(null);
   const [marketplaceLoading, setMarketplaceLoading] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
+  const demoEnabled = useRef(false);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(Boolean(initialOrderId));
-  const [error, setError] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [connection, setConnection] = useState<Connection>("idle");
+  const [configLoading, setConfigLoading] = useState(true);
+  const marketRead = useRef<Promise<void> | null>(null);
+  const configRead = useRef<Promise<void> | null>(null);
+  const mounted = useRef(true);
+  const discovery = useProjectDiscovery();
 
+  const remember = useCallback(
+    (action: PendingAction | null, scope = scopeRef.current) => {
+      if (!savePending(scope, action) && mounted.current)
+        setStorageError(
+          "Browser storage is unavailable. Keep this page open while the action outcome is uncertain.",
+        );
+      if (scope === scopeRef.current && mounted.current) {
+        actionRef.current = action;
+        setPendingAction(action);
+      }
+    },
+    [],
+  );
+  const settle = useCallback(
+    (action: PendingAction, scope: DraftScope) => {
+      const saved = readPending(scope);
+      if (
+        (saved && saved.key !== action.key) ||
+        (scope === scopeRef.current && actionRef.current?.key !== action.key)
+      )
+        return;
+      remember(action, scope);
+    },
+    [remember],
+  );
   const apply = useCallback((next: OrderSessionSnapshot) => {
-    if (activeId.current !== next.orderId) return;
+    if (!mounted.current || activeId.current !== next.orderId) return false;
     const current = orderRef.current;
     const merged = mergeSnapshot(current, next, next.orderId);
-    if (merged === current) return;
+    if (merged === current) return true;
     if (
       current?.activePlan &&
       current.activePlan.planId !== next.activePlan?.planId
@@ -90,354 +132,509 @@ export function useWorkspace(initialOrderId?: string) {
       setPreviousPlan(current.activePlan);
     orderRef.current = merged;
     setOrder(merged);
+    return true;
   }, []);
-
-  const refreshMarketplace = useCallback(async (signal?: AbortSignal) => {
-    setMarketplaceLoading(true);
-    try {
-      const snapshot = await getMarketplace(signal);
-      if (signal?.aborted) return;
-      setMarketplace((current) =>
-        current && current.generatedAt > snapshot.generatedAt
-          ? current
-          : snapshot,
+  const reconcile = useCallback(
+    async (signal?: AbortSignal) => {
+      const action = actionRef.current;
+      if (
+        !action?.orderId ||
+        action.orderId !== activeId.current ||
+        action.kind === "create" ||
+        action.kind === "recovery" ||
+        !isUnresolved(action)
+      )
+        return;
+      const started = generation.current;
+      const scope = scopeRef.current;
+      const status = await getActionStatus(
+        action.orderId,
+        { kind: action.kind, key: action.key },
+        signal,
       );
-      setMarketplaceError(null);
-    } catch (cause) {
-      if (!signal?.aborted) setMarketplaceError(message(cause));
-    } finally {
-      if (!signal?.aborted) setMarketplaceLoading(false);
-    }
-  }, []);
-
-  const refresh = useCallback(async () => {
-    const id = activeId.current;
-    if (!id) return;
-    try {
-      apply(await getOrder(id));
-      const result = await getContexts(id);
-      if (id === activeId.current) {
-        apply(result.project);
-        setContexts((current) => mergeContexts(current, result.contexts));
-      }
-      if (id === activeId.current) {
-        setError(null);
-        setSyncError(null);
-      }
-    } catch (cause) {
-      if (id === activeId.current) setSyncError(message(cause));
-    }
-  }, [apply]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void refreshMarketplace(controller.signal);
-    void getDemoMode(controller.signal)
-      .then((enabled) => {
-        if (!controller.signal.aborted) {
-          setDemoMode(enabled);
-          setConfigError(null);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setConfigError(
-            "Demo configuration unavailable. Recovery controls are disabled.",
+      if (
+        signal?.aborted ||
+        generation.current !== started ||
+        actionRef.current?.key !== action.key
+      )
+        return;
+      remember(reconcileAction(actionRef.current, status), scope);
+      if (status.error) setError(status.error.message);
+      else if (status.status === "succeeded") setError(null);
+    },
+    [remember],
+  );
+  const refreshMarketplace = useCallback(
+    (signal?: AbortSignal): Promise<void> => {
+      if (marketRead.current) return marketRead.current;
+      setMarketplaceLoading(true);
+      marketRead.current = getMarketplace(signal)
+        .then((snapshot) => {
+          if (!mounted.current || signal?.aborted) return;
+          setMarketplace((current) =>
+            current && current.generatedAt > snapshot.generatedAt
+              ? current
+              : snapshot,
           );
-      });
-    return () => controller.abort();
-  }, [refreshMarketplace]);
-
-  const changeProject = useCallback((id: string | null) => {
-    activeId.current = id;
-    orderRef.current = null;
-    setOrderId(id);
-    setOrder(null);
-    setEvents([]);
-    setContexts([]);
-    setConversation([]);
-    setPreviousPlan(null);
-    setError(null);
-    setSyncError(null);
-    setConnection(id ? "connecting" : "idle");
-    setLoading(Boolean(id));
-    createKey.current = null;
+          setMarketplaceError(null);
+        })
+        .catch((cause: unknown) => {
+          if (mounted.current && !signal?.aborted)
+            setMarketplaceError(message(cause));
+        })
+        .finally(() => {
+          marketRead.current = null;
+          if (mounted.current) setMarketplaceLoading(false);
+        });
+      return marketRead.current;
+    },
+    [],
+  );
+  const refreshConfig = useCallback((signal?: AbortSignal): Promise<void> => {
+    if (configRead.current) return configRead.current;
+    configRead.current = readDemoConfiguration((state) => {
+      if (!mounted.current) return;
+      setDemoMode(state.enabled);
+      demoEnabled.current = state.enabled;
+      setConfigLoading(state.loading);
+      setConfigError(state.error);
+    }, signal).finally(() => {
+      configRead.current = null;
+    });
+    return configRead.current;
   }, []);
-
+  const refreshGlobals = useCallback(() => {
+    void refreshMarketplace();
+    void refreshConfig();
+    void discovery.refreshProjects();
+  }, [refreshMarketplace, refreshConfig, discovery.refreshProjects]);
+  const sync = useProjectSync(orderId, apply, reconcile, refreshGlobals);
+  const contexts = sync.capabilities?.orderId === orderId ? sync.contexts : [];
+  const capabilities = safeCapabilities(
+    order,
+    sync.capabilities,
+    sync.freshness,
+    contexts,
+    operation !== null || isUnresolved(pendingAction),
+  );
+  const changeProject = useCallback(
+    (id: string | null, scope?: DraftScope) => {
+      generation.current++;
+      activeId.current = id;
+      orderRef.current = null;
+      const nextScope: DraftScope =
+        scope ?? (id ? `project:${id}` : newDraftScope());
+      scopeRef.current = nextScope;
+      setDraftScope(nextScope);
+      const action = readPending(nextScope);
+      actionRef.current = action;
+      setPendingAction(action);
+      setOrderId(id);
+      setOrder(null);
+      setPreviousPlan(null);
+      setError(null);
+      operationRef.current = null;
+      setOperation(null);
+      sync.freshnessRef.current = id ? "loading" : "idle";
+    },
+    [sync.freshnessRef],
+  );
   useEffect(() => {
+    mounted.current = true;
     const syncUrl = () => {
-      const match = /^\/projects\/([^/]+)\/?$/.exec(window.location.pathname);
-      const id = match?.[1] ? decodeURIComponent(match[1]) : null;
-      setView(
-        parseView(new URLSearchParams(window.location.search).get("view")),
+      const location = parseWorkspaceLocation(
+        window.location.pathname,
+        window.location.search,
       );
-      if (id !== activeId.current) changeProject(id);
+      setView(location.view);
+      if (
+        location.orderId !== activeId.current ||
+        scopeRef.current === "new:uninitialized"
+      )
+        changeProject(location.orderId);
+      else {
+        const action = readPending(scopeRef.current);
+        actionRef.current = action;
+        setPendingAction(action);
+      }
     };
     syncUrl();
+    refreshGlobals();
     window.addEventListener("popstate", syncUrl);
-    return () => window.removeEventListener("popstate", syncUrl);
-  }, [changeProject]);
-
+    return () => {
+      mounted.current = false;
+      window.removeEventListener("popstate", syncUrl);
+    };
+  }, [changeProject, refreshGlobals]);
   const navigate = useCallback((next: WorkspaceView) => {
     setView(next);
-    const path = activeId.current
-      ? `/projects/${encodeURIComponent(activeId.current)}`
-      : "/";
-    window.history.pushState(
-      null,
-      "",
-      next === "command" ? path : `${path}?view=${next}`,
-    );
+    const href = projectHref(activeId.current, next, window.location.search);
+    if (href !== `${window.location.pathname}${window.location.search}`)
+      window.history.pushState(null, "", href);
   }, []);
-
+  const openProject = useCallback(
+    (id: string, nextView?: WorkspaceView) => {
+      const selected =
+        nextView ??
+        parseWorkspaceLocation(window.location.pathname, window.location.search)
+          .view;
+      if (id !== activeId.current) changeProject(id);
+      setView(selected);
+      const href = projectHref(id, selected, window.location.search);
+      if (href !== `${window.location.pathname}${window.location.search}`)
+        window.history.pushState(null, "", href);
+    },
+    [changeProject],
+  );
   const newProject = useCallback(() => {
-    if (pending.current) return;
-    changeProject(null);
+    changeProject(null, newDraftScope(true));
     setView("command");
     window.history.pushState(null, "", "/");
   }, [changeProject]);
-
-  useEffect(() => {
-    if (!orderId) return;
-    const controller = new AbortController();
-    const id = orderId;
-    setLoading(true);
-    setConnection("connecting");
-    void getOrder(id, controller.signal)
-      .then(async (snapshot) => {
-        if (controller.signal.aborted || activeId.current !== id) return;
-        apply(snapshot);
-        try {
-          const result = await getContexts(id, controller.signal);
-          if (!controller.signal.aborted && activeId.current === id) {
-            apply(result.project);
-            setContexts((current) => mergeContexts(current, result.contexts));
-          }
-        } catch {
-          if (!controller.signal.aborted)
-            setError(
-              "Project attachments could not be loaded. Refresh before submitting a request that depends on them.",
-            );
-        }
-      })
-      .catch((cause) => {
-        if (!controller.signal.aborted) setSyncError(message(cause));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    const seen = new Set<string>();
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    let marketplaceTimer: ReturnType<typeof setTimeout> | undefined;
-    let streamConnected = false;
-    const queueRefresh = () => {
-      clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        void getOrder(id, controller.signal)
-          .then((snapshot) => {
-            if (controller.signal.aborted) return;
-            apply(snapshot);
-            setSyncError(null);
-          })
-          .catch((cause) => {
-            if (!controller.signal.aborted) setSyncError(message(cause));
-          });
-      }, 150);
-    };
-    const unsubscribe = subscribeEvents(id, {
-      onReady: () => {
-        streamConnected = true;
-        setConnection("connected");
-        queueRefresh();
-      },
-      onInvalid: () => {
-        streamConnected = false;
-        setConnection("invalid");
-        queueRefresh();
-      },
-      onEvent: (event) => {
-        if (seen.has(event.eventId)) return;
-        seen.add(event.eventId);
-        setEvents((current) => mergeEvents(current, [event]));
-        queueRefresh();
-        clearTimeout(marketplaceTimer);
-        marketplaceTimer = setTimeout(
-          () => void refreshMarketplace(controller.signal),
-          1_500,
-        );
-      },
-      onReconnect: () => {
-        streamConnected = false;
-        setConnection("reconnecting");
-      },
-    });
-    const poll = setInterval(() => {
-      if (!streamConnected) queueRefresh();
-    }, 10_000);
-    return () => {
-      controller.abort();
-      unsubscribe();
-      clearInterval(poll);
-      clearTimeout(refreshTimer);
-      clearTimeout(marketplaceTimer);
-    };
-  }, [orderId, apply, refreshMarketplace]);
-
-  async function send(text: string) {
-    if (pending.current || !text.trim()) return false;
-    pending.current = true;
-    setBusy(true);
+  function begin(kind: WorkspaceOperation) {
+    if (operationRef.current) return false;
+    operationRef.current = kind;
+    setOperation(kind);
     setError(null);
-    const startingId = activeId.current;
-    let operationId = startingId;
-    const localId = crypto.randomUUID();
-    setConversation((current) => [
-      ...current,
-      { id: localId, text, status: "sending" },
-    ]);
+    return true;
+  }
+  function finish(started: number) {
+    if (mounted.current && generation.current === started) {
+      operationRef.current = null;
+      setOperation(null);
+      sync.invalidate();
+    }
+  }
+  async function send(text: string): Promise<boolean> {
+    if (!text.trim() || operationRef.current) return false;
+    let action = actionRef.current;
+    if (
+      action?.payload?.text === text &&
+      (action.kind === "message" || action.kind === "create")
+    ) {
+      if (action.status === "succeeded") return true;
+      if (action.status === "failed" || action.status === "superseded") {
+        setError(
+          "This request was not completed. Review its outcome and edit the brief before submitting a new request.",
+        );
+        return false;
+      }
+    } else {
+      if (isUnresolved(action)) {
+        setError(
+          "Resolve the previous action before submitting another request.",
+        );
+        return false;
+      }
+      if (
+        activeId.current &&
+        !safeCapabilities(
+          orderRef.current,
+          sync.capabilities,
+          sync.freshnessRef.current,
+          contexts,
+        ).canSubmitMessage
+      ) {
+        setError("Wait for a fresh project read before editing this brief.");
+        return false;
+      }
+      const current = orderRef.current;
+      const key = `${current ? "message" : "create"}:${crypto.randomUUID()}`;
+      action = {
+        key,
+        orderId: current?.orderId ?? null,
+        traceId: current?.traceId ?? key,
+        kind: current ? "message" : "create",
+        status: "unknown",
+        payload: {
+          text,
+          assets: [...contexts],
+          locale: navigator.language || "en-CA",
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...(current ? { expectedRevision: current.revision } : {}),
+          ...(current?.intent ? { correction: { kind: "other", text } } : {}),
+        },
+      };
+      remember(action);
+    }
+    if (!action?.payload || !begin("brief")) return false;
+    const started = generation.current;
+    let scope = scopeRef.current;
     try {
-      let current = orderRef.current;
-      if (!current) {
-        if (startingId)
-          throw new Error(
-            "Wait for this project to load or start a new project.",
-          );
-        createKey.current ??= `create:${crypto.randomUUID()}`;
-        current = await createOrder(createKey.current);
-        if (activeId.current !== startingId) return false;
-        operationId = current.orderId;
+      if (action.kind === "create") {
+        const current = await createOrder(action.key);
+        const nextScope: DraftScope = `project:${current.orderId}`;
+        const payload = action.payload;
+        if (!payload) return false;
+        const create = action;
+        action = resumeCreatedAction(create, current, readPending(nextScope));
+        remember(action, nextScope);
+        saveDraft(nextScope, readDraft(scope) || payload.text);
+        remember(
+          { ...create, orderId: current.orderId, payload: action.payload },
+          scope,
+        );
+        if (generation.current !== started || !mounted.current) return false;
+        scope = nextScope;
+        scopeRef.current = scope;
+        setDraftScope(scope);
         activeId.current = current.orderId;
         setOrderId(current.orderId);
         apply(current);
-        const selectedView = parseView(
-          new URLSearchParams(window.location.search).get("view"),
-        );
-        const path = `/projects/${encodeURIComponent(current.orderId)}`;
+        actionRef.current = action;
+        setPendingAction(action);
         window.history.replaceState(
           null,
           "",
-          selectedView === "command" ? path : `${path}?view=${selectedView}`,
+          projectHref(current.orderId, view, window.location.search),
         );
       }
-      const id = current.orderId;
-      const key = `message:${id}:${current.intentVersion}:${await digest(text.trim())}`;
-      const next = await submitMessage(
-        current,
-        text.trim(),
-        key,
-        [],
-        current.intent ? { kind: "other", text: text.trim() } : undefined,
+      if (!action.orderId || !action.payload) return false;
+      if (generation.current !== started || !mounted.current) return false;
+      const status = await getActionStatus(action.orderId, {
+        kind: "message",
+        key: action.key,
+      });
+      action = reconcileAction(action, status);
+      settle(action, scope);
+      if (generation.current !== started || !mounted.current) return false;
+      if (status.status === "succeeded") {
+        await sync.refresh();
+        return generation.current === started;
+      }
+      if (status.status !== "unknown") {
+        setError(
+          status.error?.message ??
+            "This action is pending or requires review. Refresh to check its outcome.",
+        );
+        return false;
+      }
+      if (!action.payload || !action.orderId) return false;
+      const next = await submitMessagePayload(
+        { orderId: action.orderId, traceId: action.traceId },
+        action.payload,
+        action.key,
       );
+      settle({ ...action, status: "succeeded" }, scope);
+      if (generation.current !== started || !mounted.current) return false;
       apply(next);
-      if (activeId.current === id)
-        setConversation((entries) =>
-          entries.map((entry) =>
-            entry.id === localId ? { ...entry, status: "confirmed" } : entry,
-          ),
-        );
-      return activeId.current === id;
+      void discovery.refreshProjects();
+      return true;
     } catch (cause) {
-      if (activeId.current === operationId) {
+      if (generation.current === started && mounted.current)
         setError(message(cause));
-        setConversation((entries) =>
-          entries.map((entry) =>
-            entry.id === localId ? { ...entry, status: "unconfirmed" } : entry,
-          ),
-        );
-      }
       return false;
     } finally {
-      pending.current = false;
-      setBusy(false);
+      finish(started);
     }
   }
-
   async function act(
-    action: (current: OrderSessionSnapshot) => Promise<OrderSessionSnapshot>,
+    kind: "approval" | "cancel" | "recovery",
+    merchantId?: string,
   ) {
-    if (pending.current || !orderRef.current) return;
     const current = orderRef.current;
-    pending.current = true;
-    setBusy(true);
-    setError(null);
+    const allowed = safeCapabilities(
+      current,
+      sync.capabilities,
+      sync.freshnessRef.current,
+      contexts,
+      isUnresolved(actionRef.current),
+    );
+    if (
+      !current ||
+      operationRef.current ||
+      (kind === "approval" && !allowed.canApprove) ||
+      (kind === "cancel" && !allowed.canCancelPlanning) ||
+      (kind === "recovery" &&
+        (!demoEnabled.current ||
+          sync.freshnessRef.current !== "fresh" ||
+          isUnresolved(actionRef.current)))
+    ) {
+      setError(
+        "This action is unavailable. Refresh and review the current project first.",
+      );
+      return;
+    }
+    if (!begin(kind)) return;
+    const started = generation.current;
+    const scope = scopeRef.current;
+    const action: PendingAction = {
+      kind:
+        kind === "approval"
+          ? "approve"
+          : kind === "cancel"
+            ? "desktop"
+            : "recovery",
+      key:
+        kind === "approval"
+          ? `${current.activePlan!.planId}:${current.intentVersion}`
+          : kind === "cancel"
+            ? `cancel:${current.orderId}:${current.revision}`
+            : `offline:${current.orderId}:${current.activePlan?.planId}:${merchantId}`,
+      orderId: current.orderId,
+      traceId: current.traceId,
+      payload: null,
+      status: "unknown",
+    };
+    if (kind !== "cancel") remember(action);
     try {
-      apply(await action(current));
-      void refreshMarketplace();
+      const next =
+        kind === "approval"
+          ? await approvePlan(current)
+          : kind === "cancel"
+            ? (
+                await cancelPlanning(current, action.key, () =>
+                  remember(action, scope),
+                )
+              ).project
+            : await triggerChaos(
+                current,
+                merchantId!,
+                "supplier_offline",
+                action.key,
+              );
+      settle({ ...action, status: "succeeded" }, scope);
+      if (generation.current === started) {
+        apply(next);
+        refreshGlobals();
+      }
     } catch (cause) {
-      if (activeId.current === current.orderId) setError(message(cause));
+      if (generation.current === started) setError(message(cause));
     } finally {
-      pending.current = false;
-      setBusy(false);
+      finish(started);
     }
   }
-
+  async function resetDemo() {
+    if (!demoEnabled.current || operationRef.current) {
+      setError("Demo reset is unavailable right now. Refresh and try again.");
+      return;
+    }
+    if (!begin("reset")) return;
+    const started = generation.current;
+    try {
+      await resetDemoMarketplace();
+      if (generation.current === started) {
+        setError(null);
+        refreshGlobals();
+      }
+    } catch (cause) {
+      if (generation.current === started) setError(message(cause));
+    } finally {
+      finish(started);
+    }
+  }
   async function upload(file: File) {
-    if (pending.current || !orderRef.current) return;
     const current = orderRef.current;
-    pending.current = true;
-    setBusy(true);
-    setError(null);
+    if (
+      !current ||
+      operationRef.current ||
+      isUnresolved(actionRef.current) ||
+      !safeCapabilities(
+        current,
+        sync.capabilities,
+        sync.freshnessRef.current,
+        contexts,
+      ).canSubmitMessage
+    ) {
+      setError("Wait for a fresh, editable project before attaching context.");
+      return;
+    }
+    if (!begin("upload")) return;
+    const started = generation.current;
+    const scope = scopeRef.current;
     try {
       fileMetadata(file, "validate-upload");
-      const hash = await crypto.subtle.digest(
-        "SHA-256",
-        await file.arrayBuffer(),
-      );
-      const checksum = [...new Uint8Array(hash)]
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
       const identity = await digest(
-        JSON.stringify([file.name, file.type, checksum]),
+        JSON.stringify([
+          file.name,
+          file.type,
+          await digest(await file.arrayBuffer()),
+        ]),
       );
+      if (generation.current !== started) return;
+      const action: PendingAction = {
+        key: `upload:${current.orderId}:${identity}`,
+        orderId: current.orderId,
+        traceId: current.traceId,
+        kind: "upload",
+        payload: null,
+        status: "unknown",
+      };
+      remember(action);
+      let attached = action;
       const result = await uploadContext(
         current,
         file,
-        `upload:${current.orderId}:${identity}`,
+        action.key,
+        (contextId) => {
+          attached = { ...action, key: `attach:${contextId}`, kind: "desktop" };
+          remember(attached, scope);
+        },
+        () => settle({ ...action, status: "failed" }, scope),
       );
-      if (activeId.current === current.orderId) {
-        apply(result.project);
-        setContexts((attached) => mergeContexts(attached, result.contexts));
-      }
+      settle({ ...attached, status: "succeeded" }, scope);
+      if (generation.current === started) apply(result.project);
     } catch (cause) {
-      if (activeId.current === current.orderId) setError(message(cause));
+      if (generation.current === started) setError(message(cause));
     } finally {
-      pending.current = false;
-      setBusy(false);
+      finish(started);
     }
   }
-
   return {
+    ...discovery,
     orderId,
     order,
     previousPlan,
     view,
-    events,
+    events: sync.events.filter((event) => event.orderId === orderId),
     contexts,
-    conversation,
+    conversation: conversationEntries(
+      sync.capabilities?.orderId === orderId ? sync.history.messages : [],
+      pendingAction,
+    ),
+    historyLoading: sync.historyLoading,
+    historyNextCursor: sync.history.nextCursor,
+    loadMoreHistory: sync.loadMoreHistory,
     marketplace,
     marketplaceError,
     marketplaceLoading,
     demoMode,
     configError,
-    busy,
-    loading,
-    error: error ?? syncError,
-    connection,
+    configLoading,
+    busy: operation !== null,
+    operation,
+    loading: !!orderId && (sync.loading || (!order && !sync.syncError)),
+    error: error ?? sync.syncError,
+    syncError: sync.syncError,
+    storageError,
+    connection: sync.connection,
+    freshness: sync.freshness,
+    lastSyncedAt: sync.lastSyncedAt,
+    capabilities,
+    canSubmitMessage: !orderId
+      ? !operation && !isUnresolved(pendingAction)
+      : capabilities.canSubmitMessage,
+    canApprove: capabilities.canApprove,
+    canCancelPlanning: capabilities.canCancelPlanning,
+    pendingAction,
+    draftScope,
     navigate,
+    openProject,
     newProject,
-    refresh,
+    refresh: sync.refresh,
     refreshMarketplace,
+    refreshConfig,
     send,
     upload,
-    approve: () => act(approvePlan),
-    offline: (merchantId: string) =>
-      act((current) =>
-        triggerChaos(
-          current,
-          merchantId,
-          "supplier_offline",
-          `offline:${current.orderId}:${current.activePlan?.planId}:${merchantId}`,
-        ),
-      ),
+    retryPending: () =>
+      actionRef.current?.payload
+        ? send(actionRef.current.payload.text)
+        : sync.refresh(),
+    approve: () => act("approval"),
+    cancelPlanning: () => act("cancel"),
+    offline: (merchantId: string) => act("recovery", merchantId),
+    resetDemo,
   };
 }
+
+export type Workspace = ReturnType<typeof useWorkspace>;

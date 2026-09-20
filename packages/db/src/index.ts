@@ -1,4 +1,10 @@
-export { getPool, closePool, transaction, type DbClient } from "./client.js";
+export {
+  getPool,
+  closePool,
+  transaction,
+  readTransaction,
+  type DbClient,
+} from "./client.js";
 export { migrate, seedDemo, resetDemoData } from "./migrations.js";
 export {
   effectId,
@@ -6,6 +12,7 @@ export {
   readEvents,
   getRecentEvents,
   getMerchantRisk,
+  getMerchantRisks,
   getOperationsMetrics,
   getDatabaseFeatures,
   type PersistedEvent,
@@ -13,6 +20,7 @@ export {
 export {
   insertClaim,
   listClaimsForField,
+  listClaimsForMerchants,
   listMerchantClaims,
   setClaimStatus,
   upsertConflict,
@@ -26,3 +34,13 @@ export {
   type ReserveCapacityInput,
   type Reservation,
 } from "./reservations.js";
+export {
+  importCatalog,
+  activateCatalog,
+  readCatalog,
+  CatalogImportError,
+} from "./catalog.js";
+export {
+  reserveCatalogPlan,
+  releaseCatalogPlan,
+} from "./catalogReservations.js";

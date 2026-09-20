@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { BackboardApiError } from "./BackboardAdapter.js";
 import { MockBackboardAdapter } from "./MockBackboardAdapter.js";
+import { runBoundedToolLoop } from "./toolLoop.js";
 import type { ToolDefinition } from "./types.js";
 
 const traceId = "trace-1";
@@ -25,6 +27,68 @@ function baseInput(
 }
 
 describe("bounded tool-call loop", () => {
+  it("validates completion after the last allowed tool round without executing another round", async () => {
+    const handler = vi.fn(async () => ({ available: 4 }));
+    const client = {
+      start: async () => ({
+        status: "requires_action",
+        toolCalls: [{ id: "call", name: "capacity", args: {} }],
+      }),
+      submitToolOutputs: vi.fn(async () => ({
+        status: "completed",
+        text: '{"available":4}',
+      })),
+    };
+    const input = {
+      client,
+      message: "quote",
+      tools: [
+        {
+          name: "capacity",
+          description: "Capacity",
+          risk: "read" as const,
+          parameters: z.object({}),
+          handler,
+        },
+      ],
+      context: { merchantId, threadId: "thread", traceId },
+      responseSchema: z.object({ available: z.number() }),
+      maxRounds: 1,
+    };
+    expect(await runBoundedToolLoop(input)).toMatchObject({
+      outcome: "COMPLETED",
+      data: { available: 4 },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    client.submitToolOutputs.mockResolvedValueOnce({
+      status: "completed",
+      text: "invalid",
+    });
+    expect(await runBoundedToolLoop(input)).toMatchObject({
+      outcome: "FALLBACK",
+      reason: "MALFORMED_OUTPUT",
+    });
+  });
+
+  it.each(["TIMEOUT", "ABORTED"] as const)(
+    "preserves provider %s as timeout",
+    async (code) => {
+      expect(
+        await runBoundedToolLoop({
+          client: {
+            start: async () => {
+              throw new BackboardApiError("bounded", 504, code);
+            },
+            submitToolOutputs: vi.fn(),
+          },
+          message: "quote",
+          tools: [],
+          context: { merchantId, threadId: "thread", traceId },
+        }),
+      ).toMatchObject({ outcome: "FALLBACK", reason: "TIMEOUT" });
+    },
+  );
+
   it("completes directly when the model returns a final answer with no tool calls", async () => {
     const adapter = new MockBackboardAdapter();
     const assistant = await adapter.createMerchantAssistant({

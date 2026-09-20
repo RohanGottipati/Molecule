@@ -13,6 +13,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ActionLedger } from "./ActionLedger.js";
+import { RequestProblem } from "./errors.js";
 import { makeEvent } from "./events/EventStore.js";
 import { LocalStore } from "./LocalStore.js";
 import type { ServerDependencies } from "./server.js";
@@ -21,12 +22,17 @@ import { createOrderSession, toSnapshot } from "./session/OrderSession.js";
 export function registerDesktopRoutes(
   app: FastifyInstance,
   deps: ServerDependencies,
+  actions = new ActionLedger(deps.desktopStore),
 ) {
   const store = deps.desktopStore ?? new LocalStore();
-  const actions = new ActionLedger(store);
   const result = async (orderId: string): Promise<DesktopResult> => {
     const session = await deps.sessions.get(orderId);
-    if (!session) throw new Error("Project not found");
+    if (!session)
+      throw new RequestProblem(
+        404,
+        "NOT_FOUND",
+        "Project not found. Check the link or start a new project.",
+      );
     return {
       project: toSnapshot(session),
       contexts: (await store.contexts(orderId))
@@ -87,23 +93,37 @@ export function registerDesktopRoutes(
           switch (command.name) {
             case "start_project": {
               const session = (await result(id)).project;
-              await deps.orchestrator.submitMessage({
-                orderId: id,
-                traceId: session.traceId,
-                text: command.args.intent,
-                requestedAt: new Date().toISOString(),
-                locale: body.locale,
-                timeZone: body.timeZone,
-                assets: (await store.contexts(id))
-                  .filter((item) => item.attached)
-                  .map((item) => item.asset),
-              });
+              await deps.orchestrator.submitMessage(
+                {
+                  orderId: id,
+                  traceId: session.traceId,
+                  text: command.args.intent,
+                  requestedAt: new Date().toISOString(),
+                  locale: body.locale,
+                  timeZone: body.timeZone,
+                  assets: (await store.contexts(id))
+                    .filter((item) => item.attached)
+                    .map((item) => item.asset),
+                },
+                {
+                  messageId: body.actionId,
+                  source: "desktop",
+                  expectedRevision: body.expectedRevision,
+                  originalText: body.originalText,
+                },
+              );
               break;
             }
             case "add_constraint":
             case "remove_constraint":
             case "request_recompile":
-              await deps.orchestrator.revise(id, command, body.actionId);
+              await deps.orchestrator.revise(
+                id,
+                command,
+                body.actionId,
+                body.originalText,
+                body.expectedRevision,
+              );
               break;
             case "approve_action":
               await deps.orchestrator.approve(
@@ -116,27 +136,7 @@ export function registerDesktopRoutes(
               await deps.orchestrator.cancel(id);
               break;
             case "attach_context": {
-              const context = (await store.contexts(id)).find(
-                (item) => item.asset.assetId === command.args.contextId,
-              );
-              if (!context)
-                throw new Error("Context not found on this project");
-              if (!context.attached) {
-                await store.saveContext({ ...context, attached: true });
-                const session = (await result(id)).project;
-                await deps.events.append(
-                  makeEvent({
-                    traceId: session.traceId,
-                    orderId: id,
-                    eventType: "context.attached",
-                    source: "ui",
-                    payload: {
-                      contextId: context.asset.assetId,
-                      name: context.asset.name,
-                    },
-                  }),
-                );
-              }
+              await store.attachContext(id, command.args.contextId);
               break;
             }
             case "get_project_status":
@@ -182,14 +182,22 @@ export function registerDesktopRoutes(
         ),
       });
       if (/[\\/\x00-\x1f]/u.test(metadata.name))
-        throw new Error("Invalid filename");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "Use a filename without slashes or control characters.",
+        );
       const bytes = request.body;
       if (
         !Buffer.isBuffer(bytes) ||
         bytes.length === 0 ||
         bytes.length > MAX_CONTEXT_BYTES
       )
-        throw new Error("File must be between 1 byte and 10 MB");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "File must be between 1 byte and 10 MB.",
+        );
       const extensions: Record<typeof metadata.mimeType, RegExp> = {
         "image/png": /\.png$/i,
         "image/jpeg": /\.jpe?g$/i,
@@ -199,7 +207,11 @@ export function registerDesktopRoutes(
         "application/json": /\.json$/i,
       };
       if (!extensions[metadata.mimeType].test(metadata.name))
-        throw new Error("That file type isn’t supported yet.");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "The filename extension must match its supported file type.",
+        );
       if (
         (metadata.mimeType === "image/png" &&
           bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") ||
@@ -208,7 +220,11 @@ export function registerDesktopRoutes(
         (metadata.mimeType === "application/pdf" &&
           bytes.subarray(0, 5).toString() !== "%PDF-")
       )
-        throw new Error("File contents do not match its type");
+        throw new RequestProblem(
+          400,
+          "VALIDATION_ERROR",
+          "File contents do not match its type.",
+        );
       const checksum = createHash("sha256").update(bytes).digest("hex");
       return actions.run(
         `${id}:upload:${metadata.actionId}`,

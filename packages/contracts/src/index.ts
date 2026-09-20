@@ -1,7 +1,25 @@
 import { z } from "zod";
+import { CatalogReferencesShape } from "./catalog-references.js";
+export * from "./catalog-references.js";
 
 export const CurrencySchema = z.enum(["CAD", "USD"]);
 export type Currency = z.infer<typeof CurrencySchema>;
+
+// This is the initial certification set, not an invented full taxonomy.
+export const INITIAL_CATALOG_CATEGORIES = [
+  "Apparel",
+  "Bags & Accessories",
+  "Tech Accessories",
+  "Desk & Office",
+  "Gaming",
+  "Home Decor",
+  "Kitchen & Dining",
+  "Fitness",
+  "Pets",
+  "Travel",
+  "Gifts",
+  "3D Printing / Maker",
+] as const;
 
 export const DesiredOutputSchema = z.object({
   outputId: z.string(),
@@ -274,6 +292,7 @@ export const ConstraintPatchSchema = z.object({
  */
 export const QuoteRequestSchema = z
   .strictObject({
+    ...CatalogReferencesShape,
     orderId: z.string().min(1),
     traceId: z.string().min(1),
     merchantId: z.string().min(1),
@@ -310,6 +329,8 @@ export const CurrentQuoteRequestSchema = QuoteRequestSchema.refine(
 );
 
 export const QuoteResponseSchema = z.object({
+  ...CatalogReferencesShape,
+  quotedQuantity: z.number().int().positive().optional(),
   merchantId: z.string(),
   capabilityId: z.string(),
   status: z.enum(["CAN_ACCEPT", "COUNTEROFFER", "DECLINE"]),
@@ -391,6 +412,7 @@ export const CandidateRiskSchema = z.strictObject({
 });
 
 export const CandidateCapabilitySchema = z.strictObject({
+  ...CatalogReferencesShape,
   capabilityId: z.string().min(1),
   merchantId: z.string().min(1),
   score: z.number(),
@@ -413,6 +435,8 @@ export const SolverInputSchema = z.strictObject({
 export type SolverInput = z.infer<typeof SolverInputSchema>;
 
 export const PlanNodeSchema = z.object({
+  ...CatalogReferencesShape,
+  customizationAssets: z.array(AssetRefSchema).optional(),
   nodeId: z.string(),
   merchantId: z.string(),
   capabilityId: z.string(),
@@ -691,6 +715,103 @@ export const MarketplaceSnapshotSchema = z.object({
 export type MarketplaceSnapshot = z.infer<typeof MarketplaceSnapshotSchema>;
 
 export const ActionIdSchema = z.string().min(1).max(160);
+export const MessageSubmissionSchema = CompileIntentRequestSchema.pick({
+  text: true,
+  correction: true,
+})
+  .extend({
+    locale: z.string().default("en-CA"),
+    timeZone: z.string().default("UTC"),
+    assets: z.array(AssetRefSchema).default([]),
+    expectedRevision: z.number().int().nonnegative().optional(),
+  })
+  .strip();
+export type MessageSubmission = z.infer<typeof MessageSubmissionSchema>;
+export const ProjectListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().max(100).default(""),
+  cursor: z.string().min(1).max(512).optional(),
+});
+export type ProjectListQuery = z.infer<typeof ProjectListQuerySchema>;
+export const ProjectSummarySchema = z.strictObject({
+  orderId: z.string().min(1),
+  title: z.string(),
+  state: OrderSessionStateSchema,
+  revision: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+export const ProjectListSchema = z.strictObject({
+  projects: z.array(ProjectSummarySchema),
+  nextCursor: z.string().nullable(),
+});
+export type ProjectList = z.infer<typeof ProjectListSchema>;
+
+export const ProductionMessageSchema = z.strictObject({
+  messageId: ActionIdSchema,
+  orderId: z.string().min(1),
+  source: z.enum(["web", "desktop", "unknown"]),
+  text: z.string().min(1),
+  assets: z.array(AssetRefSchema),
+  correction: CompileIntentRequestSchema.shape.correction.optional(),
+  acceptedAt: z.iso.datetime(),
+  acceptedRevision: z.number().int().nonnegative(),
+  planGeneration: z.number().int().nonnegative(),
+});
+export type ProductionMessage = z.infer<typeof ProductionMessageSchema>;
+export const MessageOutcomeSchema = z.strictObject({
+  messageId: ActionIdSchema,
+  status: z.enum(["pending", "succeeded", "failed", "superseded", "cancelled"]),
+  resultRevision: z.number().int().nonnegative().nullable(),
+  reason: z.string().nullable(),
+});
+export const MessageHistoryQuerySchema = z.object({
+  afterCursor: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export const MessageHistorySchema = z.strictObject({
+  messages: z.array(
+    ProductionMessageSchema.extend({
+      cursor: z.number().int().positive(),
+      outcome: MessageOutcomeSchema,
+    }),
+  ),
+  nextCursor: z.number().int().nonnegative().nullable(),
+});
+export type MessageHistory = z.infer<typeof MessageHistorySchema>;
+
+export const ActionStatusQuerySchema = z.object({
+  key: ActionIdSchema,
+  kind: z.enum(["message", "desktop", "approve", "upload"]).default("message"),
+});
+export type ActionStatusQuery = z.infer<typeof ActionStatusQuerySchema>;
+export const ActionStatusSchema = z.strictObject({
+  orderId: z.string().min(1),
+  key: ActionIdSchema,
+  kind: ActionStatusQuerySchema.shape.kind,
+  status: z.enum(["unknown", "pending", "succeeded", "failed", "superseded"]),
+  resultRevision: z.number().int().nonnegative().nullable(),
+  resultState: OrderSessionStateSchema.nullable(),
+  error: ApiErrorSchema.nullable(),
+  automaticRetryAllowed: z.literal(false),
+});
+export type ActionStatus = z.infer<typeof ActionStatusSchema>;
+
+export const ProjectCapabilitiesSchema = z.strictObject({
+  canSubmitMessage: z.boolean(),
+  canCancelPlanning: z.boolean(),
+  canApprove: z.boolean(),
+  requiresOperator: z.boolean(),
+  reason: z.string().nullable(),
+});
+export type ProjectCapabilities = z.infer<typeof ProjectCapabilitiesSchema>;
+export const ProjectCapabilitiesEnvelopeSchema = z.strictObject({
+  orderId: z.string(),
+  revision: z.number().int().nonnegative(),
+  capabilities: ProjectCapabilitiesSchema,
+});
+
 export const DesktopConstraintSchema = ConstraintSchema.omit({
   constraintId: true,
 }).extend({
@@ -735,6 +856,8 @@ export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 export const DesktopActionSchema = z.object({
   actionId: ActionIdSchema,
   command: DesktopCommandSchema,
+  originalText: z.string().min(1).max(20_000).optional(),
+  expectedRevision: z.number().int().nonnegative().optional(),
   locale: z.string().default("en-CA"),
   timeZone: z.string().default("UTC"),
 });
@@ -765,3 +888,255 @@ export const ContextReceiptSchema = z.object({
   asset: AssetRefSchema,
 });
 export type ContextReceipt = z.infer<typeof ContextReceiptSchema>;
+
+/** Version 1 data-team handoff. Each JSONL file starts with one manifest record. */
+export const CatalogEvidenceSchema = z.strictObject({
+  sourceReference: z.string().min(1),
+  observedAt: z.iso.datetime(),
+  synthetic: z.boolean(),
+});
+
+export const CatalogFactValueSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("known"), value: z.json() }),
+  z.strictObject({ status: z.literal("unknown"), reason: z.string().min(1) }),
+  z.strictObject({
+    status: z.literal("conflicted"),
+    reason: z.string().min(1),
+    alternatives: z.array(z.json()).min(2),
+  }),
+]);
+
+export const CatalogPricingSchema = z.strictObject({
+  currency: CurrencySchema,
+  basis: z.literal("per_item"),
+  unitPrice: z.number().nonnegative(),
+  setupFee: z.number().nonnegative(),
+  minimumTotal: z.number().nonnegative(),
+});
+export const CatalogTimingSchema = z.strictObject({
+  leadMinutes: z.number().int().nonnegative(),
+  transferMinutes: z.number().int().nonnegative(),
+  // Business-day claims must be normalized by a supplied calendar before import.
+  sourceCalendarRef: z.string().min(1).optional(),
+});
+export const CatalogCoverageSchema = z.strictObject({
+  countries: z.array(z.string().regex(/^[A-Z]{2}$/)).min(1),
+});
+
+const CatalogEntityShape = {
+  id: z.string().min(1),
+  evidence: CatalogEvidenceSchema,
+};
+export const CatalogMerchantSchema = z.strictObject({
+  ...CatalogEntityShape,
+  recordType: z.literal("merchant"),
+  name: z.string().min(1),
+  shopDomain: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)
+    .optional(),
+});
+export const CatalogProductSchema = z.strictObject({
+  ...CatalogEntityShape,
+  recordType: z.literal("product"),
+  merchantId: z.string().min(1),
+  name: z.string().min(1),
+  category: z.string().min(1),
+  itemKind: z.enum(["physical", "service"]),
+});
+export const CatalogVariantSchema = z.strictObject({
+  ...CatalogEntityShape,
+  recordType: z.literal("variant"),
+  merchantId: z.string().min(1),
+  productId: z.string().min(1),
+  sku: z.string().min(1),
+  material: CatalogFactValueSchema,
+  attributes: z.record(z.string(), z.json()),
+  supportedOperations: z.array(z.string().min(1)),
+  unit: z.string().min(1),
+  shopify: z
+    .strictObject({
+      productGid: z.string().regex(/^gid:\/\/shopify\/Product\/\d+$/),
+      variantGid: z.string().regex(/^gid:\/\/shopify\/ProductVariant\/\d+$/),
+      inventoryItemGid: z
+        .string()
+        .regex(/^gid:\/\/shopify\/InventoryItem\/\d+$/)
+        .optional(),
+      locationGid: z
+        .string()
+        .regex(/^gid:\/\/shopify\/Location\/\d+$/)
+        .optional(),
+    })
+    .optional(),
+});
+export const CatalogFamilySchema = z.strictObject({
+  ...CatalogEntityShape,
+  recordType: z.literal("family"),
+  kind: MerchantCapabilitySchema.shape.kind,
+  operation: z.string().min(1),
+  accepts: z.array(CapabilityPortSchema),
+  produces: z.array(CapabilityPortSchema).min(1),
+  requiredAssetIds: z.array(z.string().min(1)),
+});
+export const CatalogResourceSchema = z
+  .strictObject({
+    ...CatalogEntityShape,
+    recordType: z.literal("resource"),
+    merchantId: z.string().min(1),
+    kind: z.enum(["inventory", "processing"]),
+    unit: z.string().min(1),
+    availability: CatalogFactValueSchema,
+    periodMinutes: z.number().int().positive().optional(),
+    inventoryItemGid: z
+      .string()
+      .regex(/^gid:\/\/shopify\/InventoryItem\/\d+$/)
+      .optional(),
+    locationGid: z
+      .string()
+      .regex(/^gid:\/\/shopify\/Location\/\d+$/)
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if ((value.kind === "processing") !== (value.periodMinutes !== undefined))
+      context.addIssue({
+        code: "custom",
+        message: "Only processing resources require a normalized periodMinutes",
+      });
+    if (
+      (value.inventoryItemGid === undefined) !==
+      (value.locationGid === undefined)
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Shopify resource mappings require both inventory item and location",
+      });
+    if (
+      value.availability.status === "known" &&
+      (typeof value.availability.value !== "number" ||
+        value.availability.value < 0)
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Known availability must be nonnegative",
+      });
+  });
+export const CatalogFactSchema = z
+  .strictObject({
+    ...CatalogEntityShape,
+    recordType: z.literal("fact"),
+    merchantId: z.string().min(1),
+    subjectId: z.string().min(1),
+    field: z.enum(["pricing", "quantity", "timing", "coverage"]),
+    assertion: CatalogFactValueSchema,
+  })
+  .superRefine((fact, context) => {
+    if (fact.assertion.status !== "known") return;
+    const parser = {
+      pricing: CatalogPricingSchema,
+      quantity: QuantityRangeSchema,
+      timing: CatalogTimingSchema,
+      coverage: CatalogCoverageSchema,
+    }[fact.field];
+    const result = parser.safeParse(fact.assertion.value);
+    if (!result.success)
+      context.addIssue({
+        code: "custom",
+        message: `Invalid ${fact.field}: ${result.error.message}`,
+      });
+  });
+export const CatalogBindingSchema = z.strictObject({
+  ...CatalogEntityShape,
+  recordType: z.literal("binding"),
+  merchantId: z.string().min(1),
+  familyId: z.string().min(1),
+  variantId: z.string().min(1),
+  factIds: z.strictObject({
+    pricing: z.string().min(1),
+    quantity: z.string().min(1),
+    timing: z.string().min(1),
+    coverage: z.string().min(1),
+  }),
+  resources: z
+    .array(
+      z.strictObject({
+        resourceId: z.string().min(1),
+        unitsPerItem: z.number().positive(),
+      }),
+    )
+    .min(1),
+});
+export const CatalogRecipeSchema = z.strictObject({
+  ...CatalogEntityShape,
+  recordType: z.literal("recipe"),
+  category: z.string().min(1),
+  prompt: z.string().min(1),
+  intent: ProductIntentSchema,
+  expected: z.strictObject({
+    outputKind: z.enum(["individual", "bundle"]),
+    operations: z.array(z.string().min(1)),
+    minimumDistinctSuppliers: z.number().int().positive(),
+  }),
+});
+export const CatalogRecordSchema = z.discriminatedUnion("recordType", [
+  CatalogMerchantSchema,
+  CatalogProductSchema,
+  CatalogVariantSchema,
+  CatalogFamilySchema,
+  CatalogResourceSchema,
+  CatalogFactSchema,
+  CatalogBindingSchema,
+  CatalogRecipeSchema,
+]);
+export type CatalogRecord = z.infer<typeof CatalogRecordSchema>;
+export type CatalogBinding = z.infer<typeof CatalogBindingSchema>;
+export const CatalogManifestSchema = z.strictObject({
+  recordType: z.literal("manifest"),
+  schemaVersion: z.literal(1),
+  catalogVersion: z.string().min(1),
+  createdAt: z.iso.datetime(),
+  categories: z.array(z.string().min(1)).min(1),
+  complete: z.literal(true),
+  recordCounts: z.strictObject({
+    merchant: z.number().int().nonnegative(),
+    product: z.number().int().nonnegative(),
+    variant: z.number().int().nonnegative(),
+    family: z.number().int().nonnegative(),
+    resource: z.number().int().nonnegative(),
+    fact: z.number().int().nonnegative(),
+    binding: z.number().int().nonnegative(),
+    recipe: z.number().int().nonnegative(),
+  }),
+});
+export type CatalogManifest = z.infer<typeof CatalogManifestSchema>;
+export * from "./catalog-validation.js";
+
+export const CatalogGallerySchema = z.strictObject({
+  catalogVersion: z.string().nullable(),
+  recipes: z.array(
+    z.strictObject({
+      id: z.string(),
+      category: z.string(),
+      prompt: z.string(),
+      outputKind: z.enum(["individual", "bundle"]),
+      operations: z.array(z.string()),
+      connectedSuppliers: z.array(z.string()),
+      readiness: z.enum([
+        "missing_evidence",
+        "ready_for_solver",
+        "verified_mock",
+        "verified_live",
+      ]),
+      missingEvidence: z.array(z.string()),
+      synthetic: z.boolean(),
+      verifiedAt: z.iso.datetime().nullable(),
+    }),
+  ),
+});
+export type CatalogGallery = z.infer<typeof CatalogGallerySchema>;
+
+export {
+  deriveProjectCapabilities,
+  hasUncompiledContext,
+  isPlanningState,
+} from "./capabilities.js";

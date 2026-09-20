@@ -9,42 +9,16 @@ import type {
   ProductionPlan,
 } from "@molecule/contracts";
 import { useState } from "react";
-import {
-  dateLabel,
-  displayValue,
-  humanize,
-  money,
-  safeHref,
-  supplierAdminUrl,
-} from "../lib/workspace";
+import { ActivityTimeline } from "./ActivityTimeline";
+import { DecisionApproval } from "./DecisionApproval";
+import { DecisionReceipts } from "./DecisionReceipts";
+import { DecisionRecovery } from "./DecisionRecovery";
+import { Badge } from "./DecisionPrimitives";
+import { evidenceGroups, merchantSelection } from "../lib/decisionEvidence";
+import { nodeEvidenceContext, type PlanSelection } from "../lib/decisionPlan";
+import { dateLabel, displayValue, humanize, money } from "../lib/workspace";
 
-export function Badge({ value }: { value: string }) {
-  const good = [
-    "active",
-    "online",
-    "ready",
-    "VALID",
-    "CAN_ACCEPT",
-    "SUCCEEDED",
-    "COMPLETED",
-  ].includes(value);
-  const bad = [
-    "offline",
-    "conflicted",
-    "quarantined",
-    "FAILED",
-    "DECLINE",
-    "ERROR",
-    "UNSAT",
-  ].includes(value);
-  return (
-    <span
-      className={`badge ${good ? "badge-good" : bad ? "badge-bad" : "badge-neutral"}`}
-    >
-      {humanize(value)}
-    </span>
-  );
-}
+export { Badge };
 
 export function Empty({
   title,
@@ -71,34 +45,7 @@ export function EventList({
   events: MoleculeEvent[];
   limit?: number;
 }) {
-  if (!events.length)
-    return (
-      <Empty title="No recorded events yet">
-        Confirmed server activity will appear here.
-      </Empty>
-    );
-  return (
-    <ol className="event-list">
-      {events
-        .slice(-limit)
-        .reverse()
-        .map((event) => (
-          <li key={event.eventId}>
-            <span
-              className={`event-dot severity-${event.severity.toLowerCase()}`}
-            />
-            <div>
-              <strong>{humanize(event.eventType)}</strong>
-              <small>
-                {event.source}
-                {event.merchantId ? ` · ${event.merchantId}` : ""}
-              </small>
-            </div>
-            <time dateTime={event.ts}>{dateLabel(event.ts, true)}</time>
-          </li>
-        ))}
-    </ol>
-  );
+  return <ActivityTimeline events={events} limit={limit} />;
 }
 
 export function ClaimTable({ claims }: { claims: CanonicalClaim[] }) {
@@ -131,6 +78,9 @@ export function ClaimTable({ claims }: { claims: CanonicalClaim[] }) {
                   <summary>Evidence &amp; identity</summary>
                   <p>{claim.evidenceText ?? "No evidence excerpt returned."}</p>
                   <code>{claim.claimId}</code>
+                  {claim.source.checksum && (
+                    <small>Source checksum: {claim.source.checksum}</small>
+                  )}
                   <small>
                     Observed {dateLabel(claim.observedAt, true)} · ingested{" "}
                     {dateLabel(claim.ingestedAt, true)}
@@ -314,6 +264,10 @@ export function MerchantDetail({
             <p className="muted">No policies returned.</p>
           )}
           <h3>Documents</h3>
+          <p className="muted small">
+            Document status and source references are returned by the server.
+            Download access is not provided here.
+          </p>
           {merchant.documents.length ? (
             <ul className="document-list">
               {merchant.documents.map((document) => (
@@ -336,23 +290,22 @@ export function MerchantsView({
   marketplace,
   selectedMerchantId,
   onSelect,
+  loading = false,
 }: {
   marketplace: MarketplaceSnapshot | null;
   selectedMerchantId: string | null;
   onSelect: (id: string) => void;
+  loading?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const merchants = marketplace?.merchants ?? [];
-  const filtered = merchants.filter((merchant) =>
-    `${merchant.name} ${merchant.capabilities.map((item) => item.capability.name).join(" ")}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const { filtered, selected } = merchantSelection(
+    merchants,
+    query,
+    selectedMerchantId,
   );
-  const selected =
-    merchants.find((item) => item.merchantId === selectedMerchantId) ??
-    filtered[0];
   return (
-    <div className="directory-layout">
+    <div className="directory-layout evidence-directory" aria-busy={loading}>
       <section className="panel merchant-directory">
         <div className="section-heading">
           <h2>Merchant network</h2>
@@ -368,6 +321,11 @@ export function MerchantsView({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
+        <p className="evidence-result-count" role="status">
+          {loading
+            ? "Loading merchant data…"
+            : `${filtered.length} of ${merchants.length} merchants`}
+        </p>
         <div className="merchant-list">
           {filtered.map((merchant) => (
             <button
@@ -401,12 +359,20 @@ export function MerchantsView({
         {!filtered.length && (
           <Empty
             title={
-              query ? "No matching merchants" : "Merchant data unavailable"
+              loading
+                ? "Loading merchants"
+                : query.trim()
+                  ? "No matching merchants"
+                  : marketplace
+                    ? "No merchants returned"
+                    : "Merchant data unavailable"
             }
           >
-            {query
-              ? "Try a different name or capability."
-              : "Refresh the marketplace to load the server read model."}
+            {loading
+              ? "Waiting for the server read model."
+              : query.trim()
+                ? "Try a different name or capability."
+                : "Refresh the marketplace to load the server read model."}
           </Empty>
         )}
       </section>
@@ -425,30 +391,32 @@ export function MerchantsView({
 
 export function RealityView({
   marketplace,
+  loading = false,
 }: {
   marketplace: MarketplaceSnapshot | null;
+  loading?: boolean;
 }) {
   const [filter, setFilter] = useState("all");
   const merchants = marketplace?.merchants ?? [];
   const claims = merchants.flatMap((merchant) => merchant.claims);
   return (
-    <section className="panel">
+    <section className="panel evidence-view" aria-busy={loading}>
       <div className="section-heading">
         <div>
           <p className="eyebrow">SOURCE OF TRUTH</p>
           <h2>Evidence before assumptions</h2>
           <p className="muted">
-            Conflicted, quarantined and unknown facts stay unresolved until the
-            server resolves them.
+            Compare field values with their sources. Conflicted, quarantined and
+            unknown facts stay unresolved until the server resolves them.
           </p>
         </div>
         <label className="filter-label">
-          Resolution
+          Claim status
           <select
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           >
-            <option value="all">All facts ({claims.length})</option>
+            <option value="all">All claims ({claims.length})</option>
             {[
               "active",
               "conflicted",
@@ -468,11 +436,22 @@ export function RealityView({
           </select>
         </label>
       </div>
+      <p className="evidence-scope">
+        {loading && "Loading evidence… "}
+        Counts describe returned claim rows. Missing or expired operational
+        fields may have no claim row; zero unknown claims does not establish
+        complete evidence.
+      </p>
       {merchants
-        .filter((merchant) =>
-          merchant.claims.some(
-            (claim) => filter === "all" || claim.resolutionStatus === filter,
-          ),
+        .filter(
+          (merchant) =>
+            merchant.claims.some(
+              (claim) => filter === "all" || claim.resolutionStatus === filter,
+            ) ||
+            (filter === "all" &&
+              merchant.capabilities.some(
+                (candidate) => candidate.blockedReasons.length,
+              )),
         )
         .map((merchant) => (
           <section className="reality-merchant" key={merchant.merchantId}>
@@ -480,19 +459,72 @@ export function RealityView({
               {merchant.name}
               <Badge value={merchant.status} />
             </h3>
-            <ClaimTable
-              claims={merchant.claims.filter(
-                (claim) =>
-                  filter === "all" || claim.resolutionStatus === filter,
-              )}
-            />
+            {merchant.capabilities
+              .filter((candidate) => candidate.blockedReasons.length)
+              .map((candidate) => (
+                <div className="evidence-impact" key={candidate.capabilityId}>
+                  <strong>
+                    {candidate.capability.name} · server-reported eligibility
+                    blocks
+                  </strong>
+                  <ul>
+                    {candidate.blockedReasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            {evidenceGroups(merchant.claims, filter).map((group) => (
+              <div className="evidence-field" key={group.key}>
+                <div className="section-heading">
+                  <h4>{humanize(group.field)}</h4>
+                  <span className="muted small">
+                    {group.claims.length} source claims
+                  </span>
+                </div>
+                {group.conflicted && (
+                  <p className="inline-warning">
+                    Sources disagree. This field is not confirmed operational
+                    truth. Review the server-reported capability blocks; the
+                    solver determines plan feasibility.
+                  </p>
+                )}
+                <ul className="evidence-comparison">
+                  {group.claims.map((claim) => (
+                    <li key={claim.claimId}>
+                      <span>
+                        <strong>
+                          {displayValue(claim.normalizedValue)}{" "}
+                          {claim.normalizedUnit}
+                        </strong>
+                        <small>
+                          {humanize(claim.source.kind)} ·{" "}
+                          {claim.source.reference}
+                        </small>
+                      </span>
+                      <Badge value={claim.resolutionStatus} />
+                    </li>
+                  ))}
+                </ul>
+                <details>
+                  <summary>
+                    Source evidence, confidence &amp; claim history
+                  </summary>
+                  <ClaimTable claims={group.claims} />
+                </details>
+              </div>
+            ))}
           </section>
         ))}
       {!claims.some(
         (claim) => filter === "all" || claim.resolutionStatus === filter,
       ) && (
-        <Empty title="No facts in this view">
-          Choose another resolution filter or refresh the marketplace.
+        <Empty
+          title={loading ? "Loading source evidence" : "No matching claim rows"}
+        >
+          {loading
+            ? "Waiting for source claims from the server."
+            : "Choose another claim status or refresh the marketplace. Missing claim rows do not establish that operational fields are known."}
         </Empty>
       )}
     </section>
@@ -583,298 +615,152 @@ export function OperationsView({
   );
 }
 
-function ExternalLink({
-  href,
-  children,
-}: {
-  href: string | undefined;
-  children: React.ReactNode;
-}) {
-  const safe = safeHref(href);
-  return safe ? (
-    <a
-      className="external-link"
-      href={safe}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      {children} ↗
-    </a>
-  ) : null;
-}
-
 export function ExecutionView({
   order,
   marketplace,
   busy,
+  actionsBlocked = false,
+  blockedReason,
   demoMode,
+  resetting = false,
   onApprove,
   onOffline,
+  onReset,
+  events = [],
 }: {
   order: OrderSessionSnapshot | null;
   marketplace: MarketplaceSnapshot | null;
   busy: boolean;
+  actionsBlocked?: boolean;
+  blockedReason?: string | null;
   demoMode: boolean;
+  resetting?: boolean;
   onApprove: () => void;
   onOffline: (merchantId: string) => void;
+  onReset?: () => void;
+  events?: MoleculeEvent[];
 }) {
-  const plan = order?.activePlan;
-  const receipt = order?.executionReceipt;
-  const approve =
-    plan?.status === "VALID" &&
-    plan.intentVersion === order?.intentVersion &&
-    order?.state === "AWAITING_APPROVAL";
-  const selected = [
-    ...new Set(plan?.nodes.map((node) => node.merchantId) ?? []),
-  ];
   return (
-    <div className="stack">
+    <div className="stack decision-execution">
       <section className="panel">
         <div className="section-heading">
           <div>
             <p className="eyebrow">COMMERCE EXECUTION</p>
             <h2>
-              {receipt ? "Commerce receipts" : "Review before committing"}
+              {order?.executionReceipt
+                ? "Commerce records & outcomes"
+                : "Review before creating commerce records"}
             </h2>
           </div>
           {order && <Badge value={order.state} />}
         </div>
-        <div className="inset">
-          {plan && plan.status === "VALID" ? (
-            <>
-              <dl className="detail-grid">
-                <div>
-                  <dt>Plan total</dt>
-                  <dd>{money(plan.totalCost, plan.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Expected completion</dt>
-                  <dd>{dateLabel(plan.estimatedCompletion)}</dd>
-                </div>
-                <div>
-                  <dt>Intent version</dt>
-                  <dd>{plan.intentVersion}</dd>
-                </div>
-                <div>
-                  <dt>Feasibility</dt>
-                  <dd>Validated by solver</dd>
-                </div>
-              </dl>
-              <p className="muted">
-                Approval commits the current plan&apos;s commerce actions.
-                Provider receipts below are the execution record.
-              </p>
-              <button
-                className="primary"
-                type="button"
-                disabled={!approve || busy}
-                onClick={onApprove}
-              >
-                {busy
-                  ? "Action in progress…"
-                  : approve
-                    ? `Approve ${money(plan.totalCost, plan.currency)} plan`
-                    : receipt
-                      ? "See execution status below"
-                      : "Awaiting a current validated plan"}
-              </button>
-            </>
-          ) : plan ? (
-            <Empty title="No feasible plan to approve">
-              The solver could not satisfy all requirements for intent version{" "}
-              {plan.intentVersion}. Return to Command Center to review the
-              conflicts and revise the brief.
-            </Empty>
-          ) : (
-            <Empty title="No plan to approve">
-              Describe the outcome in Command Center, then review the
-              solver&apos;s plan here.
-            </Empty>
-          )}
-        </div>
-        {receipt && (
-          <div className="receipt">
-            <div className="receipt-heading">
-              <h3>Receipt for intent version {receipt.intentVersion}</h3>
-              <code>{receipt.planId}</code>
-            </div>
-            {receipt.planId !== plan?.planId && (
-              <p className="inline-warning">
-                This receipt belongs to a previous plan. It does not confirm the
-                current plan.
-              </p>
-            )}
-            <div className="receipt-links">
-              <ExternalLink href={receipt.compositeProduct?.adminUrl}>
-                Product admin
-              </ExternalLink>
-              <ExternalLink href={receipt.compositeProduct?.storefrontUrl}>
-                Storefront
-              </ExternalLink>
-              <ExternalLink href={receipt.customerOrder?.checkoutUrl}>
-                Customer checkout
-              </ExternalLink>
-            </div>
-            {receipt.customerOrder && (
-              <p className="muted">
-                Customer reference:{" "}
-                {receipt.customerOrder.orderGid ??
-                  receipt.customerOrder.draftOrderGid ??
-                  "Not returned"}
-              </p>
-            )}
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Action</th>
-                    <th>Status</th>
-                    <th>Provider reference / error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {receipt.actions.map((action) => (
-                    <tr key={action.actionKey}>
-                      <td>
-                        <strong>{humanize(action.kind)}</strong>
-                        <small>{action.actionKey}</small>
-                      </td>
-                      <td>
-                        <Badge value={action.status} />
-                      </td>
-                      <td>
-                        {action.errorCode ??
-                          action.providerRef ??
-                          "Not returned"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <h3>Supplier jobs</h3>
-            <ul className="document-list">
-              {receipt.supplierJobs.map((job) => (
-                <li key={`${job.nodeId}:${job.draftOrderGid}`}>
-                  <span>
-                    {marketplace?.merchants.find(
-                      (merchant) => merchant.merchantId === job.merchantId,
-                    )?.name ?? job.merchantId}
-                    <small>{job.draftOrderGid}</small>
-                  </span>
-                  <ExternalLink
-                    href={supplierAdminUrl(job.storeDomain, job.draftOrderGid)}
-                  >
-                    Supplier admin
-                  </ExternalLink>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {order ? (
+          <>
+            <DecisionApproval
+              order={order}
+              marketplace={marketplace}
+              busy={busy}
+              actionsBlocked={actionsBlocked}
+              blockedReason={blockedReason}
+              events={events}
+              onApprove={onApprove}
+            />
+            <DecisionReceipts order={order} marketplace={marketplace} />
+          </>
+        ) : (
+          <Empty title="No plan to approve">
+            Describe the outcome in Command Center, then review the
+            solver&apos;s plan here.
+          </Empty>
         )}
       </section>
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">RESILIENCE LAB</p>
-            <h2>Supplier recovery</h2>
-          </div>
-          <span className="mode-tag">
-            {demoMode ? "Demo enabled by server" : "Demo controls unavailable"}
-          </span>
-        </div>
-        <div className="inset">
-          <p>
-            Take a selected supplier offline to request a replacement plan. The
-            solver must validate the replacement; cost or deadline changes may
-            need your approval.
-          </p>
-          {demoMode && selected.length ? (
-            <div className="recovery-buttons">
-              {selected.map((id) => (
-                <button
-                  className="danger-outline"
-                  key={id}
-                  type="button"
-                  disabled={
-                    busy ||
-                    !["AWAITING_APPROVAL", "COMPLETED"].includes(
-                      order?.state ?? "",
-                    ) ||
-                    marketplace?.merchants.find(
-                      (merchant) => merchant.merchantId === id,
-                    )?.status === "offline"
-                  }
-                  onClick={() => onOffline(id)}
-                >
-                  Take{" "}
-                  {marketplace?.merchants.find(
-                    (merchant) => merchant.merchantId === id,
-                  )?.name ?? id}{" "}
-                  offline
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="muted">
-              {demoMode
-                ? "A selected production plan is required."
-                : "The server must enable demo mode to use supplier-offline controls."}
-            </p>
-          )}
-          <p className="muted small">
-            Inventory, price, lead-time and conflicting-document simulations are
-            not enabled by this server contract.
-          </p>
-        </div>
-      </section>
+      <DecisionRecovery
+        key={order?.orderId ?? "no-project"}
+        order={order}
+        marketplace={marketplace}
+        busy={busy || actionsBlocked}
+        demoMode={demoMode}
+        resetting={resetting}
+        onOffline={onOffline}
+        onReset={onReset}
+      />
     </div>
   );
 }
 
 export function NodeDetail({
-  node,
+  node: selectedNode,
   order,
   currency,
   marketplace,
   onMerchant,
+  selection,
 }: {
   node: ProductionPlan["nodes"][number];
   order: OrderSessionSnapshot;
   currency: ProductionPlan["currency"] | undefined;
   marketplace: MarketplaceSnapshot | null;
   onMerchant: (id: string) => void;
+  selection?: PlanSelection;
 }) {
+  const evidence = nodeEvidenceContext(
+    order.activePlan,
+    selectedNode,
+    selection,
+  );
+  const node = evidence.node;
   const merchant = marketplace?.merchants.find(
     (item) => item.merchantId === node.merchantId,
   );
-  const candidate =
-    order.candidates.find(
-      (item) =>
-        item.capabilityId === node.capabilityId &&
-        item.merchantId === node.merchantId,
-    ) ??
-    merchant?.capabilities.find(
-      (item) => item.capabilityId === node.capabilityId,
-    );
-  const quote = order.quotes.find(
-    (item) =>
-      item.capabilityId === node.capabilityId &&
-      item.merchantId === node.merchantId,
-  );
+  const candidate = evidence.current
+    ? (order.candidates.find(
+        (item) =>
+          item.capabilityId === node.capabilityId &&
+          item.merchantId === node.merchantId,
+      ) ??
+      merchant?.capabilities.find(
+        (item) => item.capabilityId === node.capabilityId,
+      ))
+    : undefined;
+  const quote = evidence.current
+    ? order.quotes.find(
+        (item) =>
+          item.capabilityId === node.capabilityId &&
+          item.merchantId === node.merchantId,
+      )
+    : undefined;
   const claims =
     merchant?.claims.filter((claim) =>
       candidate?.capability.sourceClaimIds.includes(claim.claimId),
     ) ?? [];
   return (
-    <>
+    <div className="evidence-node-detail">
       <p className="eyebrow">{humanize(node.kind)}</p>
       <h2>{merchant?.name ?? node.merchantId}</h2>
       <p>{candidate?.capability.name ?? node.capabilityId}</p>
+      {selection && (
+        <p className="muted small">
+          Plan <code>{selection.planId}</code> · node{" "}
+          <code>{selection.nodeId}</code>
+        </p>
+      )}
+      {!evidence.current && (
+        <p className="inline-warning">
+          This selection is historical or its plan context is no longer current.
+          Node values belong to the selected plan; historical quotes and
+          evidence snapshots are not available. Current merchant data is
+          separate.
+        </p>
+      )}
       <dl className="detail-grid">
         <div>
           <dt>Node cost</dt>
-          <dd>{money(node.totalCost, currency)}</dd>
+          <dd>
+            {money(
+              node.totalCost,
+              evidence.currency ?? (evidence.current ? currency : undefined),
+            )}
+          </dd>
         </div>
         <div>
           <dt>Quantity</dt>
@@ -889,7 +775,9 @@ export function NodeDetail({
           <dd>{dateLabel(node.completesAt, true)}</dd>
         </div>
       </dl>
-      <h3>Current quote</h3>
+      <h3>
+        {evidence.current ? "Current quote" : "Historical quote unavailable"}
+      </h3>
       {quote ? (
         <>
           <Badge value={quote.status} />
@@ -932,8 +820,19 @@ export function NodeDetail({
           exposed by the snapshot.
         </p>
       )}
-      <h3>Source claims</h3>
-      <ClaimTable claims={claims} />
+      <h3>
+        {evidence.current
+          ? "Current source claims"
+          : "Historical source evidence unavailable"}
+      </h3>
+      {evidence.current ? (
+        <ClaimTable claims={claims} />
+      ) : (
+        <p className="muted">
+          Open the merchant twin to inspect current evidence. It does not
+          establish the evidence used by this historical plan.
+        </p>
+      )}
       <button
         type="button"
         className="secondary"
@@ -941,6 +840,6 @@ export function NodeDetail({
       >
         Open merchant twin →
       </button>
-    </>
+    </div>
   );
 }

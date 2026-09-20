@@ -36,13 +36,15 @@ export async function closePool(): Promise<void> {
 
 export type DbClient = pg.Pool | pg.PoolClient;
 
-export async function transaction<T>(
+async function runTransaction<T>(
+  begin: string,
+  lock: boolean,
   work: (client: pg.PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await getPool().connect();
   try {
-    await client.query("begin");
-    await client.query("select pg_advisory_xact_lock(73481203)");
+    await client.query(begin);
+    if (lock) await client.query("select pg_advisory_xact_lock(73481203)");
     const result = await work(client);
     await client.query("commit");
     return result;
@@ -52,4 +54,20 @@ export async function transaction<T>(
   } finally {
     client.release();
   }
+}
+
+export function transaction<T>(
+  work: (client: pg.PoolClient) => Promise<T>,
+): Promise<T> {
+  return runTransaction("begin", true, work);
+}
+
+export async function readTransaction<T>(
+  work: (client: pg.PoolClient) => Promise<T>,
+): Promise<T> {
+  return runTransaction(
+    "begin isolation level repeatable read read only",
+    false,
+    work,
+  );
 }

@@ -36,6 +36,17 @@ class Choice:
     earliest_completion: int
 
 
+class SolverNumericRangeError(ValueError):
+    pass
+
+
+def _integer(value: int | float | Decimal) -> int:
+    exact = Decimal(str(value))
+    if not exact.is_finite() or not cp_model.INT_MIN < exact < cp_model.INT_MAX:
+        raise SolverNumericRangeError("Numeric inputs exceed the solver's integer range.")
+    return int(exact)
+
+
 def _date(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
@@ -48,7 +59,7 @@ def _iso(value: datetime) -> str:
 
 
 def _cents(value: float, rounding: str = ROUND_CEILING) -> int:
-    return int((Decimal(str(value)) * 100).to_integral_value(rounding=rounding))
+    return _integer((Decimal(str(value)) * 100).to_integral_value(rounding=rounding))
 
 
 def _choice(
@@ -58,6 +69,34 @@ def _choice(
     data: SolverInput,
 ) -> Choice | None:
     capability = candidate.capability
+    if candidate.catalog_version is not None:
+        if (
+            candidate.selected_item is None
+            or not candidate.resource_refs
+            or candidate.transfer_minutes is None
+            or candidate.synthetic is None
+            or quote.catalog_version != candidate.catalog_version
+            or quote.selected_item != candidate.selected_item
+            or quote.quoted_quantity != need.quantity
+            or not set(candidate.required_asset_ids or []).issubset(
+                {asset.asset_id for asset in data.intent.assets if asset.url or asset.checksum}
+            )
+        ):
+            return None
+        for resource in candidate.resource_refs:
+            if (
+                resource.available <= 0
+                or _date(resource.observed_at) > _date(data.now)
+                or resource.unit != capability.quantity.unit
+            ):
+                return None
+            if (
+                resource.kind == "inventory"
+                and resource.available < need.quantity * resource.units_per_item
+            ):
+                return None
+    elif candidate.selected_item is not None or candidate.resource_refs is not None:
+        return None
     available = capability.capacity.available
     ports = matching_ports(candidate, need)
     if (
@@ -84,6 +123,10 @@ def _choice(
     ):
         return None
     if (need.kind == "SUPPLY" or capability.capacity.period is None) and available < need.quantity:
+        return None
+    if len(need.outputs) > 1 and any(
+        not any(port.name == reference for port in ports) for reference in need.outputs
+    ):
         return None
     if any(
         not satisfies(rule, candidate, need, ports, data.intent)
@@ -112,8 +155,21 @@ def _choice(
     if need.kind != "SUPPLY" and capability.capacity.period is not None:
         period = {"hour": 60, "day": 1440, "week": 10080}[capability.capacity.period]
         duration = max(duration, need.quantity / available * period)
+    for resource in candidate.resource_refs or []:
+        if resource.kind == "processing":
+            assert resource.period_minutes is not None
+            duration = max(
+                duration,
+                need.quantity
+                * resource.units_per_item
+                / resource.available
+                * resource.period_minutes,
+            )
+    duration += candidate.transfer_minutes or 0
     total = Decimal(str(quote.unit_price)) * need.quantity + Decimal(str(quote.setup_fee))
     total = max(total, Decimal(str(capability.pricing.minimum_total or 0)))
+    cents = _integer((total * 100).to_integral_value(rounding=ROUND_CEILING))
+    _integer(cents * OBJECTIVE_WEIGHTS.cost)
     completion = (
         max(0, ceil((_date(quote.completion_estimate) - _date(data.now)).total_seconds() / 60))
         if quote.completion_estimate
@@ -123,8 +179,8 @@ def _choice(
         candidate,
         quote,
         ports,
-        int((total * 100).to_integral_value(rounding=ROUND_CEILING)),
-        ceil(duration),
+        cents,
+        _integer(Decimal(str(duration)).to_integral_value(rounding=ROUND_CEILING)),
         completion,
     )
 
@@ -166,8 +222,8 @@ def _numeric_constraint(
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
     exact = Decimal(str(value)) * scale
-    floor = int(exact.to_integral_value(rounding=ROUND_FLOOR))
-    ceiling = int(exact.to_integral_value(rounding=ROUND_CEILING))
+    floor = _integer(exact.to_integral_value(rounding=ROUND_FLOOR))
+    ceiling = _integer(exact.to_integral_value(rounding=ROUND_CEILING))
     match constraint.operator:
         case "lte":
             model.add(expression <= floor)
@@ -190,8 +246,16 @@ def _numeric_constraint(
 
 
 def solve(data: SolverInput) -> ProductionPlan:
+    try:
+        return _solve(data)
+    except SolverNumericRangeError as error:
+        return _unsat(data, str(error))
+
+
+def _solve(data: SolverInput) -> ProductionPlan:
     if data.intent.ambiguity_flags:
-        return _unsat(data, "Customer requirements still need clarification.")
+        questions = " ".join(flag.question or flag.reason for flag in data.intent.ambiguity_flags)
+        return _unsat(data, f"Customer requirements still need clarification. {questions}")
     try:
         needs, dependencies = requirements(data.intent)
     except ValueError as error:
@@ -212,6 +276,7 @@ def solve(data: SolverInput) -> ProductionPlan:
             )
     groups: dict[str, list[Choice]] = {}
     for need in needs:
+        _integer(need.quantity)
         groups[need.key] = [
             choice
             for candidate in sorted(data.candidates, key=lambda c: c.capability_id)
@@ -261,15 +326,99 @@ def solve(data: SolverInput) -> ProductionPlan:
         capability = choices[0][2].candidate.capability
         quote = choices[0][2].quote
         total_quantity = sum(need.quantity * variables[need.key, i] for need, i, _ in choices)
-        model.add(total_quantity <= int(capability.quantity.max))
+        model.add(total_quantity <= _integer(capability.quantity.max))
         if quote.max_quantity is not None:
-            model.add(total_quantity <= quote.max_quantity)
+            model.add(total_quantity <= _integer(quote.max_quantity))
         if capability.kind == "SUPPLY" or capability.capacity.period is None:
-            model.add(total_quantity <= int(capability.capacity.available or 0))
-        for port in choices[0][2].ports:
+            model.add(total_quantity <= _integer(capability.capacity.available or 0))
+        for port in capability.produces:
+            if not any(port in choice.ports for _, _, choice in choices):
+                continue
             inventory = port.attributes.get("inventory")
             if isinstance(inventory, (float, int)):
-                model.add(total_quantity <= int(inventory))
+                port_quantity = sum(
+                    need.quantity * variables[need.key, i]
+                    for need, i, choice in choices
+                    if port in choice.ports
+                )
+                model.add(port_quantity <= _integer(inventory))
+
+    # Resource IDs, not capability IDs, identify physical stock and machines.
+    shared: dict[str, list[tuple[Requirement, int, Choice]]] = {}
+    for need in needs:
+        for index, choice in enumerate(groups[need.key]):
+            refs = choice.candidate.resource_refs or []
+            if len({ref.resource_id for ref in refs}) != len(refs):
+                return _unsat(data, "Duplicate resource reference in catalog candidate.")
+            for resource in refs:
+                shared.setdefault(resource.resource_id, []).append((need, index, choice))
+    for resource_id, choices in shared.items():
+        refs = [
+            next(
+                ref
+                for ref in choice.candidate.resource_refs or []
+                if ref.resource_id == resource_id
+            )
+            for _, _, choice in choices
+        ]
+        first = refs[0]
+        if any(
+            (
+                ref.kind,
+                ref.unit,
+                ref.available,
+                ref.period_minutes,
+                ref.observed_at,
+                ref.source_reference,
+            )
+            != (
+                first.kind,
+                first.unit,
+                first.available,
+                first.period_minutes,
+                first.observed_at,
+                first.source_reference,
+            )
+            for ref in refs
+        ):
+            return _unsat(data, f"Conflicting resource snapshots for {resource_id}.")
+        if first.kind == "inventory":
+            # Fixed thousandths, rounded conservatively so fractional consumption is never lost.
+            model.add(
+                sum(
+                    _integer(
+                        (Decimal(str(ref.units_per_item)) * need.quantity * 1000).to_integral_value(
+                            rounding=ROUND_CEILING
+                        )
+                    )
+                    * variables[need.key, index]
+                    for (need, index, _), ref in zip(choices, refs, strict=True)
+                )
+                <= _integer(
+                    (Decimal(str(first.available)) * 1000).to_integral_value(rounding=ROUND_FLOOR)
+                )
+            )
+        else:
+            jobs = [
+                model.new_optional_interval_var(
+                    starts[need.key],
+                    choice.minutes,
+                    ends[need.key],
+                    variables[need.key, index],
+                    f"resource:{resource_id}:{need.key}:{index}",
+                )
+                for need, index, choice in choices
+            ]
+            for index, occupied in enumerate(first.occupied_intervals or []):
+                start = max(0, int((_date(occupied.starts_at) - now).total_seconds() // 60))
+                end = min(horizon, ceil((_date(occupied.completes_at) - now).total_seconds() / 60))
+                if end > start:
+                    jobs.append(
+                        model.new_fixed_size_interval_var(
+                            start, end - start, f"occupied:{resource_id}:{index}"
+                        )
+                    )
+            model.add_no_overlap(jobs)
 
     for edge in dependencies:
         model.add(starts[edge.target] >= ends[edge.source])
@@ -277,7 +426,12 @@ def solve(data: SolverInput) -> ProductionPlan:
             produced = _edge_ports(upstream, by_key[edge.source], edge.reference)
             for j, downstream in enumerate(groups[edge.target]):
                 if not any(
-                    ports_compatible(a, b)
+                    ports_compatible(
+                        a,
+                        b,
+                        upstream.candidate.capability.quantity.unit,
+                        downstream.candidate.capability.quantity.unit,
+                    )
                     for a in produced
                     for b in downstream.candidate.capability.accepts
                 ):
@@ -291,7 +445,12 @@ def solve(data: SolverInput) -> ProductionPlan:
                     for edge in incoming
                     for i, upstream in enumerate(groups[edge.source])
                     if any(
-                        ports_compatible(port, accepted)
+                        ports_compatible(
+                            port,
+                            accepted,
+                            upstream.candidate.capability.quantity.unit,
+                            choice.candidate.capability.quantity.unit,
+                        )
                         for port in _edge_ports(upstream, by_key[edge.source], edge.reference)
                     )
                 ]
@@ -383,6 +542,19 @@ def solve(data: SolverInput) -> ProductionPlan:
             capability_id=chosen.candidate.capability_id,
             kind=chosen.candidate.capability.kind,
             quantity=need.quantity,
+            customization_assets=[
+                asset
+                for asset in data.intent.assets
+                if asset.asset_id in (chosen.candidate.required_asset_ids or [])
+            ]
+            if chosen.candidate.catalog_version
+            else None,
+            catalog_version=chosen.candidate.catalog_version,
+            selected_item=chosen.candidate.selected_item,
+            resource_refs=chosen.candidate.resource_refs,
+            required_asset_ids=chosen.candidate.required_asset_ids,
+            transfer_minutes=chosen.candidate.transfer_minutes,
+            synthetic=chosen.candidate.synthetic,
             unit_cost=chosen.quote.unit_price,
             total_cost=chosen.cents / 100,
             starts_at=_iso(now + timedelta(minutes=solver.value(starts[need.key]))),
@@ -426,14 +598,8 @@ def solve(data: SolverInput) -> ProductionPlan:
             for rule in data.intent.hard_constraints
         ],
     ]
-    fingerprint = ":".join(node.node_id for node in nodes)
-    return ProductionPlan(
-        plan_id=str(
-            uuid5(
-                NAMESPACE_URL,
-                f"{data.order_id}:{data.intent.version}:{data.generation}:{fingerprint}",
-            )
-        ),
+    plan = ProductionPlan(
+        plan_id="",
         order_id=data.order_id,
         intent_version=data.intent.version,
         status="VALID",
@@ -445,6 +611,10 @@ def solve(data: SolverInput) -> ProductionPlan:
         risk_score=min(1, solver.value(makespan) / max(1, horizon)),
         constraint_results=results,
         unsat_relaxations=[],
+    )
+    fingerprint = plan.model_dump_json(exclude={"plan_id"})
+    return plan.model_copy(
+        update={"plan_id": str(uuid5(NAMESPACE_URL, f"{data.generation}:{fingerprint}"))}
     )
 
 

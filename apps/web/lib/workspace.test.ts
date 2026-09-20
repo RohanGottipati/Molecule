@@ -5,6 +5,7 @@ import {
 } from "@molecule/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  canEditBrief,
   graphPositions,
   mergeContexts,
   mergeEvents,
@@ -33,6 +34,24 @@ const snapshot = OrderSessionSnapshotSchema.parse({
   lastErrorCode: null,
   createdAt: "2026-09-19T10:00:00Z",
   updatedAt: "2026-09-19T10:00:00Z",
+});
+
+it("keeps brief changes out of in-flight and completed commerce", () => {
+  expect(canEditBrief(null)).toBe(true);
+  for (const state of [
+    "AWAITING_APPROVAL",
+    "NEEDS_CLARIFICATION",
+    "FAILED",
+  ] as const)
+    expect(canEditBrief({ ...snapshot, state })).toBe(true);
+  for (const state of [
+    "QUOTING",
+    "EXECUTING",
+    "COMPLETED",
+    "CANCELLED",
+    "RECOVERING",
+  ] as const)
+    expect(canEditBrief({ ...snapshot, state })).toBe(false);
 });
 const event = MoleculeEventSchema.parse({
   eventId: "aabbccdd-1234-4234-9234-123456789abc",

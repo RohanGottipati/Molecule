@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { roleForStore } from "@molecule/test-fixtures";
+
+import {
+  ShopifySnapshotSchema,
+  type ShopifySnapshot,
+} from "./catalog/types.js";
 import { ShopifyError } from "./types.js";
 
 export const SHOPIFY_API_VERSION = "2026-07";
@@ -222,6 +228,8 @@ export class ShopifyTransport {
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
+      if (response.status === 401 && this.token?.value === token)
+        this.token = undefined;
       if (!response.ok)
         throw new ShopifyError(
           `HTTP_${response.status}`,
@@ -260,7 +268,7 @@ export class ShopifyTransport {
   async listProducts(after?: string) {
     return this.graphql(
       `query Products($after: String) { products(first: 100, after: $after) {
-       nodes { id title handle status variants(first: 100) { nodes { id sku price }
+       nodes { id title handle status vendor productType tags variants(first: 100) { nodes { id sku price selectedOptions { name value } inventoryItem { id tracked } }
        pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } } }`,
       { after: after ?? null },
       z.object({
@@ -271,12 +279,23 @@ export class ShopifyTransport {
               title: z.string(),
               handle: z.string(),
               status: z.string(),
+              vendor: z.string().optional().default(""),
+              productType: z.string().optional().default(""),
+              tags: z.array(z.string()).optional().default([]),
               variants: z.object({
                 nodes: z.array(
                   z.object({
                     id: z.string(),
                     sku: z.string().nullable(),
                     price: z.string(),
+                    selectedOptions: z
+                      .array(z.object({ name: z.string(), value: z.string() }))
+                      .optional()
+                      .default([]),
+                    inventoryItem: z
+                      .object({ id: z.string(), tracked: z.boolean() })
+                      .nullable()
+                      .optional(),
                   }),
                 ),
                 pageInfo: z.object({
@@ -293,6 +312,77 @@ export class ShopifyTransport {
         }),
       }),
     );
+  }
+
+  /**
+   * Reads all tagged capacity products into the shared snapshot shape. It
+   * refuses partial product, variant, or inventory-location pages rather than
+   * turning incomplete Shopify data into an operational claim.
+   */
+  async getSnapshot(shop = this.domain): Promise<ShopifySnapshot> {
+    const products: ShopifySnapshot["products"] = [];
+    const capacity: ShopifySnapshot["capacity"] = [];
+    let after: string | undefined;
+
+    do {
+      const page = await this.listProducts(after);
+      for (const product of page.products.nodes) {
+        if (product.variants.pageInfo.hasNextPage)
+          throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+        products.push({
+          productId: product.id,
+          handle: product.handle,
+          title: product.title,
+          vendor: product.vendor,
+          productType: product.productType,
+          tags: product.tags,
+          variants: product.variants.nodes.map((variant) => ({
+            variantId: variant.id,
+            sku: variant.sku ?? "",
+            optionValues: Object.fromEntries(
+              variant.selectedOptions.map(({ name, value }) => [name, value]),
+            ),
+            price: variant.price,
+            tracked: variant.inventoryItem?.tracked ?? false,
+            quantity: null,
+          })),
+        });
+        if (!product.tags.includes("capacity")) continue;
+        for (const variant of product.variants.nodes) {
+          if (!variant.inventoryItem?.tracked) continue;
+          const inventory = await this.getInventory(variant.inventoryItem.id);
+          const item = inventory.inventoryItem;
+          if (!item) continue;
+          if (item.inventoryLevels.pageInfo.hasNextPage)
+            throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+          const quantity = item.inventoryLevels.nodes.reduce(
+            (total, level) =>
+              total +
+              (level.quantities.find(({ name }) => name === "available")
+                ?.quantity ?? 0),
+            0,
+          );
+          capacity.push({
+            shop,
+            role: roleForStore(shop),
+            itemId: item.id,
+            title: product.title,
+            quantity,
+          });
+        }
+      }
+      if (!page.products.pageInfo.hasNextPage) break;
+      after = page.products.pageInfo.endCursor ?? undefined;
+      if (!after) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+    } while (after);
+
+    return ShopifySnapshotSchema.parse({
+      shop,
+      role: roleForStore(shop),
+      capturedAt: new Date().toISOString(),
+      capacity,
+      products,
+    });
   }
 
   async getInventory(inventoryItemId: string) {

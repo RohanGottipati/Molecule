@@ -6,6 +6,7 @@ import {
   OperationsMetricsSchema,
   type ProviderStatus,
 } from "@molecule/contracts";
+import { catalogGallery } from "@molecule/service-reality";
 import { closePool } from "@molecule/db";
 
 import { HttpSolverClient } from "./clients/HttpSolverClient.js";
@@ -42,6 +43,7 @@ export async function createApp() {
   const orchestrator = new Orchestrator({
     sessions,
     events,
+    contexts: store,
     openai,
     reality:
       durable?.reality ?? new MockRealityClient(() => local.offlineMerchants()),
@@ -50,6 +52,9 @@ export async function createApp() {
     shopify: durable?.shopify ?? new MockShopifyClient(),
     quoteTimeoutMs: 30_000,
   });
+  await durable?.attachResourceRecovery((orderId, resourceId) =>
+    orchestrator.recoverResource(orderId, resourceId),
+  );
   const providers = async (): Promise<ProviderStatus[]> => {
     const solverReady = await fetch(`${config.SOLVER_URL}/health`, {
       signal: AbortSignal.timeout(2000),
@@ -149,6 +154,8 @@ export async function createApp() {
     marketplace,
     applyChaos: durable?.reality.applyChaos,
     resetDemo: durable?.reality.resetDemo,
+    shopifyWebhook: durable?.shopifyWebhook,
+    catalogGallery: durable ? catalogGallery : undefined,
   });
   app.addHook("onClose", async () => {
     await durable?.close();

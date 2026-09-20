@@ -24,16 +24,50 @@ export interface WebhookOptions {
   maxBodyBytes?: number;
 }
 
+export const ShopifyWebhookPayloadSchema = z.object({
+  id: z.union([z.string(), z.number().int().safe()]).optional(),
+  admin_graphql_api_id: z.string().optional(),
+  inventory_item_id: z.union([z.string(), z.number().int().safe()]).optional(),
+  location_id: z.union([z.string(), z.number().int().safe()]).optional(),
+  available: z.number().int().nullable().optional(),
+});
+export type ShopifyWebhookPayload = z.infer<typeof ShopifyWebhookPayloadSchema>;
+
+export interface ShopifyWebhookResult {
+  status: "accepted" | "duplicate";
+  eventId: string;
+  deliveryId: string;
+  domain: string;
+  topic: string;
+  triggeredAt?: string;
+  payload: ShopifyWebhookPayload;
+}
+
+function triggeredAtHeader(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime()))
+    throw new ShopifyError("WEBHOOK_INVALID_TRIGGERED_AT");
+  return parsed.toISOString();
+}
+
 export async function handleShopifyWebhook(
   options: WebhookOptions,
   input: { rawBody: Uint8Array; headers: Record<string, string | undefined> },
-): Promise<{ status: "accepted" | "duplicate"; eventId: string }> {
+): Promise<ShopifyWebhookResult> {
   if (input.rawBody.byteLength > (options.maxBodyBytes ?? 1_000_000))
     throw new ShopifyError("WEBHOOK_TOO_LARGE");
   const signature = input.headers["x-shopify-hmac-sha256"] ?? "";
   if (!verifyWebhookHmac(input.rawBody, signature, options.secret))
     throw new ShopifyError("WEBHOOK_UNAUTHORIZED");
-  const domain = shopDomain(input.headers["x-shopify-shop-domain"] ?? "");
+  let domain: string;
+  try {
+    domain = shopDomain(input.headers["x-shopify-shop-domain"] ?? "");
+  } catch (error) {
+    if (error instanceof ShopifyError)
+      throw new ShopifyError("WEBHOOK_UNAUTHORIZED");
+    throw error;
+  }
   if (!options.allowedDomains.map(shopDomain).includes(domain))
     throw new ShopifyError("WEBHOOK_UNAUTHORIZED");
   const topic = input.headers["x-shopify-topic"] ?? "";
@@ -51,28 +85,27 @@ export async function handleShopifyWebhook(
   const deliveryId = input.headers["x-shopify-webhook-id"] ?? "";
   if (!z.uuid().safeParse(deliveryId).success)
     throw new ShopifyError("WEBHOOK_INVALID_ID");
+  const triggeredAt = triggeredAtHeader(
+    input.headers["x-shopify-triggered-at"],
+  );
   let body: unknown;
   try {
     body = JSON.parse(Buffer.from(input.rawBody).toString("utf8"));
   } catch {
     throw new ShopifyError("WEBHOOK_INVALID_JSON");
   }
-  const parsed = z
-    .object({
-      id: z.union([z.string(), z.number().int().safe()]).optional(),
-      admin_graphql_api_id: z.string().optional(),
-      inventory_item_id: z
-        .union([z.string(), z.number().int().safe()])
-        .optional(),
-      location_id: z.union([z.string(), z.number().int().safe()]).optional(),
-      available: z.number().int().nullable().optional(),
-    })
-    .safeParse(body);
+  const parsed = ShopifyWebhookPayloadSchema.safeParse(body);
   if (!parsed.success) throw new ShopifyError("WEBHOOK_INVALID_PAYLOAD");
   const event = eventFor(
     `shopify-webhook:${deliveryId}`,
     `shopify.webhook.${topic.replaceAll("/", ".")}`,
-    { domain, topic, deliveryId, ...parsed.data },
+    {
+      domain,
+      topic,
+      deliveryId,
+      ...(triggeredAt ? { triggeredAt } : {}),
+      ...parsed.data,
+    },
   );
   const eventHash = digest([domain, deliveryId]);
   event.eventId = `${eventHash.slice(0, 8)}-${eventHash.slice(8, 12)}-4${eventHash.slice(13, 16)}-a${eventHash.slice(17, 20)}-${eventHash.slice(20, 32)}`;
@@ -82,5 +115,13 @@ export async function handleShopifyWebhook(
     digest([topic, Buffer.from(input.rawBody).toString("base64")]),
     event,
   );
-  return { status, eventId: event.eventId };
+  return {
+    status,
+    eventId: event.eventId,
+    deliveryId,
+    domain,
+    topic,
+    triggeredAt,
+    payload: parsed.data,
+  };
 }

@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { DatabaseJobDecisionStore } from "@molecule/merchant-agents";
 import type { FastifyInstance } from "fastify";
 import {
   ContextReceiptSchema,
   DesktopResultSchema,
   MarketplaceSnapshotSchema,
   OrderSessionSnapshotSchema,
+  MessageHistorySchema,
+  ActionStatusSchema,
 } from "@molecule/contracts";
 import {
   closePool,
@@ -114,6 +117,104 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     return response.json();
   }
 
+  it("keeps the ingestion placeholder out of the marketplace and merchant-agent initialization", async () => {
+    const response = await app.inject("/api/marketplace");
+    expect(response.statusCode).toBe(200);
+    const marketplace = MarketplaceSnapshotSchema.parse(response.json());
+    expect(marketplace.merchants).not.toHaveLength(0);
+    expect(
+      marketplace.merchants.map(({ merchantId }) => merchantId),
+    ).not.toContain("m-unresolved");
+    expect(
+      (
+        await getPool().query(
+          "select status,backboard_assistant_id from merchants where merchant_id='m-unresolved'",
+        )
+      ).rows,
+    ).toEqual([{ status: "unknown", backboard_assistant_id: null }]);
+  });
+
+  it("atomically fences approval against attachment from another worker", async () => {
+    const initial = OrderSessionSnapshotSchema.parse(
+      await post("/api/orders", {}),
+    );
+    const planned = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/messages`, {
+        text: "Make 20 hoodies by 2026-10-01 CAD",
+      }),
+    );
+    const asset = { assetId: randomUUID(), checksum: "a".repeat(64) };
+    const worker = new PostgresStore();
+    await worker.saveContext({
+      orderId: initial.orderId,
+      asset,
+      attached: false,
+    });
+    const contexts = vi.spyOn(PostgresStore.prototype, "contexts");
+    contexts.mockImplementationOnce(async () => {
+      await worker.attachContext(initial.orderId, asset.assetId);
+      return [];
+    });
+    try {
+      const approval = await app.inject({
+        method: "POST",
+        url: `/api/orders/${initial.orderId}/approve`,
+        payload: {
+          planId: planned.activePlan!.planId,
+          intentVersion: planned.intentVersion,
+        },
+      });
+      expect(approval.statusCode, approval.body).toBe(409);
+    } finally {
+      contexts.mockRestore();
+    }
+    const attached = (await worker.get(initial.orderId))!;
+    expect(attached).toMatchObject({
+      state: "AWAITING_APPROVAL",
+      revision: planned.revision + 1,
+      executionReceipt: null,
+    });
+    await worker.attachContext(initial.orderId, asset.assetId);
+    expect((await worker.get(initial.orderId))?.revision).toBe(
+      attached.revision,
+    );
+    const events = await worker.list(initial.orderId, 0);
+    expect(
+      events.filter(({ event }) => event.eventType === "context.attached"),
+    ).toHaveLength(1);
+    expect(
+      events.some(({ event }) => event.eventType === "execution.started"),
+    ).toBe(false);
+    const corrected = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/messages`, {
+        text: "No polyester.",
+      }),
+    );
+    expect(corrected.intent?.assets).toEqual([asset]);
+    const completed = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/approve`, {
+        planId: corrected.activePlan!.planId,
+        intentVersion: corrected.intentVersion,
+      }),
+    );
+    expect(completed.state).toBe("COMPLETED");
+    const late = { assetId: randomUUID(), checksum: "b".repeat(64) };
+    await worker.saveContext({
+      orderId: initial.orderId,
+      asset: late,
+      attached: false,
+    });
+    await expect(
+      worker.attachContext(initial.orderId, late.assetId),
+    ).rejects.toThrow("Context cannot be attached");
+    expect(
+      (await worker.contexts(initial.orderId)).find(
+        ({ asset: item }) => item.assetId === late.assetId,
+      )?.attached,
+    ).toBe(false);
+    await resetDemoData();
+  });
+
   it("rolls back events with failed revisions and claims actions across workers", async () => {
     const session = createOrderSession();
     await store.create(session);
@@ -156,6 +257,102 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
       "2",
     );
     expect(executions).toBe(2);
+  });
+
+  it("pages PostgreSQL projects and reloads original messages and action status", async () => {
+    const prefix = `discovery-${randomUUID()}`;
+    const base = createOrderSession(new Date("2026-01-01T00:00:00.000Z"));
+    for (const suffix of ["c", "b", "a"])
+      await store.create({ ...base, orderId: `${prefix}-${suffix}` });
+    const first = await store.listProjects({ search: prefix, limit: 1 });
+    expect(first.projects.map(({ orderId }) => orderId)).toEqual([
+      `${prefix}-a`,
+    ]);
+    const second = await new PostgresStore().listProjects({
+      search: prefix.toUpperCase(),
+      limit: 2,
+      cursor: first.nextCursor!,
+    });
+    expect(second.projects.map(({ orderId }) => orderId)).toEqual([
+      `${prefix}-b`,
+      `${prefix}-c`,
+    ]);
+    expect(second.nextCursor).toBeNull();
+    expect(
+      (await store.listProjects({ search: "%", limit: 50 })).projects,
+    ).toEqual([]);
+
+    const initial = OrderSessionSnapshotSchema.parse(
+      await post("/api/orders", {}),
+    );
+    const text = "  Make 20 hoodies by 2026-10-01 CAD\n";
+    await post(
+      `/api/orders/${initial.orderId}/messages`,
+      { text },
+      "persisted-message",
+    );
+    const history = MessageHistorySchema.parse(
+      (await app.inject(`/api/orders/${initial.orderId}/messages`)).json(),
+    );
+    expect(history.messages).toHaveLength(1);
+    expect(history.messages[0]).toMatchObject({
+      messageId: "persisted-message",
+      text,
+      source: "web",
+      outcome: { status: "succeeded" },
+    });
+    const status = ActionStatusSchema.parse(
+      await new ActionLedger(new PostgresStore()).status(initial.orderId, {
+        kind: "message",
+        key: "persisted-message",
+      }),
+    );
+    expect(status.status).toBe("succeeded");
+    expect(
+      (await store.listProjects({ search: "hoodie", limit: 50 })).projects.some(
+        ({ orderId }) => orderId === initial.orderId,
+      ),
+    ).toBe(true);
+  });
+
+  it("retains durable commerce receipts after supplier acceptance fails", async () => {
+    const initial = OrderSessionSnapshotSchema.parse(
+      await post("/api/orders", {}),
+    );
+    const planned = OrderSessionSnapshotSchema.parse(
+      await post(`/api/orders/${initial.orderId}/messages`, {
+        text: "Make 20 hoodies by 2026-10-01 CAD",
+      }),
+    );
+    expect(planned.activePlan?.status).toBe("VALID");
+    const accept = vi
+      .spyOn(DatabaseJobDecisionStore.prototype, "acceptJob")
+      .mockRejectedValueOnce(new Error("acceptance transport interrupted"));
+    try {
+      const failed = OrderSessionSnapshotSchema.parse(
+        await post(`/api/orders/${initial.orderId}/approve`, {
+          planId: planned.activePlan!.planId,
+          intentVersion: planned.intentVersion,
+        }),
+      );
+      expect(failed.state).toBe("NEEDS_HUMAN");
+      expect(failed.lastErrorCode).toBe("EXECUTION_UNCERTAIN");
+      expect(failed.executionReceipt?.customerOrder).toBeTruthy();
+      expect(failed.executionReceipt?.supplierJobs.length).toBe(
+        planned.activePlan!.nodes.length,
+      );
+      const stored = await new PostgresStore().get(initial.orderId);
+      expect(stored?.executionReceipt).toEqual(failed.executionReceipt);
+      const correction = await app.inject({
+        method: "POST",
+        url: `/api/orders/${initial.orderId}/messages`,
+        payload: { text: "No polyester." },
+      });
+      expect(correction.statusCode).toBe(409);
+    } finally {
+      accept.mockRestore();
+      await resetDemoData();
+    }
   });
 
   it.each([

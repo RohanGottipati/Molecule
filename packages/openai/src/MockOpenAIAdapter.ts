@@ -16,6 +16,18 @@ import {
 } from "./schema/intentExtraction.js";
 
 const products = [
+  ["phone case", "Phone case", "phone cases?"],
+  ["laptop sleeve", "Laptop sleeve", "laptop sleeves?"],
+  ["desk mat", "Desk mat", "desk mats?"],
+  ["keycap", "Keycap", "keycaps?"],
+  ["picture frame", "Picture frame", "picture frames?"],
+  ["cutting board", "Cutting board", "cutting boards?"],
+  ["gym towel", "Gym towel", "gym towels?"],
+  ["pet tag", "Pet tag", "pet tags?"],
+  ["luggage tag", "Luggage tag", "luggage tags?"],
+  ["gift tin", "Gift tin", "gift tins?"],
+  ["organizer", "Organizer", "organizers?"],
+  ["enclosure", "Enclosure", "enclosures?"],
   ["hoodie", "Hoodie", "hoodies?"],
   ["bottle", "Bottle", "bottles?"],
   ["snacks", "Snacks", "snacks?"],
@@ -30,6 +42,19 @@ const products = [
 const sentenceBoundary = /[!?;\r\n]+|\.(?!\d)/;
 const colors = ["black", "white", "red", "blue", "green"] as const;
 const materials = [
+  "polycarbonate",
+  "acrylic",
+  "bamboo",
+  "nylon",
+  "wood",
+  "aluminum",
+  "ceramic",
+  "pla",
+  "petg",
+  "abs",
+  "resin",
+  "tpu",
+  "cork",
   "cotton",
   "polyester",
   "leather",
@@ -38,6 +63,13 @@ const materials = [
 ] as const;
 const wearables = ["hoodie", "shirt", "jacket", "hat"];
 const operations = [
+  [/\buv[ _-]print\w*\b/, "uv_printing", "uv-printed"],
+  [/\bscreen[ _-]print\w*\b/, "screen_printing", "screen-printed"],
+  [/\bdigital[ _-]print\w*\b/, "digital_printing", "digital-printed"],
+  [/\bpad[ _-]print\w*\b/, "pad_printing", "pad-printed"],
+  [/\b3d[ _-]print\w*\b/, "3d_printing", "3d-printed"],
+  [/\bheat[ _-]transfer\w*\b/, "heat_transfer", "heat-transferred"],
+  [/\b(?:dye[ _-])?sublimat\w*\b/, "sublimation", "sublimated"],
   [/\bembroider\w*\b/, "embroidery", "embroidered"],
   [/\bengrav\w*\b/, "engraving", "engraved"],
   [/\bprint\w*\b/, "printing", "printed"],
@@ -62,55 +94,79 @@ function numericMatch(text: string, pattern: RegExp): number | null {
   return value === undefined ? null : Number(value.replaceAll(",", ""));
 }
 
+function quantityIn(text: string): number | null {
+  return (
+    numericMatch(text, /(\d[\d,]*)\s+(?:[\w-]+\s+){0,4}kits?\b/) ??
+    numericMatch(
+      text,
+      /(?:quantity|qty|make|need|want)\s*(?:of\s*)?(\d[\d,]*)/,
+    ) ??
+    numericMatch(
+      text,
+      new RegExp(
+        `(\\d[\\d,]*)\\s+(?:[\\w-]+\\s+){0,3}(?:${products.map((p) => p[2]).join("|")})\\b`,
+      ),
+    )
+  );
+}
+
 function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const previous = input.previousIntent;
   const text = `${input.text}\n${input.correction?.text ?? ""}`.toLowerCase();
+  const sources = [input.correction?.text ?? "", input.text].map((source) =>
+    source.toLowerCase(),
+  );
   const clauses = clausesOf(text, /\s+(?:and|with|including)\s+|,\s+/);
   const segments = clausesOf(text, /,|\band\b/);
   const consumedClauses = new Set<number>();
   const ambiguityFlags: IntentExtraction["ambiguityFlags"] = [];
   const softPreferences: IntentExtraction["softPreferences"] = [];
-  const explicitQuantity = numericMatch(
-    text,
-    /(?:quantity|qty|make|need|want)\s*(?:of\s*)?(\d[\d,]*)/,
-  );
-  const kitQuantity = numericMatch(
-    text,
-    /(\d[\d,]*)\s+(?:[\w-]+\s+){0,4}kits?\b/,
-  );
-  const firstQuantity = numericMatch(
-    text,
-    new RegExp(
-      `(\\d[\\d,]*)\\s+(?:[\\w-]+\\s+){0,3}(?:${products.map((p) => p[2]).join("|")})\\b`,
-    ),
-  );
+  const quantitySource = sources.find((source) => quantityIn(source) !== null);
   const quantity =
-    kitQuantity ??
-    explicitQuantity ??
-    firstQuantity ??
+    (quantitySource === undefined ? null : quantityIn(quantitySource)) ??
     previous?.quantity ??
     null;
   const budget =
-    numericMatch(
-      text,
-      /(?:budget(?:\s+(?:of|is))?|max(?:imum)?|under)\s*(?:cad|usd)?\s*\$?([\d,]+(?:\.\d+)?)/,
-    ) ??
+    sources
+      .map((source) =>
+        numericMatch(
+          source,
+          /\b(?:budget(?:\s+(?:of|is))?|max(?:imum)?|under)\s*(?:cad|usd)?\s*\$?(\d[\d,]*(?:\.\d+)?)/,
+        ),
+      )
+      .find((value) => value !== null) ??
     previous?.budgetMax ??
     null;
-  const iso =
-    /20\d\d-\d\d-\d\d(?:t\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:z|[+-]\d\d:\d\d))?/i.exec(
-      text,
-    )?.[0];
   let deadline = previous?.deadline ?? null;
   try {
     new Intl.DateTimeFormat("en", { timeZone: input.timeZone });
-    if (iso) {
-      deadline = new Date(
-        iso.includes("t") ? iso : `${iso}T23:59:59.000Z`,
-      ).toISOString();
-    } else {
-      deadline =
-        relativeDeadline(text, input.requestedAt, input.timeZone) ?? deadline;
+    for (const source of sources) {
+      const iso =
+        /20\d\d-\d\d-\d\d(?:t\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:z|[+-]\d\d:\d\d))?/i.exec(
+          source,
+        )?.[0];
+      if (iso) {
+        const calendarDate = iso.slice(0, 10);
+        if (
+          new Date(`${calendarDate}T00:00:00.000Z`)
+            .toISOString()
+            .slice(0, 10) !== calendarDate
+        )
+          throw new RangeError("Invalid calendar date");
+        deadline = new Date(
+          iso.includes("t") ? iso : `${iso}T23:59:59.000Z`,
+        ).toISOString();
+        break;
+      }
+      const relative = relativeDeadline(
+        source,
+        input.requestedAt,
+        input.timeZone,
+      );
+      if (relative !== null) {
+        deadline = relative;
+        break;
+      }
     }
   } catch {
     ambiguityFlags.push({
@@ -119,12 +175,14 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       question: "What is the delivery date and IANA time zone?",
     });
   }
-  const currency = /\busd\b/.test(text)
+  const currencySource =
+    sources.find((source) => /\b(?:usd|cad)\b/.test(source)) ?? "";
+  const currency = /\busd\b/.test(currencySource)
     ? "USD"
-    : /\bcad\b/.test(text)
+    : /\bcad\b/.test(currencySource)
       ? "CAD"
       : (previous?.currency ?? null);
-  if (/\busd\b/.test(text) && /\bcad\b/.test(text)) {
+  if (/\busd\b/.test(currencySource) && /\bcad\b/.test(currencySource)) {
     ambiguityFlags.push({
       field: "currency",
       reason: "conflicting currencies",
@@ -223,6 +281,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       .at(-1);
     if (
       prefix &&
+      !materials.some((material) => material === prefix) &&
       !/^(?:\d[\d,]*|a|an|the|some|make|need|want|of|with|on|onto|for|to|per|include|including|black|white|red|blue|green|cotton|polyester|leather|steel|glass|vegan|premium|embroidered|engraved|printed|named)$/.test(
         prefix,
       )
@@ -251,8 +310,42 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       };
       desiredOutputs.push(output);
     }
+    if (product === "phone case") {
+      const model =
+        /\b(?:iphone|pixel|galaxy)\s+\d+(?:\s+(?:pro|max|plus|mini)){0,2}\b/.exec(
+          text,
+        )?.[0];
+      if (model)
+        output.attributes = [
+          ...output.attributes.filter(
+            (attribute) => attribute.name !== "deviceModel",
+          ),
+          { name: "deviceModel", value: model },
+        ];
+      else
+        ambiguityFlags.push({
+          field: "phone case.deviceModel",
+          reason: "Device model is required",
+          question: "Which phone model must the case fit?",
+        });
+    }
+    if (product === "enclosure") {
+      const dimensions = /(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)\s*mm\b/.exec(
+        text,
+      );
+      if (dimensions)
+        for (const [index, name] of [
+          "widthMm",
+          "depthMm",
+          "heightMm",
+        ].entries())
+          output.attributes.push({
+            name,
+            value: Number(dimensions[index + 1]),
+          });
+    }
     const componentQuantity = numericMatch(
-      text,
+      quantitySource ?? text,
       new RegExp(
         `(\\d[\\d,]*)\\s+(?:black\\s+|vegan\\s+|cotton\\s+)?${pattern}\\b`,
       ),
@@ -263,13 +356,18 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       ["material", materials],
       ["diet", ["vegan"]],
     ] as const) {
-      const value = values.find((value) =>
-        new RegExp(
-          `\\b${value}\\s+(?:(?:cotton|polyester|leather|stainless steel|glass|black|white|red|blue|green|vegan|premium|embroidered|engraved|printed)\\s+){0,3}${pattern}\\b`,
-        ).test(text),
-      );
+      const match = sources.flatMap((source) =>
+        values
+          .filter((value) =>
+            new RegExp(
+              `\\b${value}\\s+(?:(?:cotton|polyester|leather|stainless steel|glass|black|white|red|blue|green|vegan|premium|embroidered|engraved|printed)\\s+){0,3}${pattern}\\b`,
+            ).test(source),
+          )
+          .map((value) => ({ value, source })),
+      )[0];
+      const value = match?.value;
       if (value && !new RegExp(`\\b(?:no|without)\\s+${value}\\b`).test(text)) {
-        const clause = text
+        const clause = match.source
           .split(sentenceBoundary)
           .flatMap((sentence) => sentence.split(/,|\band\b|\bbut\b/))
           .find(
@@ -353,6 +451,11 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     outputKeys: t.outputRefs,
   }));
   for (const [trigger, kind, result] of operations) {
+    if (
+      kind === "printing" &&
+      /\b(?:uv|screen|digital|pad|3d)[ _-]print/.test(text)
+    )
+      continue;
     const operationSegments = segments.filter(
       (segment) =>
         trigger.test(segment) ||
@@ -394,16 +497,30 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
           kind === "engraving" && /\b(?:named|names?)\b/.test(text)
             ? "Engrave individual names"
             : `${kind} using supplied artwork`,
-        inputKeys: [output.key],
+        inputKeys: [
+          transformations
+            .filter(
+              (t) =>
+                t.key === output.key ||
+                t.outputKeys.some((ref) => ref.endsWith(`-${output.key}`)),
+            )
+            .at(-1)?.outputKeys[0] ?? output.key,
+        ],
         outputKeys: [`${result}-${output.key}`],
       });
     }
   }
   const finalRef = (key: string): string => {
-    const transformation = transformations.find((t) =>
-      t.inputKeys.includes(key),
-    );
-    return transformation?.outputKeys[0] ?? key;
+    const seen = new Set<string>();
+    while (!seen.has(key)) {
+      seen.add(key);
+      const transformation = transformations.find(
+        (t) => t.inputKeys.length === 1 && t.inputKeys.includes(key),
+      );
+      if (!transformation?.outputKeys[0]) break;
+      key = transformation.outputKeys[0];
+    }
+    return key;
   };
   if (
     (hasKit && desiredOutputs.some((o) => o.key !== "kit")) ||

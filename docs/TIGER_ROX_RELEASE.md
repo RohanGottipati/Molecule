@@ -33,6 +33,14 @@ chaos and reset adapters. Search honors exclusions immediately, before chaos is
 persisted. Search returns eligible candidates only; `listMerchants()` includes
 blocked capabilities and their reasons for the marketplace read model.
 
+Both reads exclude rows marked `merchants.is_placeholder`. Migration
+`014_merchant_placeholders.sql` classifies the `m-unresolved` ingestion holding
+row without changing its unknown operational status or its artifacts. This also
+keeps it out of merchant-agent initialization, which consumes `listMerchants()`.
+Genuine merchants remain visible with unknown/offline status or no capabilities.
+Entity resolution links artifacts to a real merchant; it does not promote the
+shared placeholder into a supplier.
+
 Candidates are proposals, never certified plans. Each capability includes resolved
 source claim IDs, remaining capacity after active holds, and p50/p95/p99 historical
 risk. Unknown/conflicted prices or capacity do not pass search. Scoped fields such
@@ -90,11 +98,11 @@ releases demo holds, and reverts demo chaos. It preserves other merchants and
 retains the event/raw-artifact audit trail. Reset emits an event rather than
 deleting historical metrics.
 
-The plain PostgreSQL path requires PostgreSQL 16 with `pgcrypto` available.
-TimescaleDB, Timescale Toolkit, and pgvector are attempted independently. Their
-availability and errors are queryable; absence does not prevent local operation.
-Timescale installations retain hypertables and continuous aggregate policies;
-plain PostgreSQL uses equivalent ordinary tables/views and percentile queries.
+The current migration set requires TimescaleDB and pgvector: bulk-commerce and
+Rox-ingestion migrations use their functions/types directly. Use the CI image
+`timescale/timescaledb:2.22.0-pg16` for local acceptance. The older core migrations
+have plain PostgreSQL fallbacks, but those do not cover the later bulk/Rox schema.
+Extension availability and errors are queryable through `getDatabaseFeatures`.
 Candidate search is currently **lexical** on both paths, including when pgvector
 is installed. No embedding provider is called.
 

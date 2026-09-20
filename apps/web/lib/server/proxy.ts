@@ -1,9 +1,16 @@
-import { MAX_CONTEXT_BYTES } from "@molecule/contracts";
+import {
+  ActionStatusQuerySchema,
+  MAX_CONTEXT_BYTES,
+  MessageHistoryQuerySchema,
+  ProjectListQuerySchema,
+} from "@molecule/contracts";
 
 const readPaths = [
+  /^catalog\/recipes$/,
   /^marketplace$/,
   /^desktop\/config$/,
-  /^orders\/[^/]+(?:\/events)?$/,
+  /^orders\/[^/]+(?:\/(?:events|messages|actions|capabilities))?$/,
+  /^projects$/,
   /^projects\/[^/]+$/,
 ];
 const writePaths = [
@@ -11,6 +18,7 @@ const writePaths = [
   /^orders\/[^/]+\/(?:messages|approve)$/,
   /^projects\/[^/]+\/(?:context|actions)$/,
   /^chaos$/,
+  /^demo\/reset$/,
 ];
 
 function failure(status: number, message: string) {
@@ -60,6 +68,21 @@ export async function proxyRequest(
     return failure(503, "Invalid service configuration");
   target.pathname = `/api/${path}`;
   target.search = "";
+  const query = new URL(request.url).searchParams;
+  const readQuery =
+    path === "projects"
+      ? ProjectListQuerySchema
+      : /^orders\/[^/]+\/messages$/.test(path)
+        ? MessageHistoryQuerySchema
+        : /^orders\/[^/]+\/actions$/.test(path)
+          ? ActionStatusQuerySchema
+          : null;
+  if (request.method === "GET" && readQuery) {
+    const parsed = readQuery.safeParse(Object.fromEntries(query));
+    if (!parsed.success) return failure(400, "Invalid read query");
+    for (const [name, value] of Object.entries(parsed.data))
+      if (value !== undefined) target.searchParams.set(name, String(value));
+  }
   const headers = new Headers();
   for (const name of [
     "content-type",

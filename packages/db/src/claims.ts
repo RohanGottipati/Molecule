@@ -99,6 +99,20 @@ export async function listMerchantClaims(
   return rows.rows.map(rowToClaim);
 }
 
+export async function listClaimsForMerchants(
+  merchantIds: string[],
+  client: DbClient = getPool(),
+): Promise<CanonicalClaim[]> {
+  if (!merchantIds.length) return [];
+  const rows = await client.query<ClaimRow>(
+    `select * from canonical_claims
+     where merchant_id=any($1::text[])
+     order by merchant_id,field,claim_id`,
+    [merchantIds],
+  );
+  return rows.rows.map(rowToClaim);
+}
+
 export async function setClaimStatus(
   claimId: string,
   status: CanonicalClaim["resolutionStatus"],

@@ -51,7 +51,18 @@ class DurableShopifyClient implements ShopifyClient {
     const plan = validatedPlan(input, traceId);
     if (this.effects instanceof RealShopifyEffects)
       this.effects.assertEnabled();
-    for (const node of plan.nodes) this.effects.supplierDomain(node.merchantId);
+    for (const node of plan.nodes) {
+      const domain = this.effects.supplierDomain(node.merchantId);
+      if (node.catalogVersion && this.effects instanceof RealShopifyEffects) {
+        if (
+          !node.selectedItem ||
+          node.selectedItem.shopDomain !== domain ||
+          (node.selectedItem.itemKind === "physical" &&
+            !node.selectedItem.variantGid)
+        )
+          throw new ShopifyError("CATALOG_VARIANT_NOT_MAPPED");
+      }
+    }
     const instructions = new Map<string, string>();
     for (const node of plan.nodes) {
       const parsed = z
@@ -86,7 +97,14 @@ class DurableShopifyClient implements ShopifyClient {
       const existing = state.plans[key];
       if (existing && existing.fingerprint !== fingerprint)
         throw new ShopifyError("PLAN_ID_REUSED");
-      if (existing?.superseded) throw new ShopifyError("PLAN_SUPERSEDED");
+      if (
+        existing?.superseded ||
+        (existing &&
+          previousPlan &&
+          previousPlan.plan.planId !== plan.planId) ||
+        this.hasCancellation(state, plan.planId)
+      )
+        throw new ShopifyError("PLAN_SUPERSEDED");
       if (previousPlan && previousPlan.plan.intentVersion > plan.intentVersion)
         throw new ShopifyError("STALE_PLAN");
       if (previousPlan && previousPlan.plan.planId !== plan.planId) {
@@ -97,6 +115,13 @@ class DurableShopifyClient implements ShopifyClient {
         ) {
           throw new ShopifyError("PREVIOUS_EXECUTION_PENDING");
         }
+        if (
+          Object.values(state.plans).some(
+            (old) =>
+              !old.superseded && this.hasCancellation(state, old.plan.planId),
+          )
+        )
+          throw new ShopifyError("PLAN_CANCELLATION_INCOMPLETE");
       }
       if (!existing)
         state.plans[key] = {
@@ -151,8 +176,20 @@ class DurableShopifyClient implements ShopifyClient {
       for (const old of Object.values(state.plans)) {
         if (old.plan.planId === plan.planId || old.superseded) continue;
         for (const node of old.plan.nodes) {
-          const previous = state.actions[this.jobKey(old.plan, node.nodeId)];
+          const previous = this.previousJob(state, old, node.nodeId);
           if (!previous?.resource || previous.receipt.status !== "SUCCEEDED")
+            continue;
+          if (
+            Object.values(state.actions).some(
+              (action) =>
+                action.receipt.kind === "SUPERSEDE_SUPPLIER_JOB" &&
+                action.receipt.status === "SUCCEEDED" &&
+                action.effect.attributes.molecule_superseded_by !==
+                  plan.planId &&
+                action.resource?.id === previous.resource?.id &&
+                action.resource?.domain === previous.resource?.domain,
+            )
+          )
             continue;
           const replacement = plan.nodes.find(
             (item) => item.nodeId === node.nodeId,
@@ -242,7 +279,18 @@ class DurableShopifyClient implements ShopifyClient {
           planId: plan.planId,
           nodeId: node.nodeId,
           merchantId: node.merchantId,
-          title: `${node.quantity} × ${node.capabilityId} (complete job)`,
+          title: `${node.quantity} × ${node.selectedItem?.sku ?? node.capabilityId}`,
+          ...(node.selectedItem
+            ? {
+                quantity: node.quantity,
+                unitAmount: node.unitCost,
+                sku: node.selectedItem.sku,
+                ...(node.selectedItem.itemKind === "physical" &&
+                node.selectedItem.variantGid
+                  ? { variantId: node.selectedItem.variantGid }
+                  : {}),
+              }
+            : {}),
           amount: node.totalCost,
           currency: plan.currency,
           attributes: {
@@ -251,6 +299,18 @@ class DurableShopifyClient implements ShopifyClient {
             molecule_merchant_id: node.merchantId,
             molecule_capability_id: node.capabilityId,
             molecule_quantity: String(node.quantity),
+            ...(node.selectedItem
+              ? {
+                  molecule_sku: node.selectedItem.sku,
+                  molecule_binding_id: node.selectedItem.bindingId,
+                  molecule_catalog_version: node.catalogVersion ?? "",
+                  molecule_variant_id: node.selectedItem.variantId,
+                  molecule_assets: JSON.stringify(
+                    node.customizationAssets ?? [],
+                  ),
+                  molecule_synthetic: String(node.synthetic ?? false),
+                }
+              : {}),
             molecule_upstream_nodes: plan.edges
               .filter((edge) => edge.toNodeId === node.nodeId)
               .map((edge) => edge.fromNodeId)
@@ -338,17 +398,20 @@ class DurableShopifyClient implements ShopifyClient {
       this.checkState(state);
       const old = state.plans[digest(planId)];
       if (!old) throw new ShopifyError("PLAN_NOT_FOUND");
+      if (state.targetPlanId !== planId)
+        throw new ShopifyError("PLAN_SUPERSEDED");
       if (
         Object.values(state.actions).some(
           (action) =>
-            action.effect.planId === planId &&
-            action.receipt.status === "PENDING",
+            action.receipt.status === "PENDING" &&
+            !this.isCancellation(action, planId),
+        ) ||
+        Object.values(state.plans).some(
+          (previous) => previous.plan.planId !== planId && !previous.superseded,
         )
       ) {
         throw new ShopifyError("PREVIOUS_EXECUTION_PENDING");
       }
-      if (old.superseded && state.targetPlanId !== planId)
-        throw new ShopifyError("PLAN_SUPERSEDED");
       const receipt: ExecutionReceipt = {
         orderId,
         planId,
@@ -357,7 +420,7 @@ class DurableShopifyClient implements ShopifyClient {
         supplierJobs: [],
       };
       for (const node of old.plan.nodes) {
-        const previous = state.actions[this.jobKey(old.plan, node.nodeId)];
+        const previous = this.previousJob(state, old, node.nodeId);
         if (previous?.receipt.status === "PENDING")
           throw new ShopifyError("PREVIOUS_EXECUTION_PENDING");
         if (!previous?.resource) continue;
@@ -396,6 +459,37 @@ class DurableShopifyClient implements ShopifyClient {
 
   private jobKey(plan: ProductionPlan, nodeId: string): string {
     return actionKey("supplier-job", plan.orderId, plan.planId, nodeId);
+  }
+
+  private isCancellation(action: ActionRecord, planId: string): boolean {
+    return (
+      action.receipt.kind === "SUPERSEDE_SUPPLIER_JOB" &&
+      action.effect.attributes.molecule_superseded_by === `cancel:${planId}`
+    );
+  }
+
+  private hasCancellation(state: ShopifyOrderState, planId: string): boolean {
+    return Object.values(state.actions).some((action) =>
+      this.isCancellation(action, planId),
+    );
+  }
+
+  private previousJob(
+    state: ShopifyOrderState,
+    old: ShopifyOrderState["plans"][string],
+    nodeId: string,
+  ): ActionRecord | undefined {
+    const previous = state.actions[this.jobKey(old.plan, nodeId)];
+    if (previous?.resource) return previous;
+    const inherited = old.reusedJobs[digest(nodeId)];
+    if (!inherited) return previous;
+    return Object.values(state.actions).find(
+      (action) =>
+        action.receipt.kind === "SUPPLIER_JOB" &&
+        action.receipt.status === "SUCCEEDED" &&
+        action.resource?.id === inherited.id &&
+        action.resource.domain === inherited.domain,
+    );
   }
 
   private latestResource(

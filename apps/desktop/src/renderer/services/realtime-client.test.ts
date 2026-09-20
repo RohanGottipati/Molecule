@@ -139,6 +139,271 @@ describe("voice state machine and level processing", () => {
 });
 
 describe("Realtime lifecycle without paid calls", () => {
+  it("clears archived voice turns when selecting another project", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Private project A",
+    });
+    client.stop();
+    await client.start();
+    channel.open();
+    expect(client.getSnapshot().history).toMatchObject([
+      { speaker: "You", text: "Private project A" },
+    ]);
+    client.resetProject();
+    expect(client.getSnapshot()).toMatchObject({
+      state: "idle",
+      transcript: "",
+      response: "",
+      history: [],
+    });
+  });
+  it("does not replay another project's cached tool result when call IDs collide", async () => {
+    const { client, channel, execute } = fixture();
+    const call = {
+      type: "response.function_call_arguments.done",
+      call_id: "same",
+      name: "get_project_status",
+      arguments: "{}",
+    };
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Check the project status",
+    });
+    channel.emit(call);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    client.resetProject();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Check the project status",
+    });
+    channel.emit(call);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+    expect(execute.mock.calls[0]).not.toEqual(execute.mock.calls[1]);
+    client.stop();
+  });
+  it("clears project content but preserves same-project stop history and ignores old channel callbacks", async () => {
+    const { client, channel, execute } = fixture();
+    await client.start();
+    channel.open();
+    const oldCallback = channel.onmessage!;
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Private project A",
+    });
+    channel.emit({ type: "response.created", response: { id: "A" } });
+    channel.emit({
+      type: "response.output_audio_transcript.delta",
+      response_id: "A",
+      delta: "Project A response",
+    });
+    client.stop();
+    expect(client.getSnapshot()).toMatchObject({
+      transcript: "Private project A",
+      response: "Project A response",
+      state: "idle",
+    });
+    client.resetProject();
+    expect(client.getSnapshot()).toMatchObject({
+      transcript: "",
+      response: "",
+      state: "idle",
+    });
+    await client.start();
+    channel.open();
+    for (const event of [
+      {
+        type: "conversation.item.input_audio_transcription.completed",
+        transcript: "Late project A",
+      },
+      {
+        type: "response.output_audio_transcript.delta",
+        response_id: "A",
+        delta: "Late A",
+      },
+      {
+        type: "response.function_call_arguments.done",
+        call_id: "old",
+        name: "cancel_project",
+        arguments: "{}",
+      },
+    ])
+      oldCallback({ data: JSON.stringify(event) });
+    expect(client.getSnapshot()).toMatchObject({
+      transcript: "",
+      response: "",
+      state: "listening",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    client.stop();
+  });
+  it("samples the transmitted stream without notifying React and releases every meter resource", async () => {
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    let amplitude = 0.08;
+    const analyser = {
+      fftSize: 256,
+      getFloatTimeDomainData: (samples: Float32Array) =>
+        samples.fill(amplitude),
+      disconnect: vi.fn(),
+    };
+    const context = {
+      state: "suspended",
+      resume: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      createMediaStreamSource: vi.fn((_stream: MediaStream) => source),
+      createAnalyser: () => analyser,
+    };
+    const { client, channel, peer, track } = fixture({
+      createAudioContext: () => context as unknown as AudioContext,
+    });
+    let frame!: FrameRequestCallback;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        frame = callback;
+        return 1;
+      }),
+    );
+    await client.start();
+    channel.open();
+    const render = vi.fn();
+    const level = vi.fn();
+    const unsubscribe = client.subscribe(render);
+    const unmeter = client.subscribeLevel(level);
+    frame(16);
+    expect(client.getLevel()).toBeGreaterThan(0);
+    amplitude = 0.5;
+    frame(32);
+    expect(client.getLevel()).toBeGreaterThan(0);
+    amplitude = 0;
+    for (let index = 0; index < 100; index++) frame(48 + index);
+    expect(client.getLevel()).toBe(0);
+    expect(render).not.toHaveBeenCalled();
+    expect(context.createMediaStreamSource.mock.calls[0]?.[0]).toBe(
+      peer.addTrack.mock.calls[0]?.[1],
+    );
+    expect(context.resume).toHaveBeenCalledOnce();
+    amplitude = 0.1;
+    frame(64);
+    client.mute(true);
+    expect(client.getLevel()).toBe(0);
+    frame(80);
+    expect(client.getLevel()).toBe(0);
+    client.stop();
+    expect(source.disconnect).toHaveBeenCalledOnce();
+    expect(analyser.disconnect).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+    const count = level.mock.calls.length;
+    frame(96);
+    expect(level).toHaveBeenCalledTimes(count);
+    unsubscribe();
+    unmeter();
+  });
+  it("keeps speech attention and transcripts on the latest input item", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "first",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "first",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "second",
+    });
+    channel.emit({ type: "response.created", response: { id: "late" } });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "first",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "first",
+      transcript: "Old request",
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      state: "speech_detected",
+      transcript: "",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "second",
+      delta: "Current request",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "second",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "second",
+      transcript: "Current request",
+    });
+    channel.emit({ type: "response.created", response: { id: "current" } });
+    channel.emit({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant",
+      response_id: "current",
+      delta: "Understood",
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      state: "processing",
+      transcript: "Current request",
+      response: "Understood",
+    });
+    client.stop();
+  });
+  it("bounds reconnects even when each unstable connection briefly opens", async () => {
+    vi.useFakeTimers();
+    const { client, channel } = fixture();
+    await client.start();
+    for (const delay of [500, 1000, 2000]) {
+      channel.open();
+      channel.onclose?.();
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+    channel.open();
+    channel.onclose?.();
+    expect(client.getSnapshot().state).toBe("error");
+    expect(client.getLevel()).toBe(0);
+    client.stop();
+  });
+  it("releases captured audio when backend setup stalls and ignores its late result", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: ReturnType<typeof projectResult>) => void;
+    const refresh = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof projectResult>>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const createSession = vi.fn(async () => ({ value: "unused" }));
+    const { client, track } = fixture({ refresh, createSession });
+    const starting = client.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refresh).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(client.getSnapshot().state).toBe("reconnecting");
+    client.stop();
+    finish(projectResult());
+    await starting;
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
   it("waits for all tool outputs and response.done before one continuation", async () => {
     const finishes: Array<(value: ReturnType<typeof projectResult>) => void> =
       [];

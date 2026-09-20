@@ -32,6 +32,7 @@ export interface VoiceSnapshot {
   response: string;
   error: string | null;
   errorCode: VoiceErrorCode | null;
+  history: { id: string; speaker: "You" | "Molecule"; text: string }[];
 }
 
 export type VoiceStateEvent =
@@ -237,6 +238,7 @@ export class RealtimeClient {
     response: "",
     error: null,
     errorCode: null,
+    history: [],
   };
   private readonly listeners = new Set<() => void>();
   private peer?: RTCPeerConnection;
@@ -267,6 +269,10 @@ export class RealtimeClient {
   private generation = 0;
   private reconnects = 0;
   private turn = 0;
+  private toolScope = "";
+  private responseFinished = false;
+  private stableTimer?: ReturnType<typeof setTimeout>;
+  private readonly levelListeners = new Set<(level: number) => void>();
   private activeInputItem?: string;
   private activeResponse?: string;
   private transcriptStatus: "none" | "pending" | "final" | "failed" = "none";
@@ -281,6 +287,43 @@ export class RealtimeClient {
 
   getSnapshot = () => this.snapshot;
   getLevel = () => this.meterLevel;
+  subscribeLevel = (listener: (level: number) => void) => {
+    this.levelListeners.add(listener);
+    listener(this.meterLevel);
+    return () => {
+      this.levelListeners.delete(listener);
+    };
+  };
+  private setLevel(level: number) {
+    this.meterLevel = level;
+    for (const listener of this.levelListeners) listener(level);
+  }
+  private archiveTurn() {
+    const history = [...this.snapshot.history];
+    if (this.snapshot.transcript)
+      history.push({
+        id: crypto.randomUUID(),
+        speaker: "You",
+        text: this.snapshot.transcript,
+      });
+    if (this.snapshot.response)
+      history.push({
+        id: crypto.randomUUID(),
+        speaker: "Molecule",
+        text: this.snapshot.response,
+      });
+    this.patch({ history: history.slice(-12), transcript: "", response: "" });
+  }
+  clearConversation() {
+    this.stop();
+    this.patch({ transcript: "", response: "", history: [] });
+  }
+  resetProject() {
+    this.clearConversation();
+    this.toolScope = `${crypto.randomUUID()}:`;
+    this.interrupted.clear();
+    this.answered.clear();
+  }
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -354,6 +397,7 @@ export class RealtimeClient {
 
   start(): Promise<void> {
     if (this.wanted) return this.startTask ?? Promise.resolve();
+    this.archiveTurn();
     this.wanted = true;
     const generation = ++this.generation;
     const previous = this.startTask;
@@ -486,6 +530,9 @@ export class RealtimeClient {
         };
       });
       this.listenForDeviceChanges(media, generation);
+      this.connectTimer = setTimeout(() => {
+        if (this.isCurrent(generation)) this.reconnect();
+      }, 30_000);
       phase = "meter";
       await this.startMeter(microphone, generation);
       if (!this.isCurrent(generation)) return;
@@ -515,7 +562,7 @@ export class RealtimeClient {
         return;
       }
       const audio = this.deps.createAudio?.() ?? new Audio();
-      audio.autoplay = true;
+      audio.autoplay = false;
       audio.muted = true;
       this.audio = audio;
       peer.ontrack = (event) => {
@@ -531,7 +578,9 @@ export class RealtimeClient {
         if (!this.isCurrent(generation) || !this.microphone) return;
         clearTimeout(this.connectTimer);
         this.connectTimer = undefined;
-        this.reconnects = 0;
+        this.stableTimer = setTimeout(() => {
+          if (this.isCurrent(generation)) this.reconnects = 0;
+        }, 10_000);
         this.transition("connected", { error: null, errorCode: null });
         this.context(context);
       };
@@ -578,11 +627,13 @@ export class RealtimeClient {
       if (!this.isCurrent(generation)) return;
       await peer.setRemoteDescription({ type: "answer", sdp });
       if (!this.isCurrent(generation)) return;
-      if (channel.readyState !== "open")
+      if (channel.readyState !== "open") {
+        clearTimeout(this.connectTimer);
         this.connectTimer = setTimeout(() => {
           this.connectTimer = undefined;
           if (this.isCurrent(generation)) this.reconnect();
         }, 15_000);
+      }
     } catch (error) {
       if (!this.isCurrent(generation)) return;
       if (phase === "capture") {
@@ -719,7 +770,7 @@ export class RealtimeClient {
         for (const value of samples) sum += value * value;
         const rms = Math.sqrt(sum / samples.length);
         const result = this.levelProcessor.sample(rms, this.snapshot.muted);
-        this.meterLevel = this.snapshot.muted ? 0 : result.level;
+        this.setLevel(this.snapshot.muted ? 0 : result.level);
         if (result.speech && this.snapshot.state === "speaking")
           this.interruptForBargeIn();
         this.frame = requestAnimationFrame(sample);
@@ -780,13 +831,18 @@ export class RealtimeClient {
       this.interrupted.add(this.activeResponse);
       if (this.interrupted.size > 1000)
         this.interrupted.delete(this.interrupted.values().next().value!);
-      this.send({ type: "response.cancel", response_id: this.activeResponse });
+      if (!this.responseFinished)
+        this.send({
+          type: "response.cancel",
+          response_id: this.activeResponse,
+        });
     }
     this.send({ type: "output_audio_buffer.clear" });
     this.activeResponse = undefined;
   }
 
   private beginSpeech(itemId?: string) {
+    this.archiveTurn();
     this.turn += 1;
     this.activeInputItem = itemId;
     clearTimeout(this.speechTimer);
@@ -846,7 +902,7 @@ export class RealtimeClient {
     this.microphone?.getAudioTracks().forEach((track) => {
       track.enabled = !muted;
     });
-    if (muted) this.meterLevel = 0;
+    if (muted) this.setLevel(0);
     this.patch({ muted });
   }
 
@@ -1006,7 +1062,7 @@ export class RealtimeClient {
       );
       try {
         output = await this.deps.tools.run(
-          call.callId,
+          `${this.toolScope}${call.callId}`,
           call.name,
           call.argumentsJson,
         );
@@ -1180,6 +1236,7 @@ export class RealtimeClient {
           (event.response.metadata?.voice_turn !== undefined &&
             event.response.metadata.voice_turn !== String(this.turn)) ||
           this.transcriptStatus === "failed" ||
+          this.snapshot.state === "speech_detected" ||
           (this.transcriptStatus === "final" && !this.transcriptAccepted)
         ) {
           this.interrupted.add(event.response.id);
@@ -1190,6 +1247,7 @@ export class RealtimeClient {
           return;
         }
         this.activeResponse = event.response.id;
+        this.responseFinished = false;
         this.watchResponse();
         this.transition("response_created", {
           response: "",
@@ -1250,6 +1308,7 @@ export class RealtimeClient {
         event.type === "response.done" &&
         this.responseIsCurrent(responseId, generation)
       ) {
+        this.responseFinished = true;
         const group = responseId
           ? this.runningTools.get(responseId)
           : undefined;
@@ -1289,6 +1348,7 @@ export class RealtimeClient {
 
   private release() {
     clearTimeout(this.connectTimer);
+    clearTimeout(this.stableTimer);
     clearTimeout(this.speechTimer);
     clearTimeout(this.transcriptTimer);
     clearTimeout(this.responseTimer);
@@ -1299,7 +1359,7 @@ export class RealtimeClient {
     this.controller = undefined;
     if (this.frame !== undefined) cancelAnimationFrame(this.frame);
     this.frame = undefined;
-    this.meterLevel = 0;
+    this.setLevel(0);
     this.levelProcessor.reset();
     try {
       this.meterSource?.disconnect();

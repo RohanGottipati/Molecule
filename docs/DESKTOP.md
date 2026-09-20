@@ -24,13 +24,15 @@ DEMO_MODE=true pnpm --filter @molecule/orchestrator dev
 pnpm --filter @molecule/desktop dev
 ```
 
-The desktop launches hidden. Press **Option+Space**; the fallback is **Command+Shift+M**. The web app is optional until opening Command Center:
+The desktop launches hidden. Press **Shift+Escape**; the fallback is **Command+Shift+M**. The web app is optional until opening Command Center:
 
 ```bash
 pnpm --filter @molecule/web dev
 ```
 
-Settings and the menu-bar item provide alternate ways to open the overlay. Escape hides it. **Option+Shift+Space toggles conversation**; Electron `globalShortcut` does not provide reliable key-up events, so this is not hold-to-talk.
+Settings and the menu-bar item provide alternate ways to open the overlay. The activation shortcut focuses a visible dock when another app has focus; invoking it again while Molecule is focused hides it. **Option+Shift+Space toggles voice**; Electron `globalShortcut` does not provide reliable key-up events, so this is not hold-to-talk.
+
+The compact dock includes the primary input, voice, attachment, send, and expand controls. **Enter sends**, **Shift+Enter inserts a newline**, and Ctrl/Command+Enter also sends. Escape closes the screen picker or settings first, then collapses the conversation, then hides the dock. Collapsing retains the draft, staged context, transcript, and active voice connection; hiding releases microphone resources. The conversation scrolls independently above the input. Command Center opens the same project.
 
 Environment files are not automatically loaded by the orchestrator. Export server variables in its terminal or use a Node environment-file launcher with your private environment file. Do not export server credentials into the desktop terminal. Empty secret placeholders in `.env.example` must be omitted rather than supplied as empty values.
 
@@ -88,23 +90,31 @@ Desktop calls use shared Zod schemas from `@molecule/contracts`:
 
 The generic action endpoint replaces separate constraint/recompile/approval routes. Its bounded commands are `start_project`, `add_constraint`, `remove_constraint`, `attach_context`, `get_project_status`, `get_active_plan`, `explain_decision`, `request_recompile`, `approve_action`, `cancel_project`, and `open_command_center`. Status/plan/explanation tools return the same authoritative snapshot, including public quote and constraint explanations.
 
-Realtime call IDs map to `voice:{callId}`; transport retries retain action IDs. The backend coalesces in-flight calls and persists receipts. Different arguments under one ID fail. A pending receipt surviving a server crash is an unknown outcome and is not executed again automatically: refresh first. This prevents blind duplication; it is not a claim of distributed transactional exactly-once delivery.
+Realtime call IDs include a project-selection scope before mapping to `voice:{scopedCallId}`; transport retries retain action IDs and the originally observed revision. Switching projects clears voice history and replaces the scope so cached results cannot cross projects. The backend coalesces in-flight calls and persists receipts. Different arguments under one ID fail. A pending receipt surviving a server crash is an unknown outcome and is not executed again automatically: refresh first. This prevents blind duplication; it is not a claim of distributed transactional exactly-once delivery.
 
 ## Voice, context, and interruption
 
-The backend configures the editable desktop instructions in `packages/openai/src/prompts/desktopVoice.ts`. The renderer sends SDP to OpenAI's current `/v1/realtime/calls` WebRTC endpoint using only the short-lived credential minted by `/v1/realtime/client_secrets`. Audio goes directly between the renderer and OpenAI. Once connected, the explicitly started conversation stays ready between turns until Stop, hide, project change, text submission, or teardown. Semantic VAD uses low eagerness so ordinary mid-sentence pauses remain in one turn; an unended turn is bounded at one minute.
+The backend configures the editable desktop instructions in `packages/openai/src/prompts/desktopVoice.ts`. The renderer sends SDP to OpenAI's current `/v1/realtime/calls` WebRTC endpoint using only the short-lived credential minted by `/v1/realtime/client_secrets`. Audio goes directly between the renderer and OpenAI. Once connected, the explicitly started conversation stays ready between turns until Stop, hide, project change, or teardown. Semantic VAD uses low eagerness so ordinary mid-sentence pauses remain in one turn; an unended turn is bounded at one minute.
 
-Speech-start events, local microphone energy during playback, and the Stop response control mute/pause local audio immediately, send `response.cancel`, and clear `output_audio_buffer`. Partial transcription is display-only. A backend tool can run only after the matching `item_id` has a non-empty committed transcript; duplicate call IDs, older utterance events, interrupted responses, and late session callbacks are ignored. Already-running backend work is reconciled through versioned corrections. A constraint spoken during the first compilation waits for the initial intent, then changes backend state and invokes the solver again.
+Speech-start events, local microphone energy during playback, and the Interrupt control mute/pause local audio immediately, send `response.cancel`, and clear `output_audio_buffer`. Partial transcription is display-only. A backend tool can run only after the matching `item_id` has a non-empty committed transcript; duplicate call IDs, older utterance events, interrupted responses, and late session callbacks are ignored. Already-running backend work is reconciled through versioned corrections. A constraint spoken during the first compilation waits for the initial intent, then changes backend state and invokes the solver again.
 
 The Dock's `VoiceBeam` reads a normalized real microphone level through a getter, without React updates per animation frame or a second capture stream. The local analyser applies an adaptive noise floor, fast attack, slower release, and soft saturation before the beam's final envelope. Listening and processing use distinct beam behavior; idle and stopped sessions return to zero.
 
-Mute disables microphone tracks. Stop, hide, project switch, text submission, and lifecycle teardown close WebRTC, stop tracks, disconnect analyser nodes, cancel animation frames and timers, remove device listeners, close the audio context, and release playback. Hiding does not cancel backend orchestration.
+Mute disables microphone tracks. Stop, hide, project switch, and lifecycle teardown close WebRTC, stop tracks, disconnect analyser nodes, cancel animation frames and timers, remove device listeners, close the audio context, and release playback. Hiding does not cancel backend orchestration.
+
+`voice-glow@0.2.0` runs on the existing React 19.3.0 runtime. `VoiceBeam` wraps `MoleculeInput` with exactly `level={() => yourLevel}` and no other props. The existing transmitted microphone stream feeds one analyser: RMS is normalized to `[0, 1]` and delivered through `RealtimeClient.subscribeLevel`, separately from the React state subscription. There is no second capture pipeline or assistant-output meter.
+
+VoiceBeam's published defaults include breathing at zero. The input therefore hides its decorative layers through the package's documented opacity CSS variables when measured level is below 0.015; it does not generate artificial audio. VoiceBeam is unmounted when disconnected/closed, and respects reduced motion while connected. The analyser/source, animation frame, tracks, connection timers, WebRTC peer, and playback are released together. Short repeated connection failures exhaust the retry budget; it resets only after ten stable seconds.
 
 Files: PNG, JPG/JPEG, PDF, CSV, TXT, JSON; 1 byte–10 MB each and at most eight per operation. The backend checks extension/MIME agreement and image/PDF signatures. XLSX is not supported because the existing backend has no parser. Explicit paste accepts text, files, or images; the clipboard is not polled.
 
-Uploaded files pass through the OpenAI adapter and are included in subsequent compiler input. An attachment alone does not change product requirements: say or type “Put this on the hoodie.” Mock mode retains bytes/metadata but does not interpret image or document content.
+Drop, file selection, paste-context, and screen capture stage removable files in the draft. Sending uploads and attaches them before submitting the instruction; sending context alone attaches it to the current project. Only confirmed attachments leave the staging area. Failed or uncertain files remain staged; an explicit retry retains the same action identity and reuses a confirmed upload receipt instead of uploading again. Pending backend receipts still require reconciliation. Switching projects clears the staged files and invalidates pending capture/upload results. Alerts and expansion never clear the draft.
 
-“Share current screen/window” explains the operation, lists sources, and authorizes one chosen source for 30 seconds. The renderer captures one frame, stops all display tracks, and uploads the image through the same context API. It never starts continuous surveillance.
+Uploaded files pass through the OpenAI adapter and are included in subsequent compiler input. An attachment alone does not change product requirements: say or type “Put this on the hoodie.” For voice, send staged context before referring to it. Mock mode retains bytes/metadata but does not interpret image or document content.
+
+Approval stays unavailable while attached context is absent from the current compiled intent. Typed constraint edits alone do not compile new context; submit a brief update first. The backend enforces this for every execution entry point. Attachment, its event, and the project revision commit together, so a racing approval cannot execute the earlier plan. Projects that cannot accept corrections also reject new attachments.
+
+“Share screen or window” explains the operation, lists sources, and authorizes one chosen source for 30 seconds. The renderer captures one frame, stops all display tracks, and stages the image for the same context API. It never starts continuous surveillance.
 
 Official API references used:
 
@@ -187,10 +197,11 @@ Controls are keyboard accessible, statuses include text, and animation respects 
 - Empty or failed transcription never reaches an orchestrator tool and returns to listening with **“Didn’t catch that. Try again.”** or **“Couldn’t transcribe that. Try again.”**
 - Desktop semantic VAD detects turn boundaries with low eagerness. Automatic response creation is disabled: the client requests one response only after a nonempty final transcript. Responses carry the client turn in metadata, so a late response cannot revive a canceled request. This follows the [Realtime conversation controls](https://developers.openai.com/api/docs/guides/realtime-conversations).
 - Transcription has a 15-second deadline after speech ends. Responses have a 45-second watchdog, extended to 120 seconds while backend tools run. A timed-out backend action may still finish; the UI asks users to check project state rather than implying rollback.
-- Stop response discards pending transcription, clears buffered input/output, and suppresses late tool dispatch. Muting during an unfinished utterance also discards that utterance. Concurrent tools return their outputs before a single follow-up response is requested.
+- Interrupt discards pending transcription, clears buffered input/output, and suppresses late tool dispatch. Muting during an unfinished utterance also discards that utterance. Concurrent tools return their outputs before a single follow-up response is requested.
 - Starting voice expands the conversation so permission guidance and transcripts stay visible. Failed text submissions preserve the draft, and successful submissions do not erase a newer edit.
 - Screen: **“Screen context requires Screen Recording permission.”**
 - File: **“That file type isn’t supported yet.”**
+- Clarification: unresolved customer details remain `NEEDS_CLARIFICATION` after constraint changes or recompile requests. The backend persists the questions and intent version without searching merchants or solving. The dock and voice expose those questions; supplying the details through `start_project` lets the compiler resolve them. Direct solver requests with ambiguity flags return the missing-detail explanations and no budget, deadline, or quantity relaxations.
 - UNSAT: **“No valid company can satisfy all current requirements.”** Public solver explanations follow.
 - Cancellation only stops planning before execution. It does not undo completed commerce.
 
@@ -252,7 +263,7 @@ Mock parsing is deliberately limited. The tested deterministic request was:
 
 The mock needs a supported quantity prefix, digits after `under`, explicit currency and an ISO deadline. For example, `200 premium onboarding kits under CAD 7000 ... December 31, 2026` produced clarification rather than a plan. Tote/mug interpretation and visual logo understanding were not certified by this mock run; natural-language voice acceptance requires the real compiler and Realtime.
 
-For macOS mock testing, use `DEMO_MODE=true USE_MOCK_OPENAI=true` and an isolated writable `DATA_DIR` for the orchestrator, and `NEXT_PUBLIC_DEMO_MODE=true` for the web app. If `uv` was installed with the system Python's user pip, add its reported user-bin directory to `PATH`; on the test host it was `$HOME/Library/Python/3.9/bin`. The solver uses the separate Python 3.12 virtual environment.
+For macOS mock testing, use `DEMO_MODE=true USE_MOCK_OPENAI=true` and an isolated writable `DATA_DIR` for the orchestrator. If `uv` was installed with the system Python's user pip, add its reported user-bin directory to `PATH`; on the test host it was `$HOME/Library/Python/3.9/bin`. The solver uses the separate Python 3.12 virtual environment.
 
 The notification follow-up used the same `a2dda05` source in a separately signed copy. Strict deep signature verification passed; native logs confirmed matching bundle identifiers and successful delivery. The automatic authorization callback initially failed; delivery/click passed after the normal app-specific Settings toggle. A transient desktop banner was not separately certified. That follow-up also exposed the solver's null-versus-omitted completion mismatch when both suppliers were exhausted; the HTTP serialization and real-solver regression now cover that case.
 
@@ -287,7 +298,7 @@ This verifies live voice transport, authoritative mutations and lifecycle cleanu
 
 On a Mac with account-supported OpenAI models and the missing real provider integrations connected:
 
-1. Start solver/backend and desktop with no dashboard open. Press Option+Space.
+1. Start solver/backend and desktop with no dashboard open. Press Shift+Escape.
 2. Enable notifications in Settings. Start voice and grant microphone permission.
 3. Say the 200-kit request, explicitly supplying currency and a reachable deadline if asked. Verify transcript, project, and intentional backend events.
 4. Drop a real logo. Confirm its chip; say “Put this on the hoodie.”
@@ -379,3 +390,23 @@ cancellation, speaker audibility, or physical-device barge-in. Those remain
 hands-on checks with the target Mac and audio devices. Web voice remains
 explicitly unavailable in this release; the desktop Dock is the supported
 voice surface.
+
+### Integration with current main
+
+The voice work was merged with main at `2cf5398`, retaining durable project
+selection, scoped tool IDs, conversation history, staged context, and approval
+safeguards. The dark Dock and microphone orb remain, with the beam attached to
+the text/voice composer. The web plan review retains graph, list, and timeline
+views with the same evidence detail panel.
+
+The integrated checkout passed repository formatting, lint, typecheck, all 850
+available JavaScript tests, all 90 solver tests, production builds, the client
+secret scan, and both real-solver/mock-provider desktop and kit acceptance.
+Database-dependent tests were skipped locally because no test database was
+available. Shared-database suites now run files serially to prevent one catalog
+fixture replacing another's active version; concurrent reservation checks
+inside each test remain concurrent.
+
+Ten native mock Realtime sessions and two live OpenAI sessions passed again
+against the merged client, including completed playback and teardown. Physical
+audio-device limits recorded above still apply.

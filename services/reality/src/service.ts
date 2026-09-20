@@ -1,5 +1,6 @@
 import {
   CandidateCapabilitySchema,
+  CanonicalClaimSchema,
   ChaosRequestSchema,
   MerchantCapabilitySchema,
   MerchantTwinSummarySchema,
@@ -13,18 +14,23 @@ import {
 import {
   effectId,
   getDatabaseFeatures,
-  getMerchantRisk,
+  getMerchantRisks,
   getPool,
+  listClaimsForMerchants,
   listMerchantClaims,
   persistEvent,
+  readTransaction,
   resetDemoData,
   transaction,
   type DbClient,
 } from "@molecule/db";
 
+import { catalogCandidates } from "./catalog.js";
+
 import {
   ingestClaim,
   resolveMerchant,
+  resolveMerchantClaims,
   type ResolvedFact,
 } from "./repository.js";
 
@@ -45,6 +51,16 @@ interface MerchantRow {
   backboard_assistant_id: string | null;
 }
 
+interface CapabilityRow {
+  merchant_id: string;
+  capability_json: unknown;
+}
+
+interface ReservationRow {
+  capability_id: string;
+  quantity: string;
+}
+
 function hours(capability: MerchantCapability): number {
   const multiplier = { minutes: 1 / 60, hours: 1, business_hours: 3, days: 24 };
   return capability.leadTime.max * multiplier[capability.leadTime.unit];
@@ -55,12 +71,22 @@ function applyFacts(
   facts: ResolvedFact[],
   blocked: string[],
 ) {
+  let unknownPrice = false;
+  let unknownCapacity = false;
   for (const fact of facts) {
     const prefix = `${capability.capabilityId}.`;
-    if (fact.field.includes(".") && !fact.field.startsWith(prefix)) continue;
-    const field = fact.field.startsWith(prefix)
-      ? fact.field.slice(prefix.length)
-      : fact.field;
+    const inventory = fact.field === `inventory.${capability.capabilityId}`;
+    if (
+      fact.field.includes(".") &&
+      !fact.field.startsWith(prefix) &&
+      !inventory
+    )
+      continue;
+    const field = inventory
+      ? "inventory"
+      : fact.field.startsWith(prefix)
+        ? fact.field.slice(prefix.length)
+        : fact.field;
     if (
       ![
         "price",
@@ -79,10 +105,9 @@ function applyFacts(
       continue;
     if (fact.status !== "resolved") {
       blocked.push(`${fact.field} is ${fact.status}`);
-      if (field === "price" || field === "unitPrice")
-        delete capability.pricing.unitPrice;
+      if (field === "price" || field === "unitPrice") unknownPrice = true;
       if (["capacity", "capacity_per_day", "inventory"].includes(field))
-        delete capability.capacity.available;
+        unknownCapacity = true;
       continue;
     }
     if (fact.winningClaimId)
@@ -103,6 +128,9 @@ function applyFacts(
         fact.value < 0)
     ) {
       blocked.push(`${fact.field} has an invalid resolved numeric value`);
+      if (field === "price" || field === "unitPrice") unknownPrice = true;
+      if (["capacity", "capacity_per_day", "inventory"].includes(field))
+        unknownCapacity = true;
       continue;
     }
     if (
@@ -120,8 +148,7 @@ function applyFacts(
       if (field === "price" || field === "unitPrice")
         capability.pricing.unitPrice = fact.value;
       if (field === "setup_fee") capability.pricing.setupFee = fact.value;
-      if (field === "capacity") capability.capacity.available = fact.value;
-      if (field === "capacity_per_day" || field === "inventory") {
+      if (["capacity", "capacity_per_day", "inventory"].includes(field)) {
         capability.capacity.available = Math.min(
           capability.capacity.available ?? fact.value,
           fact.value,
@@ -143,6 +170,8 @@ function applyFacts(
     } else if (field === "status" && fact.value !== "online")
       blocked.push("Merchant is offline");
   }
+  if (unknownPrice) delete capability.pricing.unitPrice;
+  if (unknownCapacity) delete capability.capacity.available;
   capability.sourceClaimIds = [...new Set(capability.sourceClaimIds)].sort();
 }
 
@@ -285,48 +314,119 @@ export function createRealityService(
 ): RealityService {
   const now = options.now ?? (() => new Date());
 
-  async function readCandidates(
+  async function readCatalog(
     client: DbClient,
-    merchant: MerchantRow,
-  ): Promise<CandidateCapability[]> {
-    const facts = await resolveMerchant(
-      merchant.merchant_id,
-      `reality:${merchant.merchant_id}`,
+    merchants: MerchantRow[],
+  ): Promise<{
+    candidatesByMerchant: Map<string, CandidateCapability[]>;
+    claimsByMerchant: Map<
+      string,
+      Awaited<ReturnType<typeof listClaimsForMerchants>>
+    >;
+  }> {
+    const merchantIds = merchants.map((merchant) => merchant.merchant_id);
+    if (!merchantIds.length)
+      return {
+        candidatesByMerchant: new Map(),
+        claimsByMerchant: new Map(),
+      };
+    const claims = await listClaimsForMerchants(merchantIds, client);
+    const capabilityRows = await client.query<CapabilityRow>(
+      `select merchant_id,capability_json from capabilities
+       where merchant_id=any($1::text[]) order by merchant_id,capability_id`,
+      [merchantIds],
+    );
+    const capabilities = capabilityRows.rows.map((row) => ({
+      merchantId: row.merchant_id,
+      capability: MerchantCapabilitySchema.parse(row.capability_json),
+    }));
+    const capabilityIds = capabilities.map(
+      ({ capability }) => capability.capabilityId,
+    );
+    const reservations = capabilityIds.length
+      ? await client.query<ReservationRow>(
+          `select capability_id,coalesce(sum(quantity),0) as quantity
+           from reservations
+           where capability_id=any($1::text[]) and status='active' and expires_at>now()
+           group by capability_id`,
+          [capabilityIds],
+        )
+      : { rows: [] };
+    const risks = await getMerchantRisks(
+      capabilities.map(({ merchantId, capability }) => ({
+        merchantId,
+        capabilityId: capability.capabilityId,
+      })),
       client,
-      now(),
     );
-    const rows = await client.query<{ capability_json: unknown }>(
-      "select capability_json from capabilities where merchant_id=$1 order by capability_id",
-      [merchant.merchant_id],
+    const claimsByMerchant = new Map<
+      string,
+      Awaited<ReturnType<typeof listClaimsForMerchants>>
+    >();
+    for (const claim of claims) {
+      const entries = claimsByMerchant.get(claim.merchantId) ?? [];
+      entries.push(claim);
+      claimsByMerchant.set(claim.merchantId, entries);
+    }
+    const factsByMerchant = new Map<string, ResolvedFact[]>();
+    for (const merchantId of merchantIds) {
+      const merchantClaims = claimsByMerchant.get(merchantId) ?? [];
+      factsByMerchant.set(
+        merchantId,
+        resolveMerchantClaims(merchantClaims, now()).map(({ fact }) => fact),
+      );
+    }
+    for (const merchant of merchants) {
+      const status = factsByMerchant
+        .get(merchant.merchant_id)
+        ?.find((fact) => fact.field === "status");
+      if (status)
+        merchant.status =
+          status.status === "resolved" &&
+          (status.value === "online" || status.value === "offline")
+            ? status.value
+            : "unknown";
+    }
+    const reservedByCapability = new Map(
+      reservations.rows.map((row) => [row.capability_id, Number(row.quantity)]),
     );
-    const result: CandidateCapability[] = [];
-    for (const row of rows.rows) {
-      const capability = MerchantCapabilitySchema.parse(row.capability_json);
+    const merchantsById = new Map(
+      merchants.map((merchant) => [merchant.merchant_id, merchant]),
+    );
+    const candidatesByMerchant = new Map<string, CandidateCapability[]>();
+    for (const { merchantId, capability } of capabilities) {
+      const merchant = merchantsById.get(merchantId);
+      if (!merchant) continue;
+      const activeClaimIds = new Set(
+        (claimsByMerchant.get(merchantId) ?? [])
+          .filter((claim) => claim.resolutionStatus === "active")
+          .map((claim) => claim.claimId),
+      );
+      capability.sourceClaimIds = capability.sourceClaimIds.filter((claimId) =>
+        activeClaimIds.has(claimId),
+      );
       const blocked =
         merchant.status === "online"
           ? []
           : [`Merchant status is ${merchant.status}`];
-      applyFacts(capability, facts, blocked);
+      applyFacts(
+        capability,
+        factsByMerchant.get(merchant.merchant_id) ?? [],
+        blocked,
+      );
       if (capability.pricing.unitPrice === undefined)
         blocked.push("Price is unknown");
       if (capability.capacity.available === undefined)
         blocked.push("Capacity is unknown");
-      const reserved = await client.query<{ quantity: string }>(
-        "select coalesce(sum(quantity),0) as quantity from reservations where capability_id=$1 and status='active' and expires_at>now()",
-        [capability.capabilityId],
-      );
       if (capability.capacity.available !== undefined)
         capability.capacity.available = Math.max(
           0,
           capability.capacity.available -
-            Number(reserved.rows[0]?.quantity ?? 0),
+            (reservedByCapability.get(capability.capabilityId) ?? 0),
         );
-      const risk = await getMerchantRisk(
-        merchant.merchant_id,
-        capability.capabilityId,
-        client,
-      );
-      result.push(
+      const risk = risks.get(capability.capabilityId)!;
+      const candidates = candidatesByMerchant.get(merchant.merchant_id) ?? [];
+      candidates.push(
         CandidateCapabilitySchema.parse({
           capabilityId: capability.capabilityId,
           merchantId: merchant.merchant_id,
@@ -342,28 +442,37 @@ export function createRealityService(
           ),
         }),
       );
+      candidatesByMerchant.set(merchant.merchant_id, candidates);
     }
-    return result;
+    return { candidatesByMerchant, claimsByMerchant };
   }
 
   return {
     async searchCandidates(input, excludedMerchantIds = []) {
       const intent = ProductIntentSchema.parse(input);
-      if (
-        !Array.isArray(excludedMerchantIds) ||
-        excludedMerchantIds.some((id) => typeof id !== "string")
-      )
-        throw new Error("Invalid merchant exclusions");
-      return transaction(async (client) => {
+      excludedMerchantIds = CanonicalClaimSchema.shape.merchantId
+        .array()
+        .parse(excludedMerchantIds);
+      return readTransaction(async (client) => {
         const merchants = await client.query<MerchantRow>(
-          "select * from merchants where status='online' and not(merchant_id=any($1::text[])) order by merchant_id",
+          "select * from merchants where not is_placeholder and not(merchant_id=any($1::text[])) order by merchant_id",
           [excludedMerchantIds],
         );
-        const candidates: CandidateCapability[] = [];
+        const externalCatalog = await catalogCandidates(
+          client,
+          intent,
+          excludedMerchantIds,
+        );
+        const catalog = await readCatalog(client, merchants.rows);
+        const candidates: CandidateCapability[] = [
+          ...externalCatalog.candidates,
+        ];
         const remainingHours =
           (Date.parse(intent.deadline) - now().getTime()) / 3600000;
         for (const merchant of merchants.rows) {
-          for (const candidate of await readCandidates(client, merchant)) {
+          for (const candidate of catalog.candidatesByMerchant.get(
+            merchant.merchant_id,
+          ) ?? []) {
             const cap = candidate.capability;
             const quantity =
               cap.kind === "SUPPLY"
@@ -388,7 +497,9 @@ export function createRealityService(
               !satisfiesAttributes(cap, intent) ||
               cap.pricing.currency !== intent.currency ||
               cap.capacity.available === undefined ||
-              cap.capacity.available < quantity ||
+              cap.capacity.available <= 0 ||
+              ((cap.kind === "SUPPLY" || cap.capacity.period === undefined) &&
+                cap.capacity.available < quantity) ||
               quantity < cap.quantity.min ||
               quantity > cap.quantity.max ||
               Math.max(hours(cap), candidate.risk?.p95Hours ?? 0) >
@@ -405,39 +516,63 @@ export function createRealityService(
       });
     },
     async listMerchants() {
-      return transaction(async (client) => {
+      return readTransaction(async (client) => {
         const rows = await client.query<MerchantRow>(
-          "select * from merchants order by merchant_id",
+          "select * from merchants where not is_placeholder order by merchant_id",
         );
+        const merchantIds = rows.rows.map((merchant) => merchant.merchant_id);
+        const catalog = await readCatalog(client, rows.rows);
+        const policies = await client.query<{
+          merchant_id: string;
+          policy_text: string;
+        }>(
+          `select merchant_id,policy_text from merchant_policies
+           where merchant_id=any($1::text[]) order by merchant_id,policy_id`,
+          [merchantIds],
+        );
+        const documents = await client.query<{
+          merchant_id: string;
+          document_id: string;
+          name: string;
+          status: string;
+        }>(
+          `select merchant_id,document_id,coalesce(name,kind) as name,status
+           from merchant_documents where merchant_id=any($1::text[])
+           order by merchant_id,document_id`,
+          [merchantIds],
+        );
+        const policiesByMerchant = new Map<string, string[]>();
+        for (const policy of policies.rows) {
+          const entries = policiesByMerchant.get(policy.merchant_id) ?? [];
+          entries.push(policy.policy_text);
+          policiesByMerchant.set(policy.merchant_id, entries);
+        }
+        const documentsByMerchant = new Map<
+          string,
+          { documentId: string; name: string; status: string }[]
+        >();
+        for (const document of documents.rows) {
+          const entries = documentsByMerchant.get(document.merchant_id) ?? [];
+          entries.push({
+            documentId: document.document_id,
+            name: document.name,
+            status: document.status,
+          });
+          documentsByMerchant.set(document.merchant_id, entries);
+        }
         const summaries: MerchantTwinSummary[] = [];
         for (const merchant of rows.rows) {
-          const capabilities = await readCandidates(client, merchant);
-          const policies = await client.query<{ policy_text: string }>(
-            "select policy_text from merchant_policies where merchant_id=$1 order by policy_id",
-            [merchant.merchant_id],
-          );
-          const documents = await client.query<{
-            document_id: string;
-            name: string;
-            status: string;
-          }>(
-            "select document_id,coalesce(name,kind) as name,status from merchant_documents where merchant_id=$1 order by document_id",
-            [merchant.merchant_id],
-          );
           summaries.push(
             MerchantTwinSummarySchema.parse({
               merchantId: merchant.merchant_id,
               name: merchant.name,
               status: merchant.status,
-              capabilities,
-              claims: await listMerchantClaims(merchant.merchant_id, client),
+              capabilities:
+                catalog.candidatesByMerchant.get(merchant.merchant_id) ?? [],
+              claims: catalog.claimsByMerchant.get(merchant.merchant_id) ?? [],
               memories: [],
-              policies: policies.rows.map((row) => row.policy_text),
-              documents: documents.rows.map((row) => ({
-                documentId: row.document_id,
-                name: row.name,
-                status: row.status,
-              })),
+              policies: policiesByMerchant.get(merchant.merchant_id) ?? [],
+              documents: documentsByMerchant.get(merchant.merchant_id) ?? [],
               assistantId: merchant.backboard_assistant_id ?? undefined,
             }),
           );

@@ -765,7 +765,7 @@ Placeholders only:
 
 ### O4.3 Definition of done (O4)
 
-- [ ] Next app boots against orchestrator URL from env (`NEXT_PUBLIC_ORCHESTRATOR_URL`)
+- [x] Next app proxies `/api/*` to the server-only `ORCHESTRATOR_URL` (no `NEXT_PUBLIC_*` backend URL is read by the browser)
 - [ ] Mock order session visible: intent panel + graph + events
 - [ ] No OpenAI secrets in client bundles (`pnpm` / build grep or similar check)
 
@@ -918,7 +918,7 @@ ALLOWED FILES:
    - soft-preference deviation
    - fragility
 5. Always return complete `constraintResults`.
-6. If UNSAT: compute actionable `unsatRelaxations` by softening one hard constraint at a time (budget +Δ, deadline +hours, quantity reduction). At least one relaxation when UNSAT.
+6. If UNSAT: compute actionable `unsatRelaxations` by softening one hard constraint at a time (budget +Δ, deadline +hours, quantity reduction). Unresolved customer details are an exception: return their clarification questions/reasons with no relaxations. Changing budget, deadline or quantity cannot supply missing artwork, names or destinations.
 7. **Never** invent `VALID` from heuristics outside CP-SAT/feasibility checks.
 
 ### O7.3 Tests required

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MockShopifyClient } from "./client.js";
 import { eventFor, PostgresShopifyActionRepository } from "./repository.js";
 import { plan } from "../tests/helpers.js";
+import { ShopifyError } from "./types.js";
 
 const databaseUrl = process.env.SHOPIFY_TEST_DATABASE_URL;
 
@@ -147,5 +148,49 @@ describe.skipIf(!databaseUrl)("PostgreSQL Shopify journal", () => {
     expect(
       Object.keys((await repository.inspect(original.orderId))!.mockResources),
     ).toHaveLength(6);
+  });
+
+  it("cancels inherited jobs after reopening a failed replacement and prevents stale commits", async () => {
+    const original = plan({ orderId: "db-inherited-cancellation" });
+    const first = await new MockShopifyClient({ repository }).commit(
+      original,
+      "initial",
+    );
+    const replacement = { ...original, planId: "db-failed-replacement" };
+    const failing = new MockShopifyClient({
+      repository: secondRepository,
+      beforeEffect: async (effect) => {
+        if (effect.operation === "product")
+          throw new ShopifyError("TEST_REJECTION");
+      },
+    });
+    const failed = await failing.commit(replacement, "replace");
+    expect(failed.actions.some((action) => action.status === "FAILED")).toBe(
+      true,
+    );
+    const reopened = new MockShopifyClient({ repository });
+    const cancelled = await reopened.supersede(
+      original.orderId,
+      replacement.planId,
+      "cancel",
+    );
+    expect(cancelled.actions).toHaveLength(first.supplierJobs.length);
+    expect(
+      cancelled.actions.every((action) => action.status === "SUCCEEDED"),
+    ).toBe(true);
+    await expect(reopened.commit(replacement, "stale")).rejects.toThrow(
+      "PLAN_SUPERSEDED",
+    );
+    const final = await new MockShopifyClient({
+      repository: secondRepository,
+    }).commit({ ...original, planId: "db-final-replacement" }, "final");
+    expect(
+      final.supplierJobs.every(
+        (job) =>
+          !first.supplierJobs.some(
+            (previous) => previous.draftOrderGid === job.draftOrderGid,
+          ),
+      ),
+    ).toBe(true);
   });
 });

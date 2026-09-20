@@ -35,7 +35,14 @@ def compare(actual: object, operator: str, expected: object) -> bool:
         if isinstance(actual, str) and isinstance(expected, str):
             contained = expected in actual
         elif isinstance(actual, list):
-            contained = any(compare(item, "eq", expected) for item in actual)
+            contained = any(
+                compare(
+                    item,
+                    "contains" if isinstance(item, str) and isinstance(expected, str) else "eq",
+                    expected,
+                )
+                for item in actual
+            )
         else:
             return False
         return contained if operator == "contains" else not contained
@@ -158,11 +165,16 @@ def satisfies(
     )
 
 
-def ports_compatible(produced: CapabilityPort, accepted: CapabilityPort) -> bool:
+def ports_compatible(
+    produced: CapabilityPort,
+    accepted: CapabilityPort,
+    produced_unit: str,
+    accepted_unit: str,
+) -> bool:
     return (
         normalized(produced.kind) == normalized(accepted.kind)
         and product_matches(produced, str(accepted.attributes.get("product", accepted.name)))
-        and (accepted.unit is None or produced.unit == accepted.unit)
+        and (produced.unit or produced_unit) == (accepted.unit or accepted_unit)
         and all(
             compare(produced.attributes.get(key), "eq", value)
             for key, value in accepted.attributes.items()

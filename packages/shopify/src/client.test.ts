@@ -5,6 +5,32 @@ import { FakeShopify, plan, TestRepository } from "../tests/helpers.js";
 import type { OrderJournal } from "./repository.js";
 
 describe("durable mock execution", () => {
+  it("retains exact catalog SKU, native variant, quantity, assets and version on supplier jobs", async () => {
+    const repository = new TestRepository();
+    const value = plan();
+    const node = value.nodes[0]!;
+    node.catalogVersion = "catalog-v1";
+    node.selectedItem = {
+      bindingId: "binding",
+      productId: "product",
+      variantId: "variant",
+      sku: "COTTON",
+      itemKind: "physical",
+      variantGid: "gid://shopify/ProductVariant/123",
+    };
+    node.customizationAssets = [{ assetId: "logo", checksum: "logo-checksum" }];
+    const client = new MockShopifyClient({ repository });
+    await client.commit(value, "trace");
+    const state = (await repository.inspect(value.orderId))!;
+    const effect = Object.values(state.actions).find(
+      (action) => action.effect.nodeId === node.nodeId,
+    )!.effect;
+    expect(effect.variantId).toBe("gid://shopify/ProductVariant/123");
+    expect(effect.quantity).toBe(node.quantity);
+    expect(effect.attributes.molecule_sku).toBe("COTTON");
+    expect(effect.attributes.molecule_catalog_version).toBe("catalog-v1");
+    expect(effect.attributes.molecule_assets).toContain("logo-checksum");
+  });
   it("serializes concurrent retries, persists actual effects, and survives new client instances", async () => {
     const repository = new TestRepository();
     const clients = Array.from(
@@ -181,9 +207,208 @@ describe("durable mock execution", () => {
       ),
     ).toHaveLength(2);
   });
+
+  it("cannot recommit a partially cancelled plan or reuse its cancelled jobs", async () => {
+    const repository = new TestRepository();
+    let fail = false;
+    const client = new MockShopifyClient({
+      repository,
+      beforeEffect: async (effect) => {
+        if (
+          fail &&
+          effect.operation === "supersede" &&
+          effect.nodeId === "embroidery"
+        )
+          throw new ShopifyError("TEST_REJECTION");
+      },
+    });
+    const first = await client.commit(plan(), "initial");
+    fail = true;
+    const cancelled = await client.supersede(
+      plan().orderId,
+      plan().planId,
+      "cancel",
+    );
+    expect(cancelled.actions.map((action) => action.status)).toEqual([
+      "SUCCEEDED",
+      "FAILED",
+    ]);
+    await expect(client.commit(plan(), "retry")).rejects.toThrow(
+      "PLAN_SUPERSEDED",
+    );
+    const nextPlan = plan({ planId: "next-plan" });
+    await expect(client.commit(nextPlan, "replace")).rejects.toThrow(
+      "PLAN_CANCELLATION_INCOMPLETE",
+    );
+    fail = false;
+    await client.supersede(plan().orderId, plan().planId, "retry-cancel");
+    const next = await client.commit(nextPlan, "replace");
+    expect(next.supplierJobs.map((job) => job.draftOrderGid)).not.toEqual(
+      first.supplierJobs.map((job) => job.draftOrderGid),
+    );
+  });
+
+  it("cannot execute or cancel the outgoing plan during an incomplete replacement", async () => {
+    const repository = new TestRepository();
+    let fail = false;
+    const client = new MockShopifyClient({
+      repository,
+      beforeEffect: async (effect) => {
+        if (
+          fail &&
+          effect.operation === "supersede" &&
+          effect.nodeId === "embroidery"
+        )
+          throw new ShopifyError("TEST_REJECTION");
+      },
+    });
+    await client.commit(plan(), "initial");
+    const replacement = plan({
+      planId: "replacement",
+      nodes: plan().nodes.map((node) => ({
+        ...node,
+        quantity: node.quantity + 1,
+      })),
+    });
+    fail = true;
+    const partial = await client.commit(replacement, "replace");
+    expect(partial.actions.map((action) => action.status)).toEqual([
+      "SUCCEEDED",
+      "FAILED",
+    ]);
+    await expect(client.commit(plan(), "old")).rejects.toThrow(
+      "PLAN_SUPERSEDED",
+    );
+    await expect(
+      client.supersede(plan().orderId, plan().planId, "old"),
+    ).rejects.toThrow("PLAN_SUPERSEDED");
+    fail = false;
+    const recovered = await client.reconcile(replacement, "recover");
+    expect(
+      recovered.actions.every((action) => action.status === "SUCCEEDED"),
+    ).toBe(true);
+  });
+
+  it("never revives an already superseded job when abandoning a partially rejected replacement", async () => {
+    const repository = new TestRepository();
+    let fail = false;
+    const client = new MockShopifyClient({
+      repository,
+      beforeEffect: async (effect) => {
+        if (
+          fail &&
+          effect.operation === "supersede" &&
+          effect.nodeId === "embroidery"
+        )
+          throw new ShopifyError("TEST_REJECTION");
+      },
+    });
+    const first = await client.commit(plan(), "initial");
+    const replacement = plan({
+      planId: "replacement",
+      nodes: plan().nodes.map((node) => ({
+        ...node,
+        quantity: node.quantity + 1,
+      })),
+    });
+    fail = true;
+    await client.commit(replacement, "replace");
+    await expect(
+      client.supersede(plan().orderId, replacement.planId, "cancel"),
+    ).rejects.toThrow("PREVIOUS_EXECUTION_PENDING");
+    fail = false;
+    const next = await client.commit(plan({ planId: "next" }), "next");
+    expect(next.supplierJobs[0]!.draftOrderGid).not.toBe(
+      first.supplierJobs[0]!.draftOrderGid,
+    );
+    const state = (await repository.inspect(plan().orderId))!;
+    for (const job of next.supplierJobs)
+      expect(
+        state.mockResources[job.draftOrderGid]?.resource.tags,
+      ).not.toContain("MOLECULE_SUPERSEDED");
+    expect(next.actions.every((action) => action.status === "SUCCEEDED")).toBe(
+      true,
+    );
+  });
+
+  it.each(["replace", "cancel"])(
+    "retains inherited jobs when a replacement product fails before %s",
+    async (operation) => {
+      const repository = new TestRepository();
+      let fail = false;
+      const client = new MockShopifyClient({
+        repository,
+        beforeEffect: async (effect) => {
+          if (fail && effect.operation === "product")
+            throw new ShopifyError("TEST_REJECTION");
+        },
+      });
+      const first = await client.commit(plan(), "initial");
+      const replacement = plan({ planId: "replacement" });
+      fail = true;
+      expect(
+        (await client.commit(replacement, "replace")).actions.at(-1)?.status,
+      ).toBe("FAILED");
+      fail = false;
+      if (operation === "replace") {
+        const next = await client.commit(plan({ planId: "next" }), "next");
+        expect(next.supplierJobs).toEqual(first.supplierJobs);
+        expect(
+          Object.keys(
+            (await repository.inspect(plan().orderId))!.mockResources,
+          ),
+        ).toHaveLength(4);
+      } else {
+        const cancelled = await client.supersede(
+          plan().orderId,
+          replacement.planId,
+          "cancel",
+        );
+        expect(cancelled.actions).toHaveLength(2);
+        const state = (await repository.inspect(plan().orderId))!;
+        for (const job of first.supplierJobs)
+          expect(state.mockResources[job.draftOrderGid]?.resource.status).toBe(
+            "SUPERSEDED",
+          );
+      }
+    },
+  );
 });
 
 describe("real adapter with deterministic HTTP provider", () => {
+  it("recovers an uncertain cancellation without repeating a supplier mutation", async () => {
+    const provider = new FakeShopify();
+    const repository = new TestRepository();
+    const options = { ...provider.options(), repository };
+    const client = new RealShopifyClient(options);
+    await client.commit(plan(), "initial");
+    provider.fail = (operation, domain) =>
+      operation === "UpdateDraft" && domain.startsWith("thread")
+        ? "lost-response"
+        : undefined;
+    const first = await client.supersede(
+      plan().orderId,
+      plan().planId,
+      "cancel",
+    );
+    expect(first.actions.map((action) => action.status)).toEqual([
+      "SUCCEEDED",
+      "PENDING",
+    ]);
+    provider.fail = undefined;
+    const result = await new RealShopifyClient(options).supersede(
+      plan().orderId,
+      plan().planId,
+      "recover",
+    );
+    expect(
+      result.actions.every((action) => action.status === "SUCCEEDED"),
+    ).toBe(true);
+    expect(
+      provider.calls.filter((call) => call.operation === "UpdateDraft"),
+    ).toHaveLength(2);
+  });
+
   it("creates drafts only, stores real Admin links/variant IDs, and never duplicates concurrent commits", async () => {
     const provider = new FakeShopify();
     const repository = new TestRepository();

@@ -1,62 +1,174 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { ScreenSource } from "../shared/bridge.js";
 import { DesktopStore } from "./state/desktop-store.js";
 import { useVoice } from "./useVoice.js";
-import { TemporaryCompany } from "./components/TemporaryCompany.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
-import { VoiceDock, voiceStatusLabel } from "./components/VoiceDock.js";
-import { VoiceOrb } from "./components/VoiceOrb.js";
-import { captureFrame } from "./services/screen-context.js";
+import {
+  DockConversation,
+  type TextTurn,
+} from "./components/DockConversation.js";
+import { VoiceInput, voiceLabel } from "./components/MoleculeInput.js";
+import { DockIcon } from "./components/DockIcon.js";
+import { ScreenPicker } from "./components/ScreenPicker.js";
 
 export function App() {
   const [store] = useState(() => new DesktopStore(window.moleculeDesktop));
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [text, setText] = useState("");
-  const [lastText, setLastText] = useState("");
-  const [submittingText, setSubmittingText] = useState(false);
-  const textSubmission = useRef(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [sources, setSources] = useState<ScreenSource[] | null>(null);
-  const [sourceId, setSourceId] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
   const { voice, state: audio, toggle: toggleVoice } = useVoice(store);
+  const [text, setText] = useState("");
+  const [turns, setTurns] = useState<TextTurn[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showScreen, setShowScreen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [sendingContext, setSendingContext] = useState(false);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const screenButton = useRef<HTMLButtonElement>(null);
+  const submitted = useRef(new Set<string>());
+  const selection = useRef(0);
+  const compact = state.mode === "compact";
+  const voiceActive = !["idle", "error"].includes(audio.state);
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => store.error(error));
   };
+  const stage = (files: File[]) => {
+    try {
+      store.stage(files);
+      if (files.length) run(store.mode("conversation"));
+    } catch (error) {
+      store.error(error);
+      run(store.mode("conversation"));
+    }
+  };
+  const closeScreen = () => {
+    setShowScreen(false);
+    requestAnimationFrame(() => screenButton.current?.focus());
+  };
   useEffect(() => {
     void store.initialize().then(() => store.refreshProviders());
-    const providersTimer = setInterval(() => {
+    const timer = setInterval(() => {
       void store.refreshProviders();
     }, 60_000);
     const unsubscribe = store.bridge.onSignal((signal) => {
-      if (signal.type === "visibility") store.setVisible(signal.visible);
-      if (signal.type === "project") run(store.openProject(signal.projectId));
+      if (signal.type === "visibility") {
+        store.setVisible(signal.visible);
+        setDragging(false);
+        if (!signal.visible) setShowScreen(false);
+      }
+      if (signal.type === "project") {
+        selection.current += 1;
+        submitted.current.clear();
+        setSendingContext(false);
+        setText("");
+        setTurns([]);
+        setShowScreen(false);
+        setShowSettings(false);
+        run(store.openProject(signal.projectId));
+      }
       if (signal.type === "settings") {
+        setShowScreen(false);
         setShowSettings(true);
         run(store.mode("conversation"));
       }
+      if (signal.type === "start-voice") setShowSettings(false);
     });
     return () => {
       unsubscribe();
-      clearInterval(providersTimer);
+      clearInterval(timer);
       store.dispose();
     };
   }, [store]);
-  const voiceActive = !["idle", "error"].includes(audio.state);
-  const project = state.project;
+  useEffect(() => {
+    if (state.visible && !showSettings && !showScreen && document.hasFocus())
+      input.current?.focus();
+  }, [state.visible, state.mode, showSettings, showScreen]);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing)
+        return;
+      event.preventDefault();
+      if (showScreen) closeScreen();
+      else if (showSettings) {
+        setShowSettings(false);
+        requestAnimationFrame(() => settingsButton.current?.focus());
+      } else if (store.getSnapshot().mode !== "compact")
+        run(store.mode("compact"));
+      else run(store.bridge.hideOverlay());
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [store, showSettings, showScreen]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const submit = async () => {
+    const intent = text.trim();
+    if (
+      (!intent && !state.staged.length) ||
+      sendingContext ||
+      submitted.current.has(intent)
+    )
+      return;
+    const current = selection.current;
+    submitted.current.add(intent);
+    if (voiceActive) voice.interrupt();
+    run(store.mode("conversation"));
+    try {
+      setSendingContext(true);
+      await store.flushContext();
+      if (current !== selection.current) return;
+      setSendingContext(false);
+      if (!intent) {
+        setNotice("Context added. Tell Molecule how to use it.");
+        return;
+      }
+      const id = crypto.randomUUID();
+      setTurns((history) => [...history, { id, text: intent }].slice(-12));
+      const result = await store.command({
+        name: "start_project",
+        args: { intent },
+      });
+      if (current !== selection.current) return;
+      voice.context(result);
+      setText((draft) => (draft.trim() === intent ? "" : draft));
+    } finally {
+      if (current === selection.current) {
+        setSendingContext(false);
+        submitted.current.delete(intent);
+      }
+    }
+  };
+  const latest = state.activity.at(-1)?.label;
+  const status = state.error
+    ? "Action needs attention"
+    : audio.error
+      ? "Voice needs attention"
+      : (state.alert?.label ??
+        (voiceActive
+          ? voiceLabel(audio)
+          : state.connection !== "connected"
+            ? `Backend ${state.connection}`
+            : state.pending
+              ? (latest ?? "Working on your request")
+              : "Ready when you are"));
   return (
     <main
       className={`overlay ${dragging ? "dragging" : ""}`}
       data-mode={state.mode}
       onDragOver={(event) => {
-        event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }
       }}
       onDragEnter={(event) => {
-        event.preventDefault();
-        setDragging(true);
-        if (state.mode === "compact") run(store.mode("conversation"));
+        if (event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          setDragging(true);
+        }
       }}
       onDragLeave={(event) => {
         if (
@@ -68,629 +180,283 @@ export function App() {
       onDrop={(event) => {
         event.preventDefault();
         setDragging(false);
-        run(store.upload(Array.from(event.dataTransfer.files)));
+        stage(Array.from(event.dataTransfer.files));
       }}
       onPaste={(event) => {
-        if (
-          (event.target instanceof HTMLInputElement ||
-            event.target instanceof HTMLSelectElement) &&
-          showSettings
-        )
-          return;
-        event.preventDefault();
+        if (showSettings) return;
         const files = Array.from(event.clipboardData.files);
-        const plain = event.clipboardData.getData("text/plain");
-        const start = input.current?.selectionStart ?? text.length;
-        const end = input.current?.selectionEnd ?? text.length;
-        run(
-          (async () => {
-            if (files.length) return store.upload(files);
-            let pasted = false;
-            await store.uploadFrom(async () => {
-              const captured = await store.bridge.pasteFiles();
-              pasted = captured.length > 0;
-              return captured.map(
-                (file) =>
-                  new File([new Uint8Array(file.bytes)], file.name, {
-                    type: file.mimeType,
-                  }),
-              );
-            });
-            if (pasted) return;
-            setText(
-              (current) => current.slice(0, start) + plain + current.slice(end),
-            );
-            await store.mode("conversation");
-            input.current?.focus();
-          })(),
-        );
+        if (files.length) {
+          event.preventDefault();
+          stage(files);
+        }
       }}
     >
-      <VoiceDock voice={voice} state={audio}>
-        <header className="drag-region">
+      <header className="dock-header drag-region">
+        <span className="molecule-mark" aria-hidden="true">
+          m
+        </span>
+        <div className="brand">
+          <strong>Molecule</strong>
           <button
-            className="orb"
-            aria-label="Expand Molecule"
-            onClick={() =>
-              run(
-                store.mode(
-                  state.mode === "compact" ? "conversation" : "compact",
-                ),
-              )
-            }
+            className="header-status"
+            onClick={() => run(store.mode("conversation"))}
+            title={status}
           >
-            M
+            {status}
           </button>
-          <div className="brand">
-            <strong>
-              Molecule <span>OS</span>
-            </strong>
-            <small id="voice-status" role="status" aria-live="polite">
-              {voiceActive || audio.state === "error"
-                ? voiceStatusLabel(audio)
-                : state.connection === "connected"
-                  ? "Ready when you are"
-                  : `Backend ${state.connection}`}
-            </small>
-          </div>
-          <button
-            className={`mic-button ${voiceActive ? "active" : ""}`}
-            aria-label={
-              voiceActive
-                ? "Stop voice input"
-                : audio.state === "error"
-                  ? "Retry voice input"
-                  : "Start voice input"
-            }
-            aria-pressed={voiceActive}
-            aria-busy={[
-              "requesting_permission",
-              "connecting",
-              "reconnecting",
-            ].includes(audio.state)}
-            aria-describedby="voice-status"
-            onClick={() => run(toggleVoice())}
-          >
-            <VoiceOrb state={audio} />
-          </button>
-          <span
-            className={`connection ${state.connection}`}
-            aria-label={`Backend ${state.connection}`}
-          />
-          <button
-            aria-label="Hide Molecule"
-            onClick={() => {
-              voice.stop();
-              run(store.bridge.hideOverlay());
-            }}
-          >
-            ×
-          </button>
-        </header>
-      </VoiceDock>
-      {state.mode !== "compact" && (
-        <div className="content">
+        </div>
+        <button
+          className="icon-button"
+          aria-label="Open Command Center"
+          title="Continue this project in Command Center"
+          onClick={() =>
+            run(store.bridge.openDashboard(state.project?.orderId))
+          }
+        >
+          <DockIcon name="command" />
+        </button>
+        <button
+          className="icon-button"
+          aria-label={compact ? "Expand Molecule" : "Collapse Molecule"}
+          aria-expanded={!compact}
+          title={compact ? "Show conversation" : "Collapse conversation"}
+          onClick={() => {
+            setShowSettings(false);
+            run(store.mode(compact ? "conversation" : "compact"));
+          }}
+        >
+          <DockIcon name={compact ? "expand" : "collapse"} />
+        </button>
+        <button
+          className="icon-button"
+          aria-label="Hide Molecule"
+          title="Hide Molecule"
+          onClick={() => run(store.bridge.hideOverlay())}
+        >
+          <DockIcon name="close" />
+        </button>
+      </header>
+      {!compact && (
+        <div className="content" id="conversation">
           {showSettings && state.bootstrap ? (
             <SettingsPanel
               value={state.bootstrap.settings}
               shortcut={state.bootstrap.shortcut}
-              close={() => setShowSettings(false)}
+              close={() => {
+                setShowSettings(false);
+                requestAnimationFrame(() => settingsButton.current?.focus());
+              }}
               save={async (settings) => {
                 if (
-                  !settings.voiceEnabled ||
-                  settings.microphoneDevice !==
-                    state.bootstrap?.settings.microphoneDevice
+                  settings.voiceEnabled === false ||
+                  (settings.microphoneDevice !== undefined &&
+                    settings.microphoneDevice !==
+                      state.bootstrap?.settings.microphoneDevice)
                 )
                   voice.stop();
                 await store.settings(settings);
+                const shortcut = store.getSnapshot().bootstrap?.shortcut;
+                setNotice(
+                  settings.shortcut && settings.shortcut !== shortcut
+                    ? `Requested shortcut unavailable; ${shortcut ? `using ${shortcut}` : "use the menu bar"}.`
+                    : "Settings saved on this device.",
+                );
               }}
             />
           ) : (
             <>
-              <p className="eyebrow">YOUR COMPANY, ON DEMAND</p>
-              {!state.project && (
-                <>
-                  <h1>What are we making?</h1>
-                  <p className="muted">
-                    Give me an outcome. We’ll find the people and the path.
-                  </p>
-                </>
-              )}
-              {!state.project && state.bootstrap?.settings.lastProjectId && (
-                <button
-                  disabled={state.pending > 0}
-                  onClick={() =>
-                    run(
-                      store.openProject(
-                        state.bootstrap!.settings.lastProjectId!,
-                      ),
-                    )
-                  }
-                >
-                  Resume previous project
-                </button>
-              )}
-              {state.error && (
-                <div role="alert" className="error">
-                  {state.error}{" "}
-                  {state.error.includes("Screen Recording permission") && (
-                    <button
-                      onClick={() =>
-                        run(store.bridge.openPermissionSettings("screen"))
-                      }
-                    >
-                      Open Screen Recording settings
-                    </button>
-                  )}
-                  {state.connection === "offline" ? (
-                    <button onClick={() => run(store.checkConnection())}>
-                      Reconnect
-                    </button>
-                  ) : (
-                    <button onClick={() => store.clearError()}>Dismiss</button>
-                  )}
-                </div>
-              )}
-              {!state.error && state.connection === "offline" && (
-                <div className="error" role="alert">
-                  Can’t reach Molecule right now.
-                  <button onClick={() => run(store.checkConnection())}>
-                    Reconnect
-                  </button>
-                </div>
-              )}
-              {audio.error && (
-                <div
-                  role={audio.state === "error" ? "alert" : "status"}
-                  className="error"
-                >
-                  {audio.error}
-                  {audio.errorCode === "permission" && (
-                    <button
-                      onClick={() =>
-                        run(store.bridge.openPermissionSettings("microphone"))
-                      }
-                    >
-                      Open microphone settings
-                    </button>
-                  )}
-                  {audio.state === "error" ? (
-                    <button onClick={() => run(toggleVoice())}>
-                      Try voice again
-                    </button>
-                  ) : (
-                    <button onClick={() => voice.clearError()}>Dismiss</button>
-                  )}
-                </div>
-              )}
-              {state.alert && (
-                <aside
-                  role="status"
-                  className={`alert ${state.alert.severity}`}
-                >
-                  {state.alert.label}
-                </aside>
-              )}
-              {state.recovery && (
-                <div className="recovery-summary">
-                  {state.recovery.deadlinePreserved === true && (
-                    <span>Deadline preserved</span>
-                  )}
-                  {typeof state.recovery.costDelta === "number" && (
-                    <span>
-                      {state.recovery.costDelta > 0 ? "+" : ""}
-                      {String(state.recovery.currency ?? "")}{" "}
-                      {state.recovery.costDelta.toFixed(2)}
-                    </span>
-                  )}
-                  {state.recovery.approvalRequired === false && (
-                    <span>No action required</span>
-                  )}
-                </div>
-              )}
-              {voiceActive && (
-                <div
-                  className="voice-controls"
-                  role="group"
-                  aria-label="Voice controls"
-                >
-                  <span>{voiceStatusLabel(audio)}</span>
-                  <button
-                    aria-pressed={audio.muted}
-                    disabled={[
-                      "requesting_permission",
-                      "connecting",
-                      "reconnecting",
-                    ].includes(audio.state)}
-                    onClick={() => voice.mute(!audio.muted)}
-                  >
-                    {audio.muted ? "Unmute" : "Mute"}
-                  </button>
-                  {["transcribing", "processing", "speaking"].includes(
-                    audio.state,
-                  ) && (
-                    <button onClick={() => voice.interrupt()}>
-                      Stop response
-                    </button>
-                  )}
-                </div>
-              )}
-              {(audio.transcript || lastText) && (
-                <div className="transcript">
-                  <span>YOU</span>
-                  <p>{audio.transcript || lastText}</p>
-                </div>
-              )}
-              {audio.response && (
-                <div className="transcript assistant" aria-live="polite">
-                  <span>MOLECULE</span>
-                  <p>{audio.response}</p>
-                </div>
-              )}
-              {project?.intent?.ambiguityFlags.map((flag) => (
-                <p className="question" key={flag.field}>
-                  {flag.question ?? flag.reason}
-                </p>
-              ))}
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!text.trim() || textSubmission.current) return;
-                  const intent = text.trim();
-                  const draft = text;
-                  textSubmission.current = true;
-                  setSubmittingText(true);
-                  setLastText(intent);
-                  if (voiceActive) voice.stop();
-                  run(
-                    store
-                      .command({ name: "start_project", args: { intent } })
-                      .then(() =>
-                        setText((current) =>
-                          current === draft ? "" : current,
-                        ),
-                      )
-                      .finally(() => {
-                        textSubmission.current = false;
-                        setSubmittingText(false);
-                      }),
-                  );
+              {showScreen && <ScreenPicker store={store} close={closeScreen} />}
+              <DockConversation
+                store={store}
+                state={state}
+                audio={audio}
+                turns={turns}
+                onNew={() => {
+                  selection.current += 1;
+                  submitted.current.clear();
+                  setSendingContext(false);
+                  run(store.newProject());
+                  setText("");
+                  setTurns([]);
+                  setShowScreen(false);
                 }}
-              >
-                <label htmlFor="intent">Your request or next instruction</label>
-                <textarea
-                  ref={input}
-                  id="intent"
-                  placeholder="200 onboarding kits by Friday, under $7,000 CAD…"
-                  value={text}
-                  onChange={(event) => setText(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <button
-                  className="primary"
-                  disabled={!text.trim() || submittingText}
-                  type="submit"
-                >
-                  {submittingText
-                    ? "Sending…"
-                    : state.pending
-                      ? "Send updated instruction"
-                      : "Build with Molecule"}
-                </button>
-              </form>
-              <div className="context-tools">
-                <input
-                  ref={fileInput}
-                  className="file-input"
-                  type="file"
-                  multiple
-                  accept=".png,.jpg,.jpeg,.pdf,.csv,.txt,.json"
-                  onChange={(event) => {
-                    run(store.upload(Array.from(event.target.files ?? [])));
-                    event.target.value = "";
-                  }}
-                />
-                <button onClick={() => fileInput.current?.click()}>
-                  ＋ Attach context
-                </button>
-                <button
-                  onClick={() =>
-                    run(
-                      (async () => {
-                        try {
-                          const items = await store.bridge.listScreenSources();
-                          setSources(items);
-                          setSourceId(items[0]?.id ?? "");
-                        } catch (error) {
-                          store.error(error);
-                          setSources([]);
-                        }
-                      })(),
-                    )
-                  }
-                >
-                  Share screen / window
-                </button>
-              </div>
-              {dragging && (
-                <div className="drop-hint">
-                  Drop files to attach to this project
-                </div>
-              )}
-              <div className="attachments" aria-live="polite">
-                {state.attachments.map((asset) => (
-                  <span key={asset.assetId} title={asset.mimeType}>
-                    ▧ {asset.name ?? asset.assetId}
-                    <small>Attached</small>
-                  </span>
-                ))}
-                {state.uploading.map((name, index) => (
-                  <span key={`${name}-${index}`}>
-                    {name}
-                    <small>Uploading…</small>
-                  </span>
-                ))}
-              </div>
-              {sources && (
-                <section className="screen-picker">
-                  <h2>Share one frame</h2>
-                  {!state.bootstrap?.settings.screenShareConsent && (
-                    <p>
-                      Only your selected source will be captured once and
-                      uploaded to the Molecule backend. Microphone audio is not
-                      included.
-                    </p>
-                  )}
-                  {sources.length ? (
-                    <>
-                      <label>
-                        Screen or window
-                        <select
-                          value={sourceId}
-                          onChange={(event) => setSourceId(event.target.value)}
-                        >
-                          {sources.map((source) => (
-                            <option value={source.id} key={source.id}>
-                              {source.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        className="primary"
-                        onClick={() =>
-                          run(
-                            (async () => {
-                              setSources(null);
-                              await store.uploadFrom(async () => [
-                                await captureFrame(store.bridge, sourceId),
-                              ]);
-                              const settings =
-                                store.getSnapshot().bootstrap?.settings;
-                              if (settings)
-                                await store.settings({
-                                  ...settings,
-                                  screenShareConsent: true,
-                                });
-                            })(),
-                          )
-                        }
-                      >
-                        Share one frame
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() =>
-                        run(store.bridge.openPermissionSettings("screen"))
-                      }
-                    >
-                      Open Screen Recording settings
-                    </button>
-                  )}
-                  <button onClick={() => setSources(null)}>Cancel</button>
-                </section>
-              )}
-              {project && (
-                <div className="project-tabs">
-                  <button
-                    aria-pressed={state.mode === "company"}
-                    onClick={() =>
-                      run(
-                        store.mode(
-                          state.mode === "company" ? "conversation" : "company",
-                        ),
-                      )
-                    }
-                  >
-                    {state.mode === "company" ? "Hide company" : "Show company"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      voice.stop();
-                      run(store.newProject());
-                      setLastText("");
-                    }}
-                  >
-                    New project
-                  </button>
-                  <button
-                    disabled={
-                      state.pending > 0 ||
-                      [
-                        "CANCELLED",
-                        "COMPLETED",
-                        "EXECUTING",
-                        "SKU_CREATED",
-                        "SUPPLIER_JOBS_CREATED",
-                        "CUSTOMER_ORDER_CREATED",
-                      ].includes(project.state)
-                    }
-                    onClick={() => {
-                      voice.stop();
-                      run(store.command({ name: "cancel_project", args: {} }));
-                    }}
-                  >
-                    Cancel project
-                  </button>
-                </div>
-              )}
-              {project &&
-                (state.mode === "company" || state.mode === "alert") && (
-                  <TemporaryCompany
-                    project={project}
-                    failedMerchants={state.failedMerchants}
-                  />
-                )}
-              {project?.intent?.hardConstraints.length ? (
-                <details>
-                  <summary>
-                    Hard requirements ({project.intent.hardConstraints.length})
-                  </summary>
-                  {project.intent.hardConstraints.map((constraint) => (
-                    <div className="constraint" key={constraint.constraintId}>
-                      <span>
-                        {constraint.description ??
-                          `${constraint.field} ${constraint.operator} ${String(constraint.value)}`}
-                      </span>
-                      <button
-                        disabled={state.pending > 0}
-                        aria-label={`Remove requirement ${constraint.field}`}
-                        onClick={() =>
-                          run(
-                            store.command({
-                              name: "remove_constraint",
-                              args: { constraintId: constraint.constraintId },
-                            }),
-                          )
-                        }
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </details>
-              ) : null}
-              {project?.state === "AWAITING_APPROVAL" &&
-                project.activePlan?.status === "VALID" && (
-                  <button
-                    className="primary approve"
-                    disabled={state.pending > 0}
-                    onClick={() =>
-                      run(
-                        store.command({
-                          name: "approve_action",
-                          args: {
-                            planId: project.activePlan!.planId,
-                            intentVersion: project.intentVersion,
-                          },
-                        }),
-                      )
-                    }
-                  >
-                    Approve {project.activePlan.currency}{" "}
-                    {project.activePlan.totalCost.toFixed(2)} &amp; execute
-                  </button>
-                )}
-              {state.project && (
-                <>
-                  <div className="section-title">
-                    <h2>Activity</h2>
-                    <span>
-                      {state.project.state.replaceAll("_", " ").toLowerCase()}
-                    </span>
-                  </div>
-                  <ol className="activity" aria-live="polite">
-                    {[...state.activity]
-                      .reverse()
-                      .slice(0, 7)
-                      .map((item) => (
-                        <li key={item.id} className={item.severity}>
-                          <span>
-                            {item.label}
-                            {item.merchantId && (
-                              <small>{item.merchantId}</small>
-                            )}
-                          </span>
-                          <time>
-                            {new Date(item.timestamp).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </time>
-                        </li>
-                      ))}
-                  </ol>
-                  <button
-                    onClick={() =>
-                      run(store.bridge.openDashboard(state.project!.orderId))
-                    }
-                  >
-                    Open Command Center ↗
-                  </button>
-                </>
-              )}
-              <details className="provider-status">
-                <summary>
-                  {state.marketplace
-                    ? `${state.marketplace.mode} providers`
-                    : "Provider availability unknown"}
-                </summary>
-                {state.marketplace?.providers.map((provider) => (
-                  <p key={provider.name}>
-                    <strong>{provider.name}</strong> · {provider.mode} ·{" "}
-                    {provider.status}
-                    <small>{provider.detail}</small>
-                  </p>
-                ))}
-                {state.providerError && (
-                  <p role="status">{state.providerError}</p>
-                )}
-                {state.marketplace && (
-                  <small>
-                    Checked{" "}
-                    {new Date(
-                      state.marketplace.generatedAt,
-                    ).toLocaleTimeString()}
-                  </small>
-                )}
-                <button onClick={() => run(store.refreshProviders())}>
-                  Refresh availability
-                </button>
-              </details>
-              {!state.marketplace && state.mockProviders.length > 0 && (
-                <p className="demo-note">
-                  Development providers: {state.mockProviders.join(", ")} are
-                  mocked.
-                </p>
-              )}
-              {state.demoMode && project?.activePlan?.status === "VALID" && (
-                <details className="developer">
-                  <summary>Demo controls</summary>
-                  <button
-                    disabled={state.pending > 0}
-                    onClick={() => run(store.chaos())}
-                  >
-                    Take embroidery supplier offline
-                  </button>
-                </details>
-              )}
-              <footer>
-                <span>{state.bootstrap?.shortcut ?? "Menu bar"} to return</span>
-                <button onClick={() => setShowSettings(true)}>Settings</button>
-              </footer>
+                onCancel={() => {
+                  voice.stop();
+                  run(store.command({ name: "cancel_project", args: {} }));
+                }}
+              />
             </>
           )}
         </div>
+      )}
+      {!compact && (
+        <div className="feedback">
+          {notice && (
+            <p className="notice" role="status">
+              {notice}
+            </p>
+          )}
+          {(state.error || state.connection === "offline") && (
+            <div className="error" role="alert">
+              <span>{state.error ?? "Can’t reach Molecule right now."}</span>
+              <div className="feedback-actions">
+                {state.error?.includes("Screen Recording") && (
+                  <button
+                    onClick={() =>
+                      run(store.bridge.openPermissionSettings("screen"))
+                    }
+                  >
+                    Screen permissions
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    state.connection === "offline"
+                      ? run(store.checkConnection())
+                      : store.clearError()
+                  }
+                >
+                  {state.connection === "offline" ? "Reconnect" : "Dismiss"}
+                </button>
+              </div>
+            </div>
+          )}
+          {audio.error && (
+            <div className="error" role="alert">
+              <span>{audio.error}</span>
+              <div className="feedback-actions">
+                {audio.errorCode === "permission" && (
+                  <button
+                    onClick={() =>
+                      run(store.bridge.openPermissionSettings("microphone"))
+                    }
+                  >
+                    Open microphone settings
+                  </button>
+                )}
+                {audio.state !== "reconnecting" && (
+                  <button
+                    onClick={() => {
+                      voice.stop();
+                      run(toggleVoice());
+                    }}
+                  >
+                    Retry voice
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    voice.stop();
+                    input.current?.focus();
+                  }}
+                >
+                  Use text
+                </button>
+              </div>
+            </div>
+          )}
+          {state.alert && (
+            <aside role="status" className={`alert ${state.alert.severity}`}>
+              {state.alert.label}
+            </aside>
+          )}
+        </div>
+      )}
+      <div className="input-dock">
+        {dragging && (
+          <div className="drop-hint" role="status">
+            Drop to add context · send when you’re ready
+          </div>
+        )}
+        <VoiceInput
+          voice={voice}
+          visible={state.visible}
+          inputRef={input}
+          screenRef={screenButton}
+          text={text}
+          onText={setText}
+          onSubmit={() => run(submit())}
+          onVoice={() => {
+            setShowSettings(false);
+            run(toggleVoice());
+          }}
+          onMute={() => voice.mute(!audio.muted)}
+          onInterrupt={() => voice.interrupt()}
+          onAttach={() => fileInput.current?.click()}
+          onScreen={() => {
+            setShowScreen(true);
+            setShowSettings(false);
+            run(store.mode("conversation"));
+          }}
+          onRemove={(id) => store.removeStaged(id)}
+          compact={compact}
+          audio={audio}
+          staged={state.staged}
+          sending={sendingContext}
+          pending={state.pending > 0}
+          status={
+            sendingContext
+              ? "Adding context…"
+              : state.pending
+                ? (latest ?? "Working on your request")
+                : undefined
+          }
+        />
+      </div>
+      <input
+        ref={fileInput}
+        className="file-input"
+        type="file"
+        multiple
+        accept=".png,.jpg,.jpeg,.pdf,.csv,.txt,.json"
+        aria-label="Choose context files"
+        onChange={(event) => {
+          stage(Array.from(event.target.files ?? []));
+          event.target.value = "";
+        }}
+      />
+      {!compact && (
+        <footer className="dock-footer">
+          <button
+            className="command-center"
+            onClick={() =>
+              run(store.bridge.openDashboard(state.project?.orderId))
+            }
+          >
+            Command Center <DockIcon name="command" />
+          </button>
+          <button
+            title="Add clipboard files, images, or text as context"
+            onClick={() =>
+              run(
+                store.uploadFrom(
+                  async () =>
+                    (await store.bridge.pasteFiles()).map(
+                      (file) =>
+                        new File([new Uint8Array(file.bytes)], file.name, {
+                          type: file.mimeType,
+                        }),
+                    ),
+                  true,
+                ),
+              )
+            }
+          >
+            Paste context
+          </button>
+          <button
+            ref={settingsButton}
+            className="icon-button"
+            aria-label="Settings"
+            title="Molecule settings"
+            onClick={() => {
+              setShowScreen(false);
+              setShowSettings(true);
+            }}
+          >
+            <DockIcon name="settings" />
+          </button>
+        </footer>
       )}
     </main>
   );

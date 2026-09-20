@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closePool,
   getPool,
+  listMerchantClaims,
   migrate,
   reserveCapacity,
   seedDemo,
@@ -31,6 +32,357 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     await service.resetDemo();
   });
   afterAll(closePool);
+
+  it("retains unresolved artifacts through reset without listing the placeholder as a merchant", async () => {
+    const artifactId = randomUUID();
+    try {
+      await getPool().query(
+        `insert into raw_artifacts
+          (artifact_id,merchant_id,source_kind,source_reference,checksum,raw_content)
+         values($1,'m-unresolved','document',$1,$1,'{"supplier":"unidentified"}')`,
+        [artifactId],
+      );
+      await service.resetDemo();
+      const merchants = await service.listMerchants();
+      expect(merchants.map(({ merchantId }) => merchantId)).not.toContain(
+        "m-unresolved",
+      );
+      expect(
+        (
+          await getPool().query(
+            "select status,is_placeholder from merchants where merchant_id='m-unresolved'",
+          )
+        ).rows,
+      ).toEqual([{ status: "unknown", is_placeholder: true }]);
+      expect(
+        (
+          await getPool().query(
+            "select merchant_id,raw_content from raw_artifacts where artifact_id=$1",
+            [artifactId],
+          )
+        ).rows,
+      ).toEqual([
+        {
+          merchant_id: "m-unresolved",
+          raw_content: { supplier: "unidentified" },
+        },
+      ]);
+    } finally {
+      await getPool().query("delete from raw_artifacts where artifact_id=$1", [
+        artifactId,
+      ]);
+    }
+  });
+
+  it.each(["unknown", "offline"] as const)(
+    "keeps genuine %s merchants visible without capabilities",
+    async (status) => {
+      const merchantId = randomUUID();
+      try {
+        await getPool().query(
+          "insert into merchants(merchant_id,name,status) values($1,'Unconfigured supplier',$2)",
+          [merchantId, status],
+        );
+        await service.resetDemo();
+        expect(
+          (await service.listMerchants()).find(
+            (merchant) => merchant.merchantId === merchantId,
+          ),
+        ).toMatchObject({ merchantId, status, capabilities: [] });
+      } finally {
+        await getPool().query("delete from merchants where merchant_id=$1", [
+          merchantId,
+        ]);
+      }
+    },
+  );
+
+  it("excludes any placeholder from listing and candidate search even with an eligible capability", async () => {
+    const intent = kitIntent(now);
+    expect(
+      (await service.searchCandidates(intent)).some(
+        ({ merchantId }) => merchantId === "thread-forge",
+      ),
+    ).toBe(true);
+    try {
+      await getPool().query(
+        "update merchants set is_placeholder=true where merchant_id='thread-forge'",
+      );
+      expect(
+        (await service.listMerchants()).map(({ merchantId }) => merchantId),
+      ).not.toContain("thread-forge");
+      expect(
+        (await service.searchCandidates(intent)).map(
+          ({ merchantId }) => merchantId,
+        ),
+      ).not.toContain("thread-forge");
+    } finally {
+      await getPool().query(
+        "update merchants set is_placeholder=false where merchant_id='thread-forge'",
+      );
+    }
+  });
+
+  it.each(["resolved", "unknown"] as const)(
+    "honors %s prefixed inventory in candidate reads and reservations",
+    async (status) => {
+      const previous = (
+        await getPool().query(
+          "select normalized_value,resolution_status from canonical_claims where claim_id='demo:cap-base-hoodie:inventory'",
+        )
+      ).rows[0];
+      try {
+        await getPool().query(
+          `update canonical_claims set normalized_value=$1::jsonb,resolution_status=$2
+         where claim_id='demo:cap-base-hoodie:inventory'`,
+          [
+            status === "resolved" ? "0" : "null",
+            status === "resolved" ? "active" : "unknown",
+          ],
+        );
+        const candidates = await service.searchCandidates(kitIntent(now));
+        expect(
+          candidates.some((entry) => entry.capabilityId === "cap-base-hoodie"),
+        ).toBe(false);
+        const request = {
+          merchantId: "base-goods",
+          capabilityId: "cap-base-hoodie",
+          orderId: "inventory-check",
+          quantity: 200,
+          actionKey: randomUUID(),
+        };
+        if (status === "unknown") {
+          await expect(reserveCapacity(request)).rejects.toMatchObject({
+            code: "UNAVAILABLE",
+          });
+        } else {
+          expect(await reserveCapacity(request)).toEqual({
+            ok: false,
+            reason: "insufficient_capacity",
+            available: 0,
+          });
+        }
+      } finally {
+        await getPool().query(
+          "update canonical_claims set normalized_value=$1::jsonb,resolution_status=$2 where claim_id='demo:cap-base-hoodie:inventory'",
+          [
+            JSON.stringify(previous.normalized_value),
+            previous.resolution_status,
+          ],
+        );
+      }
+    },
+  );
+
+  it("does not let a global capacity override a stricter scoped capacity", async () => {
+    await ingestClaim(
+      {
+        merchantId: "thread-forge",
+        field: "capacity",
+        rawValue: 1000,
+        sourceKind: "api",
+        sourceReference: `demo:chaos:capacity:${randomUUID()}`,
+        sourceAuthority: 1,
+        extractionConfidence: 1,
+      },
+      "capacity-limits",
+    );
+    const candidate = (await service.searchCandidates(kitIntent(now))).find(
+      (entry) => entry.capabilityId === "cap-thread-embroidery",
+    );
+    expect(candidate?.capability.capacity.available).toBe(400);
+  });
+
+  it("removes superseded evidence from candidate source claims", async () => {
+    const result = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "cap-base-hoodie.price",
+        rawValue: 20,
+        sourceKind: "api",
+        sourceReference: `demo:chaos:price:${randomUUID()}`,
+        sourceAuthority: 1,
+        extractionConfidence: 1,
+      },
+      "price-replacement",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    const candidate = (await service.searchCandidates(kitIntent(now))).find(
+      (entry) => entry.capabilityId === "cap-base-hoodie",
+    );
+    expect(candidate?.capability.pricing.unitPrice).toBe(20);
+    expect(candidate?.capability.sourceClaimIds).toContain(
+      result.claim.claimId,
+    );
+    expect(candidate?.capability.sourceClaimIds).not.toContain(
+      "demo:cap-base-hoodie:price",
+    );
+  });
+
+  it("supersedes older observations from one operational source without erasing them", async () => {
+    const sourceReference = `shopify:inventory:${randomUUID()}`;
+    const first = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "capacity_per_day",
+        rawValue: 20,
+        sourceKind: "shopify",
+        sourceReference,
+        observedAt: "2026-09-19T12:00:00.000Z",
+        sourceAuthority: 0.9,
+        extractionConfidence: 1,
+      },
+      "shopify-first-observation",
+    );
+    const newest = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "capacity_per_day",
+        rawValue: 0,
+        sourceKind: "shopify",
+        sourceReference,
+        observedAt: "2026-09-19T12:01:00.000Z",
+        sourceAuthority: 0.9,
+        extractionConfidence: 1,
+      },
+      "shopify-newest-observation",
+    );
+    const delayed = await ingestClaim(
+      {
+        merchantId: "base-goods",
+        field: "capacity_per_day",
+        rawValue: 10,
+        sourceKind: "shopify",
+        sourceReference,
+        observedAt: "2026-09-19T12:00:30.000Z",
+        sourceAuthority: 0.9,
+        extractionConfidence: 1,
+      },
+      "shopify-delayed-observation",
+    );
+    expect(first.ok && newest.ok && delayed.ok).toBe(true);
+    if (!first.ok || !newest.ok || !delayed.ok) return;
+
+    const claims = await listMerchantClaims("base-goods");
+    expect(
+      claims.find((claim) => claim.claimId === first.claim.claimId)
+        ?.resolutionStatus,
+    ).toBe("superseded");
+    expect(
+      claims.find((claim) => claim.claimId === delayed.claim.claimId)
+        ?.resolutionStatus,
+    ).toBe("superseded");
+    expect(
+      claims.find((claim) => claim.claimId === newest.claim.claimId),
+    ).toMatchObject({
+      resolutionStatus: "active",
+      normalizedValue: 0,
+    });
+  });
+
+  it("re-resolves offline merchants before filtering search candidates", async () => {
+    await ingestClaim(
+      {
+        merchantId: "thread-forge",
+        field: "status",
+        rawValue: "online",
+        sourceKind: "api",
+        sourceReference: `demo:chaos:status:${randomUUID()}`,
+        sourceAuthority: 1,
+        extractionConfidence: 1,
+      },
+      "status-recovered",
+    );
+    await getPool().query(
+      "update merchants set status='offline' where merchant_id='thread-forge'",
+    );
+    expect(
+      (await service.searchCandidates(kitIntent(now))).some(
+        (entry) => entry.merchantId === "thread-forge",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects malformed ingestion batches without committing a valid prefix", async () => {
+    const app = createRealityApp();
+    const sourceReference = `batch:${randomUUID()}`;
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/reality/ingest",
+        payload: {
+          traceId: "invalid-batch",
+          claims: [
+            {
+              merchantId: "base-goods",
+              field: "capacity",
+              rawValue: 1000,
+              sourceKind: "api",
+              sourceReference,
+              sourceAuthority: 1,
+              extractionConfidence: 1,
+            },
+            null,
+          ],
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(
+        (
+          await getPool().query(
+            "select 1 from raw_artifacts where source_reference=$1",
+            [sourceReference],
+          )
+        ).rowCount,
+      ).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rolls back batch artifacts and events if a later merchant does not exist", async () => {
+    const app = createRealityApp();
+    const traceId = randomUUID();
+    const claim = {
+      merchantId: "base-goods",
+      field: "capacity",
+      rawValue: 1000,
+      sourceKind: "api",
+      sourceReference: `demo:chaos:batch:${randomUUID()}`,
+      sourceAuthority: 1,
+      extractionConfidence: 1,
+    };
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/reality/ingest",
+        payload: {
+          traceId,
+          claims: [claim, { ...claim, merchantId: "missing-merchant" }],
+        },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(
+        (
+          await getPool().query(
+            "select 1 from raw_artifacts where source_reference=$1",
+            [claim.sourceReference],
+          )
+        ).rowCount,
+      ).toBe(0);
+      expect(
+        (
+          await getPool().query(
+            "select 1 from molecule_events where trace_id=$1",
+            [traceId],
+          )
+        ).rowCount,
+      ).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
 
   it("returns every kit component, two embroidery options, evidence and risk without certifying a plan", async () => {
     const candidates = await service.searchCandidates(kitIntent(now));
@@ -81,6 +433,27 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
         ?.resolutionStatus,
     ).toBe("superseded");
     expect(stitch?.capabilities[0]?.capability.capacity.available).toBe(20);
+  });
+
+  it("reads merchant summaries without waiting for the global writer lock", async () => {
+    const client = await getPool().connect();
+    let operation: ReturnType<typeof service.listMerchants> | undefined;
+    try {
+      await client.query("begin");
+      await client.query("select pg_advisory_xact_lock(73481203)");
+      operation = service.listMerchants();
+      const outcome = await Promise.race([
+        operation.then(() => "completed" as const),
+        new Promise<"blocked">((resolve) =>
+          setTimeout(() => resolve("blocked"), 2_000),
+        ),
+      ]);
+      expect(outcome).toBe("completed");
+    } finally {
+      await client.query("rollback");
+      client.release();
+      await operation;
+    }
   });
 
   it("honors scoped/global materials, exclusions, deadline, currency and reservations", async () => {

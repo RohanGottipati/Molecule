@@ -313,14 +313,18 @@ try {
       .getByRole("button", { name: "Start voice input", exact: true })
       .click();
     await waitStatus("Listening…");
-    await page.getByRole("button", { name: "Mute", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Mute microphone", exact: true })
+      .click();
     assert.equal(
       await page.evaluate(
         () => window.voiceProbe.streams.at(-1).getAudioTracks()[0].enabled,
       ),
       false,
     );
-    await page.getByRole("button", { name: "Unmute", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Unmute microphone", exact: true })
+      .click();
     assert.equal(
       await page.evaluate(
         () => window.voiceProbe.streams.at(-1).getAudioTracks()[0].enabled,
@@ -396,6 +400,7 @@ try {
       summaries.push({
         transcript: await page
           .locator(".transcript:not(.assistant) p")
+          .last()
           .textContent(),
         status: await status(),
         state: result.project.state,

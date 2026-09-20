@@ -267,6 +267,11 @@ persistence failures to 503 so Shopify can retry. Consume the persisted events
 to invalidate/reload affected catalog facts; ingestion/conflict resolution and
 supplier-offline replanning remain parent/Reality responsibilities.
 
+`handleShopifyWebhook` also returns the normalized optional
+`X-Shopify-Triggered-At` timestamp. Parents projecting inventory facts should
+pass it through as the claim observation time: Shopify does not guarantee
+delivery order, so an older delivery must not replace a later inventory fact.
+
 ## Environment and scopes
 
 The runtime package does **not** read environment variables or seed on import.

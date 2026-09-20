@@ -2,7 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 import cors from "@fastify/cors";
 import {
-  AssetRefSchema,
+  ActionIdSchema,
+  ActionStatusQuerySchema,
+  ProjectListQuerySchema,
+  ProjectListSchema,
+  MessageHistoryQuerySchema,
+  ProjectCapabilitiesEnvelopeSchema,
+  MessageSubmissionSchema,
   CompileIntentRequestSchema,
   SolverInputSchema,
   OrderSessionSnapshotSchema,
@@ -10,6 +16,11 @@ import {
   type MarketplaceSnapshot,
   type ChaosRequest,
 } from "@molecule/contracts";
+import {
+  handleShopifyWebhook,
+  ShopifyError,
+  type WebhookOptions,
+} from "@molecule/shopify";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -22,28 +33,35 @@ import { Orchestrator } from "./workflow/Orchestrator.js";
 import { registerDesktopRoutes } from "./desktopRoutes.js";
 import type { ContextStore } from "./LocalStore.js";
 import { ActionLedger } from "./ActionLedger.js";
+import { apiFailure, RequestProblem } from "./errors.js";
+import { readMessageHistory } from "./messageHistory.js";
 
-const MessageBody = z.object({
-  text: z.string().min(1),
-  locale: z.string().default("en-CA"),
-  timeZone: z.string().default("UTC"),
-  assets: z.array(AssetRefSchema).default([]),
-  correction: z
-    .object({
-      kind: z.enum([
-        "constraint",
-        "preference",
-        "quantity",
-        "deadline",
-        "budget",
-        "other",
-      ]),
-      text: z.string().min(1),
-    })
-    .optional(),
-});
+const SHOPIFY_WEBHOOK_PATH = "/api/shopify/webhooks";
+
+function singleValueHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value[0] : value,
+    ]),
+  );
+}
+
+function shopifyWebhookStatus(error: ShopifyError): number {
+  if (error.code === "WEBHOOK_UNAUTHORIZED") return 401;
+  if (error.code === "WEBHOOK_TOO_LARGE") return 413;
+  if (
+    error.code === "PERSISTENCE_FAILED" ||
+    error.code === "PERSISTENCE_DISCONNECTED"
+  )
+    return 503;
+  return 400;
+}
 
 export interface ServerDependencies {
+  catalogGallery?: () => Promise<import("@molecule/contracts").CatalogGallery>;
   config: Config;
   sessions: SessionRepository;
   events: EventStore;
@@ -54,10 +72,51 @@ export interface ServerDependencies {
   marketplace?: () => Promise<MarketplaceSnapshot>;
   applyChaos?: (request: ChaosRequest, traceId: string) => Promise<void>;
   resetDemo?: () => Promise<void>;
+  shopifyWebhook?: {
+    options: WebhookOptions;
+    ingestInventoryUpdate?: (input: {
+      shop: string;
+      inventoryItemId: string | number;
+      locationId?: string | number;
+      available: number;
+      observedAt?: string;
+      traceId: string;
+    }) => Promise<void>;
+  };
 }
 
 export async function buildServer(deps: ServerDependencies) {
   const app = Fastify({ logger: true });
+  app.get("/api/catalog/recipes", async () =>
+    deps.catalogGallery
+      ? deps.catalogGallery()
+      : { catalogVersion: null, recipes: [] },
+  );
+  if (deps.shopifyWebhook) {
+    app.removeContentTypeParser("application/json");
+    app.addContentTypeParser(
+      "application/json",
+      { parseAs: "buffer" },
+      (request, body, done) => {
+        if (request.url.split("?")[0] === SHOPIFY_WEBHOOK_PATH) {
+          done(null, body);
+          return;
+        }
+        try {
+          done(null, JSON.parse(body.toString("utf8")));
+        } catch {
+          done(
+            new RequestProblem(
+              400,
+              "VALIDATION_ERROR",
+              "Request body must contain valid JSON",
+            ),
+            undefined,
+          );
+        }
+      },
+    );
+  }
   const origins = [
     deps.config.ALLOWED_ORIGIN,
     deps.config.DESKTOP_ORIGIN,
@@ -74,8 +133,102 @@ export async function buildServer(deps: ServerDependencies) {
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/ready", async () => ({ status: "ready" }));
-  registerDesktopRoutes(app, deps);
+  if (deps.shopifyWebhook) {
+    app.post(
+      SHOPIFY_WEBHOOK_PATH,
+      { bodyLimit: deps.shopifyWebhook.options.maxBodyBytes ?? 1_000_000 },
+      async (request, reply) => {
+        if (!Buffer.isBuffer(request.body))
+          throw new ShopifyError("WEBHOOK_INVALID_PAYLOAD");
+        try {
+          const result = await handleShopifyWebhook(
+            deps.shopifyWebhook!.options,
+            {
+              rawBody: request.body,
+              headers: singleValueHeaders(request.headers),
+            },
+          );
+          if (
+            result.topic === "inventory_levels/update" &&
+            result.payload.inventory_item_id !== undefined &&
+            result.payload.available !== undefined &&
+            result.payload.available !== null
+          ) {
+            try {
+              await deps.shopifyWebhook!.ingestInventoryUpdate?.({
+                shop: result.domain,
+                inventoryItemId: result.payload.inventory_item_id,
+                locationId: result.payload.location_id,
+                available: result.payload.available,
+                ...(result.triggeredAt
+                  ? { observedAt: result.triggeredAt }
+                  : {}),
+                traceId: `shopify-webhook:${result.deliveryId}`,
+              });
+            } catch {
+              throw new ShopifyError("PERSISTENCE_FAILED");
+            }
+          }
+          return reply.code(200).send({
+            status: result.status,
+            eventId: result.eventId,
+          });
+        } catch (error) {
+          if (error instanceof ShopifyError)
+            return reply.code(shopifyWebhookStatus(error)).send({
+              error: error.code,
+            });
+          throw error;
+        }
+      },
+    );
+  }
   const chaosActions = new ActionLedger(deps.desktopStore);
+  registerDesktopRoutes(app, deps, chaosActions);
+  app.get("/api/projects", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return ProjectListSchema.parse(
+      await deps.sessions.listProjects(
+        ProjectListQuerySchema.parse(request.query),
+      ),
+    );
+  });
+  app.get<{ Params: { id: string } }>(
+    "/api/orders/:id/messages",
+    async (request, reply) => {
+      if (!(await deps.sessions.get(request.params.id)))
+        return reply.code(404).send({ error: "not_found" });
+      const query = MessageHistoryQuerySchema.parse(request.query);
+      reply.header("Cache-Control", "no-store");
+      return readMessageHistory(
+        deps.events,
+        request.params.id,
+        query.afterCursor,
+        query.limit,
+      );
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/orders/:id/actions",
+    async (request, reply) => {
+      if (!(await deps.sessions.get(request.params.id)))
+        return reply.code(404).send({ error: "not_found" });
+      reply.header("Cache-Control", "no-store");
+      return chaosActions.status(
+        request.params.id,
+        ActionStatusQuerySchema.parse(request.query),
+      );
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/orders/:id/capabilities",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return ProjectCapabilitiesEnvelopeSchema.parse(
+        await deps.orchestrator.capabilities(request.params.id),
+      );
+    },
+  );
   app.get("/api/marketplace", async (_request, reply) => {
     if (!deps.marketplace)
       return reply.code(503).send({ message: "Marketplace is unavailable" });
@@ -127,7 +280,10 @@ export async function buildServer(deps: ServerDependencies) {
     async (request, reply) => {
       const session = await deps.sessions.get(request.params.id);
       if (!session) return reply.code(404).send({ error: "not_found" });
-      const body = MessageBody.parse(request.body);
+      const body = MessageSubmissionSchema.parse(request.body);
+      const messageId = ActionIdSchema.parse(
+        request.headers["x-action-id"] ?? randomUUID(),
+      );
       const input = CompileIntentRequestSchema.parse({
         orderId: session.orderId,
         traceId: session.traceId,
@@ -144,42 +300,43 @@ export async function buildServer(deps: ServerDependencies) {
         correction: body.correction,
       });
       return chaosActions.run(
-        `${session.orderId}:message:${request.headers["x-action-id"] ?? randomUUID()}`,
+        `${session.orderId}:message:${messageId}`,
         body,
         OrderSessionSnapshotSchema.parse,
-        async () => toSnapshot(await deps.orchestrator.submitMessage(input)),
+        async () =>
+          toSnapshot(
+            await deps.orchestrator.submitMessage(input, {
+              messageId,
+              source: "web",
+              expectedRevision: body.expectedRevision,
+            }),
+          ),
       );
     },
   );
 
   app.post<{ Params: { id: string } }>(
     "/api/orders/:id/approve",
-    async (request, reply) => {
+    async (request) => {
       const body = z
         .object({
           planId: z.string(),
           intentVersion: z.number().int().positive(),
         })
         .parse(request.body);
-      try {
-        return await chaosActions.run(
-          `${request.params.id}:approve:${body.planId}:${body.intentVersion}`,
-          body,
-          OrderSessionSnapshotSchema.parse,
-          async () =>
-            toSnapshot(
-              await deps.orchestrator.approve(
-                request.params.id,
-                body.planId,
-                body.intentVersion,
-              ),
+      return chaosActions.run(
+        `${request.params.id}:approve:${body.planId}:${body.intentVersion}`,
+        body,
+        OrderSessionSnapshotSchema.parse,
+        async () =>
+          toSnapshot(
+            await deps.orchestrator.approve(
+              request.params.id,
+              body.planId,
+              body.intentVersion,
             ),
-        );
-      } catch (error) {
-        return reply
-          .code(409)
-          .send({ error: error instanceof Error ? error.message : "conflict" });
-      }
+          ),
+      );
     },
   );
 
@@ -349,13 +506,23 @@ export async function buildServer(deps: ServerDependencies) {
     },
   );
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const normalized =
       error instanceof Error ? error : new Error("Unknown request error");
-    app.log.error({ err: normalized, name: normalized.name }, "request failed");
-    void reply
-      .code(400)
-      .send({ error: normalized.name, message: normalized.message });
+    const trace = request.headers["x-trace-id"];
+    const failure = apiFailure(
+      normalized,
+      typeof trace === "string" && trace ? trace.slice(0, 160) : request.id,
+    );
+    app.log.error(
+      {
+        name: normalized.name,
+        code: failure.body.code,
+        traceId: failure.body.traceId,
+      },
+      "request failed",
+    );
+    void reply.code(failure.status).send(failure.body);
   });
   return app;
 }

@@ -1,21 +1,23 @@
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, screen, systemPreferences } from "electron";
 import { join } from "node:path";
 import type { DesktopSignal, OverlayMode } from "../shared/bridge.js";
-import { clampPosition } from "./policy.js";
+import { clampPosition, isPlainEscape, overlaySize } from "./policy.js";
 import type { SettingsStore } from "./settings.js";
 
 export class OverlayWindow {
   readonly window: BrowserWindow;
   private programmaticMove = false;
   private moveTimer?: ReturnType<typeof setTimeout>;
+  private resizeTimer?: ReturnType<typeof setTimeout>;
   private mode: OverlayMode = "compact";
+  private readonly fitDisplay = () => this.setMode(this.mode, false);
   constructor(
     private readonly settings: SettingsStore,
     rendererUrl?: string,
   ) {
     this.window = new BrowserWindow({
-      width: 360,
-      height: 88,
+      width: 420,
+      height: 188,
       show: false,
       frame: false,
       transparent: true,
@@ -52,17 +54,15 @@ export class OverlayWindow {
       clearTimeout(this.moveTimer);
       this.moveTimer = setTimeout(() => {
         const [x = 0, y = 0] = this.window.getPosition();
-        void settings
-          .save({ ...settings.get(), position: { x, y } })
-          .catch(() => {
-            console.warn(
-              JSON.stringify({ scope: "main", event: "position.save.failed" }),
-            );
-          });
+        void settings.update({ position: { x, y } }).catch(() => {
+          console.warn(
+            JSON.stringify({ scope: "main", event: "position.save.failed" }),
+          );
+        });
       }, 250);
     });
     this.window.webContents.on("before-input-event", (event, input) => {
-      if (input.type === "keyDown" && input.key === "Escape") {
+      if (isPlainEscape(input)) {
         event.preventDefault();
         this.hide();
       }
@@ -71,6 +71,8 @@ export class OverlayWindow {
     this.window.webContents.on("will-navigate", (event) =>
       event.preventDefault(),
     );
+    screen.on("display-removed", this.fitDisplay);
+    screen.on("display-metrics-changed", this.fitDisplay);
     void this.window.loadURL(rendererUrl ?? "app://molecule/index.html");
   }
   signal(signal: DesktopSignal) {
@@ -79,12 +81,15 @@ export class OverlayWindow {
   isVisible() {
     return this.window.isVisible();
   }
+  isFocused() {
+    return this.window.isFocused();
+  }
   show() {
     const display = screen.getDisplayNearestPoint(
       screen.getCursorScreenPoint(),
     );
     const area = display.workArea;
-    const bounds = this.window.getBounds();
+    const bounds = overlaySize(this.mode, area);
     const saved = this.settings.get().position;
     const onDisplay =
       saved &&
@@ -96,12 +101,10 @@ export class OverlayWindow {
       ? saved
       : { x: area.x + (area.width - bounds.width) / 2, y: area.y + 36 };
     this.programmaticMove = true;
-    this.window.setPosition(
-      ...(Object.values(clampPosition(position, bounds, area)) as [
-        number,
-        number,
-      ]),
-    );
+    this.window.setBounds({
+      ...clampPosition(position, bounds, area),
+      ...bounds,
+    });
     this.programmaticMove = false;
     this.window.show();
     this.window.focus();
@@ -109,27 +112,34 @@ export class OverlayWindow {
   hide() {
     this.window.hide();
   }
-  setMode(mode: OverlayMode) {
-    this.mode = mode;
+  setMode(mode: OverlayMode, animate = true) {
     if (mode === "hidden") return this.hide();
-    const compact = mode === "compact";
+    this.mode = mode;
     const area = screen.getDisplayMatching(this.window.getBounds()).workArea;
-    const width = Math.min(compact ? 360 : 460, area.width);
-    const height = Math.min(
-      compact ? 88 : mode === "company" ? 720 : 600,
-      area.height - 24,
-    );
+    const { width, height } = overlaySize(mode, area);
     const position = clampPosition(
       this.window.getBounds(),
       { width, height },
       area,
     );
     this.programmaticMove = true;
-    this.window.setBounds({ ...position, width, height });
-    this.programmaticMove = false;
+    const motion =
+      animate &&
+      process.platform === "darwin" &&
+      !systemPreferences.getAnimationSettings().prefersReducedMotion;
+    clearTimeout(this.resizeTimer);
+    this.window.setBounds({ ...position, width, height }, motion);
+    if (motion)
+      this.resizeTimer = setTimeout(() => {
+        this.programmaticMove = false;
+      }, 350);
+    else this.programmaticMove = false;
   }
   destroy() {
     clearTimeout(this.moveTimer);
+    clearTimeout(this.resizeTimer);
+    screen.removeListener("display-removed", this.fitDisplay);
+    screen.removeListener("display-metrics-changed", this.fitDisplay);
     this.window.removeAllListeners("close");
     this.window.destroy();
   }

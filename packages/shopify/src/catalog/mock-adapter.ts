@@ -169,6 +169,11 @@ export class MockShopifyAdapter implements ShopifyAdapter {
     return store;
   }
 
+  /** Exposes the deterministic configured stores for read-only catalog consumers. */
+  listStores(): readonly string[] {
+    return [...this.storeHandles];
+  }
+
   async getSnapshot(shop: string): Promise<ShopifySnapshot> {
     const store = this.requireStore(shop);
     const role = roleForStore(shop);
@@ -234,9 +239,10 @@ export class MockShopifyAdapter implements ShopifyAdapter {
       "product",
       plan,
       () => {
-        const shop =
-          this.storeHandles.find((s) => roleForStore(s) === "molecule") ??
-          this.storeHandles[0]!;
+        const shop = this.storeHandles.find(
+          (s) => roleForStore(s) === "molecule",
+        );
+        if (!shop) throw new ShopifyError("CENTRAL_STORE_NOT_CONFIGURED");
         const store = this.requireStore(shop);
         const handle = `molecule-${plan.orderId}-v${plan.intentVersion}`;
         const existing = store.get(handle);

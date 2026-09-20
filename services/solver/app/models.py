@@ -17,6 +17,7 @@ class ContractModel(BaseModel):
         populate_by_name=True,
         extra="forbid",
         allow_inf_nan=False,
+        strict=True,
     )
 
 
@@ -172,7 +173,60 @@ class CandidateRisk(ContractModel):
         return self
 
 
-class CandidateCapability(ContractModel):
+class SelectedCatalogItem(ContractModel):
+    binding_id: str
+    product_id: str
+    variant_id: str
+    sku: str
+    item_kind: Literal["physical", "service"]
+    shop_domain: str | None = None
+    variant_gid: str | None = None
+
+
+class ResourceInterval(ContractModel):
+    starts_at: str
+    completes_at: str
+
+    @model_validator(mode="after")
+    def ordered(self) -> ResourceInterval:
+        timestamp(self.starts_at)
+        timestamp(self.completes_at)
+        starts = datetime.fromisoformat(self.starts_at.replace("Z", "+00:00"))
+        completes = datetime.fromisoformat(self.completes_at.replace("Z", "+00:00"))
+        if completes <= starts:
+            raise ValueError("Resource intervals must have positive duration")
+        return self
+
+
+class CatalogResourceReference(ContractModel):
+    resource_id: str
+    kind: Literal["inventory", "processing"]
+    unit: str
+    units_per_item: float = Field(gt=0)
+    available: float = Field(ge=0)
+    period_minutes: int | None = Field(default=None, gt=0)
+    observed_at: str
+    source_reference: str
+    occupied_intervals: list[ResourceInterval] | None = None
+
+    @model_validator(mode="after")
+    def consistent(self) -> CatalogResourceReference:
+        timestamp(self.observed_at)
+        if (self.kind == "processing") != (self.period_minutes is not None):
+            raise ValueError("Only processing resources require periodMinutes")
+        return self
+
+
+class CatalogReferences(ContractModel):
+    catalog_version: str | None = None
+    selected_item: SelectedCatalogItem | None = None
+    resource_refs: list[CatalogResourceReference] | None = None
+    required_asset_ids: list[str] | None = None
+    transfer_minutes: int | None = Field(default=None, ge=0)
+    synthetic: bool | None = None
+
+
+class CandidateCapability(CatalogReferences):
     capability_id: str
     merchant_id: str
     score: float
@@ -188,7 +242,8 @@ class ConstraintPatch(ContractModel):
     value: JsonValue = None
 
 
-class QuoteResponse(ContractModel):
+class QuoteResponse(CatalogReferences):
+    quoted_quantity: int | None = Field(default=None, gt=0)
     merchant_id: str
     capability_id: str
     status: Literal["CAN_ACCEPT", "COUNTEROFFER", "DECLINE"]
@@ -224,7 +279,8 @@ class SolverInput(ContractModel):
         return timestamp(value)
 
 
-class PlanNode(ContractModel):
+class PlanNode(CatalogReferences):
+    customization_assets: list[AssetRef] | None = None
     node_id: str
     merchant_id: str
     capability_id: str

@@ -1,16 +1,27 @@
 import {
+  ActionStatusQuerySchema,
+  ActionStatusSchema,
   ApiErrorSchema,
   ContextReceiptSchema,
   ContextUploadSchema,
   DesktopActionSchema,
   DesktopResultSchema,
   MarketplaceSnapshotSchema,
+  MessageHistoryQuerySchema,
+  MessageHistorySchema,
+  MessageSubmissionSchema,
   MAX_CONTEXT_BYTES,
   OrderSessionSnapshotSchema,
+  ProjectCapabilitiesEnvelopeSchema,
+  ProjectListQuerySchema,
+  ProjectListSchema,
+  type ActionStatusQuery,
   type AssetRef,
   type ChaosRequest,
   type CompileIntentRequest,
   type OrderSessionSnapshot,
+  type MessageSubmission,
+  type ProjectListQuery,
 } from "@molecule/contracts";
 
 export class RequestError extends Error {
@@ -113,6 +124,115 @@ export async function getOrder(orderId: string, signal?: AbortSignal) {
   );
 }
 
+function parseRead<T>(
+  schema: {
+    safeParse: (
+      value: unknown,
+    ) => { success: true; data: T } | { success: false };
+  },
+  value: unknown,
+): T {
+  const result = schema.safeParse(value);
+  if (!result.success)
+    throw new RequestError(
+      "The service returned an incompatible read model.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return result.data;
+}
+
+export async function getProjects(
+  query: Partial<ProjectListQuery> = {},
+  signal?: AbortSignal,
+) {
+  const parsed = ProjectListQuerySchema.parse(query);
+  const params = new URLSearchParams({
+    limit: String(parsed.limit),
+    search: parsed.search,
+    ...(parsed.cursor ? { cursor: parsed.cursor } : {}),
+  });
+  return parseRead(
+    ProjectListSchema,
+    await request(`/api/projects?${params}`, { signal }),
+  );
+}
+
+export async function getMessages(
+  orderId: string,
+  afterCursor = 0,
+  signal?: AbortSignal,
+) {
+  const query = MessageHistoryQuerySchema.parse({ afterCursor, limit: 100 });
+  const result = parseRead(
+    MessageHistorySchema,
+    await request(
+      `/api/orders/${encodeURIComponent(orderId)}/messages?afterCursor=${query.afterCursor}&limit=${query.limit}`,
+      { signal },
+    ),
+  );
+  if (
+    result.messages.some(
+      (entry, index) =>
+        entry.orderId !== orderId ||
+        entry.messageId !== entry.outcome.messageId ||
+        entry.cursor <= (result.messages[index - 1]?.cursor ?? afterCursor),
+    ) ||
+    new Set(result.messages.map((entry) => entry.messageId)).size !==
+      result.messages.length ||
+    (result.nextCursor !== null &&
+      result.nextCursor !== result.messages.at(-1)?.cursor)
+  )
+    throw new RequestError(
+      "Message history does not match this project or cursor.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return result;
+}
+
+export async function getActionStatus(
+  orderId: string,
+  query: ActionStatusQuery,
+  signal?: AbortSignal,
+) {
+  const parsed = ActionStatusQuerySchema.parse(query);
+  const result = parseRead(
+    ActionStatusSchema,
+    await request(
+      `/api/orders/${encodeURIComponent(orderId)}/actions?${new URLSearchParams(parsed)}`,
+      { signal },
+    ),
+  );
+  if (
+    result.orderId !== orderId ||
+    result.key !== parsed.key ||
+    result.kind !== parsed.kind
+  )
+    throw new RequestError(
+      "Action status does not match this request.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return result;
+}
+
+export async function getCapabilities(orderId: string, signal?: AbortSignal) {
+  const result = parseRead(
+    ProjectCapabilitiesEnvelopeSchema,
+    await request(`/api/orders/${encodeURIComponent(orderId)}/capabilities`, {
+      signal,
+    }),
+  );
+  if (result.orderId !== orderId)
+    throw new RequestError(
+      "Capabilities do not match this project.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return result;
+}
+
 export async function getMarketplace(signal?: AbortSignal) {
   const result = MarketplaceSnapshotSchema.safeParse(
     await request("/api/marketplace", { signal }),
@@ -149,18 +269,63 @@ export async function submitMessage(
   assets: AssetRef[] = [],
   correction?: CompileIntentRequest["correction"],
 ) {
+  return submitMessagePayload(
+    order,
+    {
+      text,
+      assets,
+      locale: navigator.language || "en-CA",
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      correction,
+      expectedRevision: order.revision,
+    },
+    actionKey,
+  );
+}
+
+export async function submitMessagePayload(
+  order: Pick<OrderSessionSnapshot, "orderId" | "traceId">,
+  payload: MessageSubmission,
+  actionKey: string,
+) {
+  const body = MessageSubmissionSchema.parse(payload);
   return parseSnapshot(
     await request(`/api/orders/${encodeURIComponent(order.orderId)}/messages`, {
       method: "POST",
       headers: actionHeaders(order.traceId, actionKey),
-      body: JSON.stringify({
-        text,
-        assets,
-        locale: navigator.language || "en-CA",
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        correction,
-      }),
+      body: JSON.stringify(body),
     }),
+  );
+}
+
+export async function cancelPlanning(
+  order: OrderSessionSnapshot,
+  actionId: string,
+  beforeSubmit?: () => void,
+) {
+  const current = await getCapabilities(order.orderId);
+  if (
+    current.revision !== order.revision ||
+    !current.capabilities.canCancelPlanning
+  )
+    throw new Error(
+      "Refresh the project. Planning cancellation is unavailable after execution starts.",
+    );
+  const action = DesktopActionSchema.parse({
+    actionId,
+    expectedRevision: order.revision,
+    command: { name: "cancel_project", args: {} },
+  });
+  beforeSubmit?.();
+  return DesktopResultSchema.parse(
+    await request(
+      `/api/projects/${encodeURIComponent(order.orderId)}/actions`,
+      {
+        method: "POST",
+        headers: actionHeaders(order.traceId, actionId),
+        body: JSON.stringify(action),
+      },
+    ),
   );
 }
 
@@ -209,6 +374,20 @@ export async function triggerChaos(
   );
 }
 
+export async function resetDemoMarketplace(): Promise<void> {
+  try {
+    await request("/api/demo/reset", { method: "POST", body: "{}" });
+  } catch (error) {
+    if (error instanceof RequestError && error.status === 404)
+      throw new RequestError(
+        "Demo reset is only available when the server runs in demo mode with PostgreSQL storage.",
+        404,
+        "NOT_FOUND",
+      );
+    throw error;
+  }
+}
+
 export function fileMetadata(file: File, actionId: string) {
   const mimeType =
     file.type ||
@@ -235,6 +414,8 @@ export async function uploadContext(
   order: OrderSessionSnapshot,
   file: File,
   actionKey: string,
+  onUploaded?: (contextId: string) => void,
+  onRejected?: () => void,
 ) {
   const metadata = fileMetadata(file, actionKey);
   const receipt = ContextReceiptSchema.parse(
@@ -250,12 +431,21 @@ export async function uploadContext(
         },
         body: file,
       },
-    ),
+    ).catch((error: unknown) => {
+      if (
+        error instanceof RequestError &&
+        error.code === "VALIDATION_ERROR" &&
+        [400, 413].includes(error.status)
+      )
+        onRejected?.();
+      throw error;
+    }),
   );
   const action = DesktopActionSchema.parse({
     actionId: `attach:${receipt.contextId}`,
     command: { name: "attach_context", args: { contextId: receipt.contextId } },
   });
+  onUploaded?.(receipt.contextId);
   return DesktopResultSchema.parse(
     await request(
       `/api/projects/${encodeURIComponent(order.orderId)}/actions`,

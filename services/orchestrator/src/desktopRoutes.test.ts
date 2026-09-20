@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   DesktopResultSchema,
   ProductionPlanSchema,
+  type DesktopCommand,
   type SolverInput,
 } from "@molecule/contracts";
 import { MockOpenAIAdapter } from "@molecule/openai";
@@ -49,6 +50,7 @@ async function fixture(directory?: string) {
   const orchestrator = new Orchestrator({
     sessions: store,
     events: store,
+    contexts: store,
     openai,
     solver,
     reality: new MockRealityClient(),
@@ -75,6 +77,151 @@ async function fixture(directory?: string) {
 }
 
 describe("desktop backend integration", () => {
+  it("retains clarification through corrections and retries until the compiler resolves it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "molecule-clarification-"));
+    directories.push(directory);
+    const { app, project, store, openai, solver } = await fixture(directory);
+    try {
+      const brief = "Make 20 hoodies by 2026-10-01 under $1000 CAD";
+      const compiled = await openai.compileIntent({
+        orderId: project.orderId,
+        traceId: project.traceId,
+        text: brief,
+        requestedAt: "2026-09-19T12:00:00.000Z",
+        locale: "en-CA",
+        timeZone: "UTC",
+        assets: [],
+      });
+      if (compiled.status !== "READY")
+        throw new Error("Expected a structurally complete test intent");
+      const ambiguityFlags = [
+        {
+          field: "artwork",
+          reason: "Missing artwork",
+          question: "Please supply the logo artwork.",
+        },
+        {
+          field: "recipientNames",
+          reason: "Missing names",
+          question: "What names should be personalized?",
+        },
+        {
+          field: "shipping",
+          reason: "Please supply the fulfillment destinations.",
+        },
+      ];
+      const questions = ambiguityFlags.map(
+        (flag) => flag.question ?? flag.reason,
+      );
+      const compile = vi.spyOn(openai, "compileIntent").mockResolvedValueOnce({
+        status: "NEEDS_CLARIFICATION",
+        draft: { ...compiled.intent, ambiguityFlags },
+        questions,
+      });
+      const action = async (command: DesktopCommand, actionId: string) => {
+        const response = await app.inject({
+          method: "POST",
+          url: `/api/projects/${project.orderId}/actions`,
+          payload: { actionId, command },
+        });
+        expect(response.statusCode).toBe(200);
+        return DesktopResultSchema.parse(response.json());
+      };
+      const initial = await action(
+        { name: "start_project", args: { intent: brief } },
+        "start",
+      );
+      expect(initial.project.state).toBe("NEEDS_CLARIFICATION");
+      const constraint = {
+        field: "material",
+        operator: "not_contains" as const,
+        value: "polyester",
+        hard: true,
+      };
+      const commands: DesktopCommand[] = [
+        { name: "add_constraint", args: { constraint } },
+        {
+          name: "remove_constraint",
+          args: { constraintId: "clarification-0" },
+        },
+        { name: "request_recompile", args: {} },
+      ];
+      let latest = initial;
+      for (const [index, command] of commands.entries()) {
+        const actionId = `clarification-${index}`;
+        latest = await action(command, actionId);
+        expect(latest.project.state).toBe("NEEDS_CLARIFICATION");
+        expect(latest.project.activePlan).toBeNull();
+        expect(latest.project.candidates).toEqual([]);
+        expect(latest.project.quotes).toEqual([]);
+        expect(latest.project.intentVersion).toBe(
+          initial.project.intentVersion + index + 1,
+        );
+        expect(latest.project.intent).toEqual({
+          ...initial.project.intent,
+          version: latest.project.intentVersion,
+          hardConstraints:
+            index === 0
+              ? [
+                  ...compiled.intent.hardConstraints,
+                  {
+                    constraintId: actionId,
+                    field: "material",
+                    operator: "not_contains",
+                    value: "polyester",
+                  },
+                ]
+              : compiled.intent.hardConstraints,
+        });
+        const events = await store.list(project.orderId, 0);
+        expect(events.at(-1)?.event).toMatchObject({
+          eventType: "intent.clarification.required",
+          payload: { questions, intentVersion: latest.project.intentVersion },
+        });
+        expect(await action(command, actionId)).toEqual(latest);
+        expect(await store.list(project.orderId, 0)).toEqual(events);
+        const reloaded = new LocalStore(directory);
+        await reloaded.load();
+        expect(await reloaded.get(project.orderId)).toEqual(latest.project);
+        expect(
+          await reloaded.getReceipt(`${project.orderId}:${actionId}`),
+        ).toMatchObject({
+          state: "complete",
+          result: latest,
+        });
+      }
+      expect(solver.solve).not.toHaveBeenCalled();
+      expect(compile).toHaveBeenCalledTimes(1);
+      expect(
+        (await store.list(project.orderId, 0)).map(
+          ({ event }) => event.eventType,
+        ),
+      ).not.toContain("candidate.search.started");
+
+      compile.mockResolvedValueOnce({
+        status: "READY",
+        intent: {
+          ...compiled.intent,
+          version: latest.project.intentVersion + 1,
+        },
+      });
+      const resolved = await action(
+        {
+          name: "start_project",
+          args: { intent: "The requested details are supplied." },
+        },
+        "resolved",
+      );
+      expect(resolved.project.intent?.ambiguityFlags).toEqual([]);
+      expect(solver.solve).toHaveBeenCalledTimes(1);
+      expect(solver.solve.mock.calls[0]?.[0].intent).toEqual({
+        ...compiled.intent,
+        version: resolved.project.intentVersion,
+      });
+    } finally {
+      await app.close();
+    }
+  });
   it("creates once across retries and restart, without recreating a realtime session", async () => {
     const directory = await mkdtemp(join(tmpdir(), "molecule-desktop-"));
     directories.push(directory);

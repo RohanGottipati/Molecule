@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const DEFAULT_SHORTCUT = "Shift+Escape";
+export const LEGACY_DEFAULT_SHORTCUT = "Alt+Space";
+
 export const OverlayModeSchema = z.enum([
   "hidden",
   "compact",
@@ -8,9 +11,24 @@ export const OverlayModeSchema = z.enum([
   "alert",
 ]);
 export type OverlayMode = z.infer<typeof OverlayModeSchema>;
+export const DashboardViewSchema = z.enum([
+  "command",
+  "merchants",
+  "reality",
+  "operations",
+  "execution",
+]);
+export type DashboardView = z.infer<typeof DashboardViewSchema>;
+export const ActiveProjectSchema = z.uuid().nullable();
+export const DashboardRequestSchema = z
+  .object({
+    projectId: z.uuid().optional(),
+    view: DashboardViewSchema.optional(),
+  })
+  .strict();
 
 export const SettingsSchema = z.object({
-  shortcut: z.string().min(1).max(80).default("Alt+Space"),
+  shortcut: z.string().min(1).max(80).default(DEFAULT_SHORTCUT),
   microphoneDevice: z.string().max(300).default(""),
   voiceEnabled: z.boolean().default(true),
   notificationsEnabled: z.boolean().default(false),
@@ -20,6 +38,18 @@ export const SettingsSchema = z.object({
   lastProjectId: z.uuid().optional(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
+export const SettingsPatchSchema = SettingsSchema.extend({
+  shortcut: SettingsSchema.shape.shortcut.removeDefault(),
+  microphoneDevice: SettingsSchema.shape.microphoneDevice.removeDefault(),
+  voiceEnabled: SettingsSchema.shape.voiceEnabled.removeDefault(),
+  notificationsEnabled:
+    SettingsSchema.shape.notificationsEnabled.removeDefault(),
+  autoExpandOnAlert: SettingsSchema.shape.autoExpandOnAlert.removeDefault(),
+  screenShareConsent: SettingsSchema.shape.screenShareConsent.removeDefault(),
+})
+  .partial()
+  .strict();
+export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
 export type PermissionStatus =
   "not-determined" | "granted" | "denied" | "restricted" | "unknown";
 export interface DesktopBootstrap {
@@ -47,8 +77,9 @@ export interface DesktopBridge {
   hideOverlay(): Promise<void>;
   toggleOverlay(): Promise<void>;
   setMode(mode: OverlayMode): Promise<void>;
-  openDashboard(projectId?: string): Promise<void>;
-  saveSettings(settings: Settings): Promise<DesktopBootstrap>;
+  openDashboard(projectId?: string, view?: DashboardView): Promise<void>;
+  setActiveProject?(projectId: string | null): Promise<void>;
+  saveSettings(settings: SettingsPatch): Promise<DesktopBootstrap>;
   getPermissionStatus(): Promise<{
     microphone: PermissionStatus;
     screen: PermissionStatus;

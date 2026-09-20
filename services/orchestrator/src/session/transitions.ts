@@ -1,19 +1,11 @@
-import type { OrderSessionState, ProductionPlan } from "@molecule/contracts";
+import {
+  deriveProjectCapabilities,
+  isPlanningState,
+  type OrderSessionState,
+  type ProductionPlan,
+} from "@molecule/contracts";
 
 import type { OrderSession } from "./OrderSession.js";
-
-const planningStates: OrderSessionState[] = [
-  "COMPILING_INTENT",
-  "INTENT_COMPILED",
-  "DISCOVERING",
-  "CANDIDATES_READY",
-  "QUOTING",
-  "QUOTED",
-  "SOLVING",
-  "PLAN_VALIDATED",
-  "PLAN_UNSAT",
-  "AWAITING_APPROVAL",
-];
 
 const allowed = new Map<OrderSessionState, Set<OrderSessionState>>([
   ["REQUESTED", new Set(["COMPILING_INTENT", "FAILED"])],
@@ -76,7 +68,10 @@ export function transition(
   options: { solverPlan?: ProductionPlan } = {},
 ): OrderSession {
   if (!allowed.get(session.state)?.has(to)) {
-    if (to !== "CANCELLED" || !canAcceptCorrection(session.state)) {
+    if (
+      to !== "CANCELLED" ||
+      !deriveProjectCapabilities(session).canCancelPlanning
+    ) {
       throw new InvalidTransitionError(session.state, to);
     }
   }
@@ -100,9 +95,5 @@ export function transition(
 }
 
 export function canAcceptCorrection(state: OrderSessionState): boolean {
-  return (
-    ["REQUESTED", "NEEDS_CLARIFICATION", "NEEDS_HUMAN", "FAILED"].includes(
-      state,
-    ) || planningStates.includes(state)
-  );
+  return isPlanningState(state);
 }

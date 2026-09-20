@@ -19,3 +19,10 @@ export {
   RESOLUTION_WEIGHTS,
   CONFLICT_MARGIN_THRESHOLD,
 } from "./resolution.js";
+export { catalogCandidates, type CatalogCandidateReport } from "./catalog.js";
+export { quoteCatalog } from "./catalogQuote.js";
+export {
+  observeCatalogInventory,
+  type CatalogInventoryObservation,
+} from "./catalogInventory.js";
+export { catalogGallery } from "./catalogGallery.js";

@@ -92,3 +92,33 @@ Execution that cannot confirm all commerce actions or supplier acceptance enters
 ## Deployment boundary
 
 The service defaults to loopback for a single operator. Before exposing it to multiple users, place it behind authenticated infrastructure with tenant/order authorization. Provider secrets, chaos controls and ephemeral realtime credentials must stay behind that boundary. The development command is not a public deployment.
+
+## Shared project read models
+
+Project discovery, accepted original messages, per-order action status, and
+execution-aware capabilities are documented in [CONTRACTS.md](CONTRACTS.md#shared-project-discovery-messages-and-action-status).
+They use existing session/event/action storage and require no new migration.
+Older strict snapshot consumers receive no new snapshot fields.
+
+Use the original message `x-action-id` to query action status after a lost HTTP
+response. Keep the same payload and ID until the outcome is known. Do not create
+a new key to bypass an unresolved pending/failed receipt. Status reads perform no
+provider calls and do not retry work. Receipt completion and message-outcome
+events are separate writes; a process termination between them can leave
+attention that requires checking both read models. Accepted text and its session
+revision are written atomically by LocalStore and PostgresStore.
+
+Recovery search/solver exceptions now leave an explicit failed state, without
+overwriting a newer correction. When execution has started, failure does not
+enable cancellation or corrections that would discard receipt evidence. If
+commerce creation succeeded but supplier acceptance failed, the returned
+commerce receipt is retained and the project requires operator reconciliation.
+There is no automatic resume/reconcile endpoint. Existing recovery supersession
+and reservation ordering is unchanged; these read models do not implement
+reservation transfer or a transaction spanning providers.
+
+Original text is retained only for submissions accepted after this change.
+Desktop typed corrections need an actual `originalText` value to appear in
+message history. Legacy projects can have an empty history while still retaining
+their current intent, plan, receipts, and events. Message history responses are
+paged, but currently reconstruct outcomes from the order's full event stream.

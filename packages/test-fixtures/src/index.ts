@@ -132,3 +132,8 @@ export const DEMO_STORE_HANDLES = [
   "snackbox-0hubj57j",
   "printpress-b9oy1d5n",
 ] as const;
+export {
+  broadCatalogFixture,
+  BROAD_CATALOG_CLOCK,
+  BROAD_CATALOG_MERCHANTS,
+} from "./broadCatalog.js";
