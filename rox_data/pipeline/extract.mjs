@@ -85,13 +85,22 @@ async function extractOne(client, db, runId, artifact) {
 
 export async function extract(
   db,
-  { runId, batchId, traceId, limit = null, dry = false },
+  {
+    runId,
+    batchId,
+    traceId,
+    limit = null,
+    dry = false,
+    client: suppliedClient,
+  },
 ) {
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 60_000,
-    maxRetries: 2,
-  });
+  const client =
+    suppliedClient ??
+    new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      timeout: 60_000,
+      maxRetries: 2,
+    });
   const counts = {
     artifacts: 0,
     candidates: 0,
@@ -128,6 +137,17 @@ export async function extract(
     selected.push(...rows);
   }
   const work = limit ? selected.slice(0, limit) : selected;
+
+  if (!dry)
+    await emitEvent(db, {
+      traceId,
+      type: "rox.evaluation.population",
+      payload: {
+        runId,
+        stage: "extract",
+        artifactIds: work.map((a) => a.artifact_id),
+      },
+    });
 
   let aborted = null;
   const queue = [...work];
@@ -198,6 +218,9 @@ export async function extract(
                 value: c.value ?? "",
                 subjectHint: c.subjectHint ?? "",
                 period: c.period ?? "",
+                qualifier: c.qualifier ?? "",
+                effectiveFrom: c.effectiveFrom ?? "",
+                effectiveUntil: c.effectiveUntil ?? "",
               }),
               c.unit || null,
               c.evidence || null,

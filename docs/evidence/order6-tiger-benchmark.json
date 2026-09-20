@@ -1,0 +1,156 @@
+{
+  "generatedAt": "2026-09-20T02:03:16.134Z",
+  "environment": {
+    "roundTripMedianMs": 29.11,
+    "extensions": {
+      "pg_trgm": "1.6",
+      "timescaledb": "2.30.0",
+      "timescaledb_toolkit": "1.26.0",
+      "vector": "0.8.6"
+    },
+    "databaseBytes": 1430386367,
+    "rowCounts": {
+      "bulk_order_lines_in_aggregate": 5022872,
+      "fulfillment_samples_approx": 1200010,
+      "alias_embeddings": 459,
+      "bulk_order_lines_raw": 4148801
+    },
+    "target": "Tiger Cloud service (host and credentials redacted)"
+  },
+  "experiments": {
+    "sales": {
+      "question": "Revenue and units by year: raw hypertable scan vs continuous aggregate",
+      "exact": {
+        "cold_ms": 9451.1,
+        "warm_median_ms": 8200.1,
+        "warm_max_ms": 8395.1,
+        "warm_runs": 2,
+        "row_count": 12
+      },
+      "aggregate": {
+        "cold_ms": 84.9,
+        "warm_median_ms": 41.8,
+        "warm_max_ms": 43.9,
+        "warm_runs": 2,
+        "row_count": 12
+      },
+      "speedup_warm_median": 196.2,
+      "years": 12,
+      "identical_answers": true,
+      "years_with_differences": []
+    },
+    "risk": {
+      "question": "Supplier p95 lead time: exact scan of raw samples vs continuous aggregate",
+      "allSuppliers": {
+        "exact": {
+          "cold_ms": 3161.5,
+          "warm_median_ms": 3108,
+          "warm_max_ms": 3278.5,
+          "warm_runs": 3,
+          "row_count": 227
+        },
+        "aggregate": {
+          "cold_ms": 3000.3,
+          "warm_median_ms": 1690.8,
+          "warm_max_ms": 1694.5,
+          "warm_runs": 3,
+          "row_count": 227
+        },
+        "speedup_warm_median": 1.8,
+        "keysCompared": 227,
+        "p95_relative_error": {
+          "mean_pct": 0.797,
+          "max_pct": 1.615
+        },
+        "sample_coverage_pct": 100
+      },
+      "singleSupplierLookup": {
+        "exact": {
+          "cold_ms": 79.6,
+          "warm_median_ms": 31.5,
+          "warm_max_ms": 31.5,
+          "warm_runs": 3,
+          "row_count": 1
+        },
+        "aggregate": {
+          "cold_ms": 51.5,
+          "warm_median_ms": 29.1,
+          "warm_max_ms": 32.8,
+          "warm_runs": 3,
+          "row_count": 1
+        },
+        "speedup_warm_median": 1.1,
+        "exact_p95_hours": 78.33,
+        "aggregate_p95_hours": 78.88
+      },
+      "note": "Aggregate p95 is approximate (uddsketch). If coverage < 100%, the aggregate is materialized-only and misses recent rows until refreshed."
+    },
+    "ann": {
+      "question": "pgvector nearest-alias search: latency and recall@5 against an exact scan",
+      "queries": 40,
+      "aliasEmbeddings": 459,
+      "exactScan": {
+        "median_ms": 32.46,
+        "max_ms": 78.41
+      },
+      "plannerDefault": {
+        "median_ms": 33,
+        "max_ms": 42.17,
+        "used_hnsw": false,
+        "recall_at_5_pct": 100
+      },
+      "hnswForced": {
+        "median_ms": 31.69,
+        "max_ms": 133.53,
+        "used_hnsw": true,
+        "recall_at_5_pct": 100
+      },
+      "note": "At this table size the planner may prefer a sequential scan; recall of a forced HNSW scan shows what the index would trade away at scale."
+    },
+    "compression": {
+      "question": "How much does native compression shrink each hypertable (compressed chunks only)?",
+      "tables": {
+        "bulk_order_lines": {
+          "chunks": 125,
+          "compressed_chunks": 122,
+          "before_bytes": 1290067968,
+          "after_bytes": 191799296,
+          "ratio": 6.73
+        },
+        "fulfillment_samples": {
+          "chunks": 14,
+          "compressed_chunks": 12,
+          "before_bytes": 352468992,
+          "after_bytes": 35774464,
+          "ratio": 9.85
+        },
+        "network_events": {
+          "chunks": 14,
+          "compressed_chunks": 0,
+          "before_bytes": 0,
+          "after_bytes": 0,
+          "ratio": null
+        },
+        "market_metrics": {
+          "chunks": 14,
+          "compressed_chunks": 0,
+          "before_bytes": 0,
+          "after_bytes": 0,
+          "ratio": null
+        }
+      }
+    }
+  },
+  "verdict": {
+    "aggregate_sales": "196x faster warm, identical answers on all 12 years: the case for continuous aggregates.",
+    "risk_all_suppliers": "1.8x faster, p95 within 1.6% of exact: modest win, approximate.",
+    "risk_single_supplier": "1.1x: no meaningful benefit; dominated by the ~29 ms round trip.",
+    "ann": "No latency benefit at 459 vectors (planner picks a sequential scan); recall 100% either way. Index matters only at scale.",
+    "compression": "6.7x on bulk_order_lines, 9.9x on fulfillment_samples (compressed chunks only); other hypertables not yet compressed."
+  },
+  "limitations": [
+    "Single connection on a shared managed service; timings vary with load and cache state.",
+    "Cold runs may include cache warming by earlier experiments in the same session.",
+    "Dataset is largely synthetic or replayed (see docs/DATABASE_ORDER1.md); latency does not depend on that, but no claim about real-world accuracy follows."
+  ]
+}

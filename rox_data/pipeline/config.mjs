@@ -40,7 +40,7 @@ export const FIELD_REGISTRY = {
   capacity: {
     unit: "units/day",
     kind: "quantity",
-    periods: ["day", "week", "month"],
+    periods: ["hour", "day", "week", "month"],
   },
   lead_time_hours: { unit: "hours", kind: "duration" },
   price: { unit: "CAD", kind: "money" },
@@ -94,3 +94,12 @@ export const RECENCY_HALF_LIFE_DAYS = 7;
 
 /** Entity resolution bands: above `link` we merge, below `review` we reject. */
 export const ENTITY_THRESHOLDS = { link: 0.9, review: 0.55 };
+
+/**
+ * How capacity figures with no stated period, ranges, bounds, hourly rates and
+ * out-of-window dates are handled.
+ *   strict - (default) anything the source does not support goes to review.
+ *   legacy - the pre-Order-4 behaviour: assume per-day, drop hedges. Kept only to
+ *            reproduce historical synthetic scores; never use it for real data.
+ */
+export const CAPACITY_POLICY = process.env.ROX_CAPACITY_POLICY ?? "strict";

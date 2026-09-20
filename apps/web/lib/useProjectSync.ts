@@ -7,6 +7,7 @@ import type {
   OrderSessionSnapshot,
 } from "@molecule/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RequestError } from "./api";
 import { subscribeEvents } from "./events";
 import { readProject } from "./projectReadModel";
 import {
@@ -66,7 +67,18 @@ export function useProjectSync(
     const controller = new AbortController();
     let epoch = 0;
     let initialized = false;
+    let missing = false;
     let globalTimer: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribe = () => {};
+    let poll: ReturnType<typeof setInterval> | undefined;
+    const stopLiveUpdates = () => {
+      missing = true;
+      unsubscribe();
+      unsubscribe = () => {};
+      clearInterval(poll);
+      poll = undefined;
+      setConnection("idle");
+    };
     const globals = () => {
       if (!globalTimer)
         globalTimer = setTimeout(() => {
@@ -76,6 +88,7 @@ export function useProjectSync(
     };
     const reader = createReadQueue(
       async () => {
+        if (missing) return;
         const started = epoch;
         updateFreshness(initialized ? "refreshing" : "loading");
         const attempt = new AbortController();
@@ -111,6 +124,12 @@ export function useProjectSync(
         setSyncError(
           cause instanceof Error ? cause.message : "Project refresh failed.",
         );
+        if (
+          !initialized &&
+          cause instanceof RequestError &&
+          cause.status === 404
+        )
+          stopLiveUpdates();
       },
     );
     queue.current = reader;
@@ -121,7 +140,7 @@ export function useProjectSync(
     };
     invalidateRef.current = invalidate;
     void reader.flush();
-    const unsubscribe = subscribeEvents(orderId, {
+    unsubscribe = subscribeEvents(orderId, {
       onReady: () => {
         setConnection("connected");
         invalidate();
@@ -143,7 +162,7 @@ export function useProjectSync(
         reader.request();
       },
     });
-    const poll = setInterval(() => reader.request(), 10_000);
+    poll = setInterval(() => reader.request(), 10_000);
     const visible = () => {
       if (document.visibilityState === "visible") {
         invalidate();

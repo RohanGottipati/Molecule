@@ -9,171 +9,30 @@ import {
   FX_TO_CAD,
   BUSINESS_DAY_HOURS,
   CALENDAR_DAY_HOURS,
+  CAPACITY_POLICY,
 } from "./config.mjs";
+import { interpretCapacity } from "./capacity.mjs";
+import { shortId, stableJson, bumpStage, emitEvent } from "./db.mjs";
 
-const WORDS = {
-  zero: 0,
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-  eleven: 11,
-  twelve: 12,
-  twenty: 20,
-  thirty: 30,
-  forty: 40,
-  fifty: 50,
-  sixty: 60,
-  hundred: 100,
-  thousand: 1000,
-};
-
-/**
- * Parses a number the way a document writes it. Returns null for anything it
- * cannot read with certainty - including OCR damage like "4l.8O", which looks
- * numeric but is not.
- */
-export function parseNumber(raw) {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
-  let s = String(raw).trim().toLowerCase();
-  if (!s) return null;
-
-  // Words: "four hundred", "a thousand", "zero".
-  const words = s
-    .replace(/[^a-z ]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  if (
-    words.length &&
-    words.every((w) => w in WORDS || w === "a" || w === "and")
-  ) {
-    let total = 0,
-      current = 0;
-    for (const w of words) {
-      if (w === "a") {
-        current = current || 1;
-        continue;
-      }
-      if (w === "and") continue;
-      const v = WORDS[w];
-      if (v === 100 || v === 1000) current = (current || 1) * v;
-      else current += v;
-    }
-    total += current;
-    return Number.isFinite(total) ? total : null;
-  }
-
-  s = s
-    .replace(/[$€£]/g, "")
-    .replace(/\b(cad|usd|gbp|eur)\b/g, "")
-    .trim();
-  s = s.replace(
-    /^(about|approx\.?|approximately|around|under|over|up to|~)\s*/i,
-    "",
-  );
-  s = s.replace(/,(?=\d{3}\b)/g, ""); // thousands separators
-  s = s.replace(/(\d),(\d)/g, "$1.$2"); // European decimal comma
-  s = s
-    .replace(
-      /\s*(units?|pcs?|pieces?|ea|each|kits?|hoodies|bottles|packs?)\b.*$/i,
-      "",
-    )
-    .trim();
-  s = s
-    .replace(/\s*(\/|per\s+)?(day|week|month|hour|hours|h)\b.*$/i, "")
-    .trim();
-
-  // Anything left that is not a plain number is not a number we will accept.
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
+import { parseNumber } from "./numbers.mjs";
+export { parseNumber };
 
 /** Which period a capacity figure is expressed in, from whatever the document said. */
 export function detectPeriod(unitText, periodHint, rawText) {
-  const explicit = String(periodHint ?? "").trim();
-  const unit = String(unitText ?? "").trim();
-  const hinted = capacityPeriod(explicit);
-  const stated = capacityPeriod(unit);
-  if (explicit && !hinted) return null;
-  if (unit && !stated && !/^(units?|pcs?|pieces?|kits?)$/i.test(unit))
-    return null;
-  if (hinted && stated && hinted !== stated) return null;
-  return hinted ?? stated ?? capacityPeriod(rawText);
+  const hay =
+    `${periodHint ?? ""} ${unitText ?? ""} ${rawText ?? ""}`.toLowerCase();
+  if (/\b(month|monthly|\/mo)\b/.test(hay)) return "month";
+  if (/\b(week|weekly|\/wk)\b/.test(hay)) return "week";
+  if (/\b(day|daily|\/d\b)\b/.test(hay)) return "day";
+  return null;
 }
 
 export function detectCurrency(unitText, rawText) {
-  const text = String(unitText ?? "").trim() || String(rawText ?? "").trim();
-  const match =
-    /^(CAD|USD|GBP|EUR|£|€)(?:\s*(?:\/|per\s+)(?:units?|items?|each|ea))?$/i.exec(
-      text,
-    );
-  if (!match) return null;
-  return match[1] === "£"
-    ? "GBP"
-    : match[1] === "€"
-      ? "EUR"
-      : match[1].toUpperCase();
-}
-
-function capacityPeriod(text) {
-  const unit = String(text ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(
-      /^(?:units?|pcs?|pieces?|kits?|hoodies|bottles|packs?)\s*(?:\/|per\s+)\s*/,
-      "",
-    )
-    .replace(/^per\s+|^\//, "");
-  if (/^(?:d|days?|daily)$/.test(unit)) return "day";
-  if (/^(?:wk|weeks?|weekly)$/.test(unit)) return "week";
-  if (/^(?:mo|months?|monthly)$/.test(unit)) return "month";
-  return null;
-}
-
-function durationUnit(text) {
-  const unit = String(text ?? "")
-    .trim()
-    .toLowerCase();
-  if (/^(?:h|hours?|hrs?)$/.test(unit)) return "hours";
-  if (/^(?:business|working)\s+days?$/.test(unit)) return "business_days";
-  if (/^(?:calendar\s+)?days?$/.test(unit)) return "days";
-  return null;
-}
-
-// Evidence fallback accepts one amount with an adjacent, complete unit phrase.
-// Multiple numbers or mixed unit phrases cannot supply a missing typed unit.
-function unitNearAmount(n, value, evidence, parseUnit) {
-  for (const text of [String(value), String(evidence ?? "")]) {
-    const amounts = [...text.matchAll(/\d+(?:[.,]\d+)*/g)];
-    if (amounts.length !== 1 || parseNumber(amounts[0][0]) !== n) continue;
-    const amount = amounts[0];
-    const suffix = text
-      .slice(amount.index + amount[0].length)
-      .trim()
-      .replace(/[.!]$/, "");
-    const prefix = text
-      .slice(0, amount.index)
-      .trim()
-      .replace(
-        /^(?:(?:the\s+)?(?:unit price|price|lead time|capacity)(?:\s+is)?|we can produce)(?:\s+|$)/i,
-        "",
-      )
-      .trim();
-    const suffixUnit = parseUnit(suffix);
-    const prefixUnit = parseUnit(prefix);
-    if ((suffix && !suffixUnit) || (prefix && !prefixUnit)) continue;
-    if (suffixUnit && prefixUnit && suffixUnit !== prefixUnit) return null;
-    const unit = suffixUnit ?? prefixUnit;
-    if (unit) return unit;
-  }
+  const hay = `${unitText ?? ""} ${rawText ?? ""}`.toUpperCase();
+  for (const code of ["CAD", "USD", "GBP", "EUR"])
+    if (hay.includes(code)) return code;
+  if (hay.includes("£")) return "GBP";
+  if (hay.includes("€")) return "EUR";
   return null;
 }
 
@@ -181,13 +40,40 @@ function unitNearAmount(n, value, evidence, parseUnit) {
  * Converts one stated fact into the canonical unit, or explains why it cannot.
  * Every conversion applied is returned so the claim can show its work.
  */
-export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
+export function normalizeFact({
+  fieldKind,
+  value,
+  unit,
+  period,
+  evidence,
+  qualifier,
+  effectiveFrom,
+  effectiveUntil,
+  observedAt,
+  ambiguity,
+  capacityPolicy = CAPACITY_POLICY,
+}) {
   const spec = FIELD_REGISTRY[fieldKind];
   if (!spec)
     return {
       ok: false,
       reason: `Field "${fieldKind}" is outside the registry`,
     };
+
+  // Strict capacity handling runs before the generic parse: a range or "up to"
+  // must reach review with its reason, not be read as a bare number or as junk.
+  if (fieldKind === "capacity" && capacityPolicy !== "legacy")
+    return interpretCapacity({
+      value,
+      unit,
+      period,
+      evidence,
+      qualifier,
+      effectiveFrom,
+      effectiveUntil,
+      observedAt,
+      ambiguity,
+    });
 
   const n = parseNumber(value);
   if (n === null) {
@@ -204,16 +90,9 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
 
   const applied = [];
   if (fieldKind === "capacity") {
-    const p = detectPeriod(
-      unit,
-      period,
-      unitNearAmount(n, value, evidence, capacityPeriod),
-    );
-    if (!p)
-      return {
-        ok: false,
-        reason: "Capacity period is missing, unsupported, or ambiguous",
-      };
+    const p = detectPeriod(unit, period, evidence) ?? "day";
+    if (!detectPeriod(unit, period, evidence))
+      applied.push("assumed per-day (no period stated)");
     const perDay = p === "week" ? n / 7 : p === "month" ? n / 30 : n;
     if (p !== "day") applied.push(`${p} -> day`);
     return {
@@ -226,22 +105,16 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
   }
 
   if (fieldKind === "lead_time_hours") {
-    const explicit = String(unit ?? "").trim();
-    const duration = explicit
-      ? durationUnit(explicit)
-      : unitNearAmount(n, value, evidence, durationUnit);
+    const hay = `${unit ?? ""} ${evidence ?? ""}`.toLowerCase();
     let hours = n;
-    if (duration === "business_days") {
+    if (/business\s+day|working\s+day/.test(hay)) {
       hours = n * BUSINESS_DAY_HOURS;
       applied.push(`business days x${BUSINESS_DAY_HOURS}h`);
-    } else if (duration === "days") {
+    } else if (/\bdays?\b/.test(hay)) {
       hours = n * CALENDAR_DAY_HOURS;
       applied.push(`days x${CALENDAR_DAY_HOURS}h`);
-    } else if (duration !== "hours")
-      return {
-        ok: false,
-        reason: "Lead-time unit is missing, unsupported, or ambiguous",
-      };
+    } else if (!/\b(h|hour|hours|hrs?)\b/.test(hay))
+      applied.push("assumed hours (no unit stated)");
     return {
       ok: true,
       value: Math.round(hours * 100) / 100,
@@ -251,14 +124,9 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
   }
 
   if (fieldKind === "price") {
-    const currency = String(unit ?? "").trim()
-      ? detectCurrency(unit)
-      : unitNearAmount(n, value, evidence, detectCurrency);
-    if (!currency)
-      return {
-        ok: false,
-        reason: "Price currency is missing, unsupported, or ambiguous",
-      };
+    const currency = detectCurrency(unit, evidence) ?? "CAD";
+    if (!detectCurrency(unit, evidence))
+      applied.push("assumed CAD (store currency, none stated)");
     const rate = FX_TO_CAD[currency];
     if (!rate) return { ok: false, reason: `Unknown currency "${currency}"` };
     if (currency !== "CAD")
@@ -275,14 +143,12 @@ export function normalizeFact({ fieldKind, value, unit, period, evidence }) {
 }
 
 export async function normalize(db, { runId, traceId, limit = null }) {
-  // Keep deterministic normalization usable without loading database drivers.
-  const { shortId, stableJson, bumpStage, emitEvent } =
-    await import("./db.mjs");
   const counts = {
     considered: 0,
     claimed: 0,
     quarantined: 0,
     ambiguous: 0,
+    needs_review: 0,
     superseded: 0,
     unlinked: 0,
   };
@@ -319,6 +185,11 @@ export async function normalize(db, { runId, traceId, limit = null }) {
           unit: row.raw_unit,
           period: row.raw_value?.period,
           evidence: row.evidence_text,
+          qualifier: row.raw_value?.qualifier,
+          effectiveFrom: row.raw_value?.effectiveFrom,
+          effectiveUntil: row.raw_value?.effectiveUntil,
+          observedAt: (row.observed_at ?? row.received_at)?.toISOString?.(),
+          ambiguity: row.ambiguity,
         })
       : {
           ok: false,
@@ -329,15 +200,39 @@ export async function normalize(db, { runId, traceId, limit = null }) {
 
     if (!result.ok) {
       const ambiguous = !String(stated).trim();
+      const needsReview = result.disposition === "needs_review";
       if (ambiguous) counts.ambiguous += 1;
+      else if (needsReview) counts.needs_review += 1;
       else counts.quarantined += 1;
+      if (needsReview)
+        await db.query(
+          `insert into rox_review_queue (task_id, run_id, kind, merchant_id, field, detail, proposed_action)
+           values ($1,$2,'quarantine',$3,$4,$5,$6) on conflict (task_id) do nothing`,
+          [
+            shortId(runId, row.extraction_id, "review"),
+            runId,
+            row.resolved_merchant_id,
+            row.resolved_field,
+            {
+              code: result.code,
+              reason: result.reason,
+              qualifiers: result.qualifiers ?? [],
+              extractionId: row.extraction_id,
+              evidence: row.evidence_text,
+            },
+            {
+              action: "ask_supplier_to_clarify",
+              note: "Do not promote this figure to a claim until the supplier states it unambiguously",
+            },
+          ],
+        );
       await db.query(
         `insert into quarantined_claims (quarantine_id, artifact_id, reason, run_id, extraction_id, merchant_hint, field, raw_value, stage)
          values ($1,$2,$3,$4,$5,$6,$7,$8,'normalize') on conflict (quarantine_id) do nothing`,
         [
           shortId(runId, row.extraction_id, "q"),
           row.artifact_id,
-          result.reason,
+          result.code ? `[${result.code}] ${result.reason}` : result.reason,
           runId,
           row.extraction_id,
           row.resolved_merchant_id,
@@ -347,7 +242,10 @@ export async function normalize(db, { runId, traceId, limit = null }) {
       );
       await db.query(
         `update rox_extractions set outcome='quarantined', outcome_reason=$2 where extraction_id=$1`,
-        [row.extraction_id, result.reason],
+        [
+          row.extraction_id,
+          result.code ? `[${result.code}] ${result.reason}` : result.reason,
+        ],
       );
       continue;
     }

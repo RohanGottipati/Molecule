@@ -525,14 +525,13 @@ export async function buildServer(deps: ServerDependencies) {
       normalized,
       typeof trace === "string" && trace ? trace.slice(0, 160) : request.id,
     );
-    app.log.error(
-      {
-        name: normalized.name,
-        code: failure.body.code,
-        traceId: failure.body.traceId,
-      },
-      "request failed",
-    );
+    const details = {
+      name: normalized.name,
+      code: failure.body.code,
+      traceId: failure.body.traceId,
+    };
+    if (failure.status >= 500) app.log.error(details, "request failed");
+    else app.log.warn(details, "request rejected");
     void reply.code(failure.status).send(failure.body);
   });
   return app;

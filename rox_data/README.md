@@ -68,11 +68,11 @@ node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --budget=12
 node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --stages=extract,link --limit=50
 
 # 4. Score it against the truth
-node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId>
+node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId> --output=<new-report.json>
 
 # 5. Score the regex control group on the same corpus
 node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --stages=baseline,link,normalize,resolve
-node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId> --variant=regex_baseline
+node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId> --output=<new-report.json>
 
 # Start over
 node --env-file=../.env --env-file=../.env.local pipeline/reset-batch.mjs --batch=rox-full-s42
@@ -111,19 +111,27 @@ The corpus is emulated but the mess is not decorative - see `corpus/chaos.mjs`
 for the seventeen dimensions and `manifest.json` for their coverage in a batch.
 The Open Food Facts and UCI Online Retail II rows already in Tiger are real.
 
-Scorer version `2026-09-20.1` uses this run's artifact-attempt ledger, plus its
-extraction/quarantine evidence, rather than counting only documents that produced
-extractions. Zero-output documents with expected claims now reduce recall,
-attribution and normalization scores. Matching is one-to-one and normalization
-requires the correct canonical unit as well as numeric value. Run/batch filters
-prevent cross-run candidate leakage. Outlier containment uses persisted resolution
-events linked to this run, not the current global resolution table; missing
-resolution evidence is reported as unobserved with separate coverage.
+## Evaluation v2
 
-The CLI reads one repeatable-read snapshot before writing its versioned scorecard.
-Historical failed extraction calls that never recorded an artifact identity cannot
-be reconstructed, and older baseline runs may lack zero-result attempt records;
-population counters expose recorded coverage rather than inventing it. These
-synthetic corpus scores remain diagnostics, not human-labelled real-document
-accuracy. Importing `scoreRun` / `loadScoreInputs` performs no I/O, allowing
-read-only recomputation without rewriting stored scorecards.
+See [Order 1 audit and repair](../docs/DATABASE_ORDER1.md). Scores now write an
+immutable local JSON snapshot/report, not mutable `rox_scorecard` rows. Historical
+runs without a selected-input manifest require explicit `--legacy-batch`; their
+results are full-batch diagnostics. Replay with `--snapshot=<report>` needs no
+network. Source text is included in the private report; do not commit real inputs.
+
+Zero-output documents, one-to-one matching, and canonical-unit checks from the
+2026-09-20 verification remain in `evaluate.mjs`. Synthetic corpus scores are
+diagnostics, not human-labelled real-document accuracy.
+
+The first real-document benchmark is scoped in
+[Order 2](../docs/DATABASE_ORDER2.md): one embroidery supplier, one capability
+and one order-sized availability decision. Its missing-period and effective-window
+rules supersede the synthetic normalizer's permissive defaults for benchmark
+acceptance; the implementation has not yet been changed to meet them.
+
+The private two-reviewer manifest and label validator for this scenario is in
+[`benchmark/`](benchmark/README.md). It contains no real supplier documents;
+Order 3 remains incomplete until the authorized private bundle is supplied,
+independently labelled and adjudicated.
+
+Run regression and mocked pipeline checks with `node --test tests/*.test.mjs`.

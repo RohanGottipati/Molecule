@@ -106,6 +106,19 @@ export function humanize(value: string) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+export function rangeLabel(min: number, max: number, unit: string) {
+  const span = min === max ? String(min) : `${min}–${max}`;
+  const word = unit
+    .replace(/[_.-]+/g, " ")
+    .toLowerCase()
+    .trim();
+  const plural =
+    max === 1 || !word || /s$/.test(word) || /\d/.test(word)
+      ? word
+      : `${word}s`;
+  return plural ? `${span} ${plural}` : span;
+}
+
 export function displayValue(value: unknown): string {
   if (value === null || value === undefined) return "Unknown";
   if (typeof value === "string") return value;

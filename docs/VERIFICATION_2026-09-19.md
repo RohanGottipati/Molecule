@@ -221,9 +221,10 @@ smokes were retained, not deleted.
    `mol_act_` / `mol_trc_` plus 128 hash bits. Full keys remain in receipts and
    draft attributes. Recovery still recognizes legacy product tags.
 4. **ROX scoring omitted zero-extraction documents.** Scorer `2026-09-20.1`
-   scores the attempt ledger of 1,144 documents, including 784 with no
+   scored the attempt ledger of 1,144 documents, including 784 with no
    extractions. Matching is one-to-one and requires the canonical unit. Stored
-   remote scorecards were not rewritten.
+   remote scorecards were not rewritten. Origin `main` now scores through
+   evaluation v2 (`evaluate.mjs`); those same population and unit checks remain.
 5. **`GET /ready` ignored solver outages.** It now returns 503 when the solver
    health request or PostgreSQL connectivity fails. Liveness stays on `/health`.
 6. **Live Shopify execution smoke.** After the tag fix, one DRAFT/untracked

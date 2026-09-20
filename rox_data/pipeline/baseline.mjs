@@ -98,7 +98,17 @@ export async function baseline(db, { runId, batchId, traceId, limit = null }) {
     [batchId],
   );
 
+  await emitEvent(db, {
+    traceId,
+    type: "rox.evaluation.population",
+    payload: {
+      runId,
+      stage: "baseline",
+      artifactIds: rows.map((a) => a.artifact_id),
+    },
+  });
   for (const artifact of rows) {
+    const beforeCandidates = counts.candidates;
     counts.artifacts += 1;
     const text = artifact.content_text;
     const guard = detectInjection(text);
@@ -152,6 +162,16 @@ export async function baseline(db, { runId, batchId, traceId, limit = null }) {
         );
       }
     }
+    await db.query(
+      `insert into rox_artifact_attempts (run_id,artifact_id,candidates,injection)
+       values ($1,$2,$3,$4) on conflict (run_id,artifact_id) do nothing`,
+      [
+        runId,
+        artifact.artifact_id,
+        counts.candidates - beforeCandidates,
+        guard.detected,
+      ],
+    );
   }
 
   await bumpStage(db, runId, "baseline", counts);
