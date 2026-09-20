@@ -1,28 +1,22 @@
-import { useEffect, useRef } from "react";
-import type { VoiceSnapshot, VoiceState } from "../services/realtime-client.js";
+"use client";
 
-const ringColor: Partial<Record<VoiceState, string>> = {
-  requesting_permission: "#dcaa6b",
-  connecting: "#dcaa6b",
-  reconnecting: "#dcaa6b",
+import { useEffect, useRef } from "react";
+
+export type OrbMood = "idle" | "listening" | "speaking" | "unavailable";
+
+const ringColor: Record<OrbMood, string> = {
+  idle: "#8fae95",
   listening: "#6ee7b7",
-  speech_detected: "#6ee7b7",
-  transcribing: "#6ee7b7",
-  processing: "#dcaa6b",
   speaking: "#6ee7b7",
-  error: "#ff8d87",
+  unavailable: "#dcaa6b",
 };
 
 /** Seconds per full lap of the glow — mapped to angular speed for the shader. */
-const spinSeconds: Partial<Record<VoiceState, number>> = {
-  requesting_permission: 2.6,
-  connecting: 2.6,
-  reconnecting: 2.6,
+const spinSeconds: Record<OrbMood, number> = {
+  idle: 9,
   listening: 6,
-  speech_detected: 3.2,
-  transcribing: 3.2,
-  processing: 1.3,
   speaking: 3,
+  unavailable: 2.6,
 };
 
 const VERTEX_SRC = `
@@ -36,7 +30,7 @@ void main() {
 
 // A dark sphere shaded by hand (no lights/textures) with a single glowing
 // crescent that sweeps around it. uRotation/uClock are advanced in JS so the
-// motion can be paused cleanly for reduced-motion or a frozen error state.
+// motion can be paused cleanly for reduced-motion.
 const FRAGMENT_SRC = `
 precision highp float;
 varying vec2 vUv;
@@ -123,16 +117,17 @@ interface OrbUniforms {
 }
 
 /**
- * Idle look was designed in Paper to match a reference orb: a dark sphere
- * with a soft crescent of light. Rendered with a tiny WebGL fragment shader
- * (rather than CSS masks) so the glow can sweep around continuously and
- * react to voice state without repainting layout.
+ * Same idle-sphere-with-glowing-crescent look as the desktop dock orb,
+ * rendered with a tiny WebGL fragment shader so the glow can sweep
+ * continuously without repainting layout. The web app has no live audio
+ * pipeline yet, so `mood` is a decorative state rather than a real
+ * microphone snapshot.
  */
 export function VoiceOrb({
-  state,
+  mood = "idle",
   size = 34,
 }: {
-  state: VoiceSnapshot;
+  mood?: OrbMood;
   size?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,17 +135,14 @@ export function VoiceOrb({
     color: [1, 1, 1] as [number, number, number],
     pulse: 0,
     speed: (2 * Math.PI) / 9,
-    frozen: false,
   });
 
-  const color = state.muted ? "#aaa99f" : (ringColor[state.state] ?? "#f1efe8");
-  const pulse = state.state === "processing" ? 1 : 0;
-  const seconds = state.muted ? 9 : (spinSeconds[state.state] ?? 9);
-  const frozen = state.state === "error";
+  const color = ringColor[mood];
+  const pulse = mood === "listening" ? 1 : 0;
+  const seconds = spinSeconds[mood];
   live.current.color = hexToRgb(color);
   live.current.pulse = pulse;
   live.current.speed = (2 * Math.PI) / seconds;
-  live.current.frozen = frozen;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -220,7 +212,7 @@ export function VoiceOrb({
       const moving = !reduceMotion.matches;
       if (moving) {
         clock += dt;
-        if (!live.current.frozen) rotation += dt * live.current.speed;
+        rotation += dt * live.current.speed;
       }
       gl.uniform1f(uniforms.clock, clock);
       gl.uniform1f(uniforms.rotation, rotation);

@@ -9,6 +9,7 @@ import {
 import { VoiceInput, voiceLabel } from "./components/MoleculeInput.js";
 import { DockIcon } from "./components/DockIcon.js";
 import { ScreenPicker } from "./components/ScreenPicker.js";
+import { HomeScreen } from "./components/HomeScreen.js";
 
 export function App() {
   const [store] = useState(() => new DesktopStore(window.moleculeDesktop));
@@ -18,6 +19,7 @@ export function App() {
   const [turns, setTurns] = useState<TextTurn[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [showScreen, setShowScreen] = useState(false);
+  const [home, setHome] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState("");
   const [sendingContext, setSendingContext] = useState(false);
@@ -64,14 +66,19 @@ export function App() {
         setTurns([]);
         setShowScreen(false);
         setShowSettings(false);
+        setHome(false);
         run(store.openProject(signal.projectId));
       }
       if (signal.type === "settings") {
         setShowScreen(false);
         setShowSettings(true);
+        setHome(false);
         run(store.mode("conversation"));
       }
-      if (signal.type === "start-voice") setShowSettings(false);
+      if (signal.type === "start-voice") {
+        setShowSettings(false);
+        setHome(false);
+      }
     });
     return () => {
       unsubscribe();
@@ -92,13 +99,14 @@ export function App() {
       else if (showSettings) {
         setShowSettings(false);
         requestAnimationFrame(() => settingsButton.current?.focus());
-      } else if (store.getSnapshot().mode !== "compact")
+      } else if (home) setHome(false);
+      else if (store.getSnapshot().mode !== "compact")
         run(store.mode("compact"));
       else run(store.bridge.hideOverlay());
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [store, showSettings, showScreen]);
+  }, [store, showSettings, showScreen, home]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 5000);
@@ -156,7 +164,7 @@ export function App() {
               : "Ready when you are"));
   return (
     <main
-      className={`overlay ${dragging ? "dragging" : ""}`}
+      className={`overlay ${dragging ? "dragging" : ""} ${home ? "home-active" : ""}`}
       data-mode={state.mode}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes("Files")) {
@@ -205,6 +213,19 @@ export function App() {
             {status}
           </button>
         </div>
+        <button
+          className={`icon-button ${home ? "active" : ""}`}
+          aria-label="Home"
+          aria-pressed={home}
+          title="Choose how to start"
+          onClick={() => {
+            setShowSettings(false);
+            setHome(true);
+            run(store.mode("conversation"));
+          }}
+        >
+          <DockIcon name="home" />
+        </button>
         <button
           className="icon-button"
           aria-label="Open Command Center"
@@ -262,6 +283,24 @@ export function App() {
                     : "Settings saved on this device.",
                 );
               }}
+            />
+          ) : home ? (
+            <HomeScreen
+              audio={audio}
+              text={text}
+              onText={setText}
+              onSubmit={() => {
+                setHome(false);
+                run(submit());
+              }}
+              onAttach={() => fileInput.current?.click()}
+              onTalk={() => {
+                setHome(false);
+                run(toggleVoice());
+              }}
+              staged={state.staged}
+              onRemove={(id) => store.removeStaged(id)}
+              sending={sendingContext}
             />
           ) : (
             <>
@@ -362,47 +401,49 @@ export function App() {
           )}
         </div>
       )}
-      <div className="input-dock">
-        {dragging && (
-          <div className="drop-hint" role="status">
-            Drop to add context · send when you’re ready
-          </div>
-        )}
-        <VoiceInput
-          voice={voice}
-          visible={state.visible}
-          inputRef={input}
-          screenRef={screenButton}
-          text={text}
-          onText={setText}
-          onSubmit={() => run(submit())}
-          onVoice={() => {
-            setShowSettings(false);
-            run(toggleVoice());
-          }}
-          onMute={() => voice.mute(!audio.muted)}
-          onInterrupt={() => voice.interrupt()}
-          onAttach={() => fileInput.current?.click()}
-          onScreen={() => {
-            setShowScreen(true);
-            setShowSettings(false);
-            run(store.mode("conversation"));
-          }}
-          onRemove={(id) => store.removeStaged(id)}
-          compact={compact}
-          audio={audio}
-          staged={state.staged}
-          sending={sendingContext}
-          pending={state.pending > 0}
-          status={
-            sendingContext
-              ? "Adding context…"
-              : state.pending
-                ? (latest ?? "Working on your request")
-                : undefined
-          }
-        />
-      </div>
+      {!home && (
+        <div className="input-dock">
+          {dragging && (
+            <div className="drop-hint" role="status">
+              Drop to add context · send when you’re ready
+            </div>
+          )}
+          <VoiceInput
+            voice={voice}
+            visible={state.visible}
+            inputRef={input}
+            screenRef={screenButton}
+            text={text}
+            onText={setText}
+            onSubmit={() => run(submit())}
+            onVoice={() => {
+              setShowSettings(false);
+              run(toggleVoice());
+            }}
+            onMute={() => voice.mute(!audio.muted)}
+            onInterrupt={() => voice.interrupt()}
+            onAttach={() => fileInput.current?.click()}
+            onScreen={() => {
+              setShowScreen(true);
+              setShowSettings(false);
+              run(store.mode("conversation"));
+            }}
+            onRemove={(id) => store.removeStaged(id)}
+            compact={compact}
+            audio={audio}
+            staged={state.staged}
+            sending={sendingContext}
+            pending={state.pending > 0}
+            status={
+              sendingContext
+                ? "Adding context…"
+                : state.pending
+                  ? (latest ?? "Working on your request")
+                  : undefined
+            }
+          />
+        </div>
+      )}
       <input
         ref={fileInput}
         className="file-input"
@@ -415,7 +456,7 @@ export function App() {
           event.target.value = "";
         }}
       />
-      {!compact && (
+      {!compact && !home && (
         <footer className="dock-footer">
           <button
             className="command-center"
