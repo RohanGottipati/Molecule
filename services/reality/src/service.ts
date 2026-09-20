@@ -77,17 +77,22 @@ function applyFacts(
   for (const fact of facts) {
     const prefix = `${capability.capabilityId}.`;
     const inventory = fact.field === `inventory.${capability.capabilityId}`;
+    const resource = /^resource\.(.+)\.(inventory|capacity)$/.exec(fact.field);
+    const scopedResource = resource?.[1] === capability.capabilityId;
     if (
       fact.field.includes(".") &&
       !fact.field.startsWith(prefix) &&
-      !inventory
+      !inventory &&
+      !scopedResource
     )
       continue;
     const field = inventory
       ? "inventory"
-      : fact.field.startsWith(prefix)
-        ? fact.field.slice(prefix.length)
-        : fact.field;
+      : scopedResource
+        ? resource[2]!
+        : fact.field.startsWith(prefix)
+          ? fact.field.slice(prefix.length)
+          : fact.field;
     if (
       ![
         "price",

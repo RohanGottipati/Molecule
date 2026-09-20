@@ -98,7 +98,7 @@ export async function resetDemoData(): Promise<void> {
     await client.query(`delete from canonical_claims where source_reference like 'demo:chaos:%'
       and merchant_id in (select merchant_id from merchants where demo_tag = 'MOLECULE_DEMO')`);
     await client.query(`update canonical_claims set resolution_status = 'active'
-      where resolution_status != 'quarantined' and merchant_id in
+      where resolution_status != 'quarantined' and field != 'capacity_per_day' and merchant_id in
       (select merchant_id from merchants where demo_tag = 'MOLECULE_DEMO')`);
     await client.query(`update canonical_claims c set resolution_status = 'superseded'
       where c.resolution_status = 'active'

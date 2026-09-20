@@ -1,6 +1,6 @@
 // Pure evaluation over a frozen snapshot. No provider calls or database writes.
 import { parseNumber } from "./normalize.mjs";
-export const EVALUATOR_VERSION = "rox-evaluation-v2";
+export const EVALUATOR_VERSION = "rox-evaluation-v3";
 const kind = (field) => String(field).split(".").at(-1);
 const number = (value) =>
   value === null || value === undefined || value === ""
@@ -52,8 +52,15 @@ export function canonicalExpected(value, unit, field, config) {
 }
 
 export function evaluate(snapshot) {
-  const { artifacts, truth, extractions, quarantined, attempts, config } =
-    snapshot;
+  const {
+    artifacts,
+    truth,
+    extractions,
+    quarantined,
+    attempts,
+    resolutions,
+    config,
+  } = snapshot;
   const paths = new Set(artifacts.map((a) => a.source_path));
   if (paths.size !== artifacts.length)
     throw new Error(
@@ -74,6 +81,7 @@ export function evaluate(snapshot) {
     ambiguity: { held: 0, total: 0 },
     injection: { blocked: 0, total: 0 },
     evidence: { claimed: 0, unsupported: 0 },
+    outliers: { total: 0, contained: 0, accepted: 0 },
     population: {
       selected: artifacts.length,
       completed: 0,
@@ -118,6 +126,12 @@ export function evaluate(snapshot) {
         used.add(match.extraction_id);
       }
     }
+  const resolutionsByField = new Map(
+    (resolutions ?? []).map((resolution) => [
+      `${resolution.merchant_id}|${resolution.field}`,
+      resolution,
+    ]),
+  );
   for (const t of normal) {
     const x = pairs.get(t.truth_id);
     counts.attribution.total++;
@@ -156,6 +170,23 @@ export function evaluate(snapshot) {
       close(number(x.normalized_value), target.value)
     )
       counts.normalization.correct++;
+    if (t.true_value.isOutlier && resolutions) {
+      counts.outliers.total++;
+      const resolution = resolutionsByField.get(`${t.merchant_id}|${t.field}`);
+      const accepted =
+        resolution?.status === "resolved" &&
+        close(number(resolution.value), parseNumber(x.raw_value?.value));
+      if (accepted) {
+        counts.outliers.accepted++;
+        failures.push({
+          truthId: t.truth_id,
+          extractionId: x.extraction_id,
+          reason: "outlier_became_resolved_value",
+        });
+      } else {
+        counts.outliers.contained++;
+      }
+    }
   }
   for (const t of expected.filter(
     (t) => !t.is_injection && t.true_value.expect !== "claim",
@@ -237,7 +268,9 @@ export function evaluate(snapshot) {
         counts.evidence.unsupported,
         counts.evidence.claimed,
       ),
-      outlier_containment_pct: null,
+      outlier_containment_pct: resolutions
+        ? pct(counts.outliers.contained, counts.outliers.total)
+        : null,
       artifacts_scored: artifacts.length,
       truth_rows_scored: expected.length,
     },
@@ -245,7 +278,11 @@ export function evaluate(snapshot) {
     limitations: [
       "Evidence presence does not prove the cited text supports the value.",
       "Normalization measures stated values under frozen demo FX/business-day conventions, not real operational truth.",
-      "Outlier containment is unavailable without a run-specific resolution snapshot; current global resolutions are never used.",
+      ...(resolutions
+        ? []
+        : [
+            "Outlier containment is unavailable without a run-specific resolution snapshot; current global resolutions are never used.",
+          ]),
       "One-to-one extraction matching uses source path, field kind and numerical value; attribution is evaluated separately.",
     ],
   };

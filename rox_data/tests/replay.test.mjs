@@ -20,7 +20,8 @@ test("offline report replay verifies hash and refuses overwrite or cosmetic vari
       config: { businessDayHours: 8, fxToCad: { CAD: 1 } },
     };
     const input = join(dir, "input.json"),
-      output = join(dir, "output.json");
+      output = join(dir, "output.json"),
+      replay = join(dir, "replay.json");
     await writeFile(
       input,
       JSON.stringify({
@@ -41,6 +42,15 @@ test("offline report replay verifies hash and refuses overwrite or cosmetic vari
       JSON.parse(await readFile(output, "utf8")).result.metrics
         .artifacts_scored,
       0,
+    );
+    execFileSync(
+      process.execPath,
+      [cli, `--snapshot=${output}`, `--output=${replay}`],
+      { stdio: "pipe" },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(replay, "utf8")).result,
+      JSON.parse(await readFile(output, "utf8")).result,
     );
     assert.throws(
       () => run(),

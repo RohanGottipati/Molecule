@@ -15,9 +15,7 @@ import {
   MockShopifyClient,
   RealShopifyClient,
   PostgresShopifyActionRepository,
-  ShopifyError,
   ShopifyTransport,
-  merchantIdForShopifyStore,
   type ShopifyActionRepository,
 } from "@molecule/shopify";
 import { MockShopifyAdapter } from "@molecule/shopify/catalog";
@@ -28,14 +26,12 @@ import {
 import type { Config } from "./config.js";
 import {
   configuredShopifyDomains,
+  fakeShopifyConfiguration,
   liveShopifyConfiguration,
 } from "./shopifyConfig.js";
 import { PostgresStore } from "./PostgresStore.js";
 import { DurableExecutionClient } from "./clients/DurableExecutionClient.js";
-import {
-  ingestShopifyCapacityBatch,
-  type ShopifyInventoryUpdate,
-} from "./shopifyRealityIngestion.js";
+import type { ShopifyInventoryUpdate } from "./shopifyRealityIngestion.js";
 
 function configuredShopifyStores(value: string | undefined): string[] {
   return [
@@ -49,10 +45,16 @@ function configuredShopifyStores(value: string | undefined): string[] {
 }
 
 export async function createDurableRuntime(config: Config) {
+  // Fake mode resolves to the same shape as live, so everything downstream of this line is
+  // identical in both modes. Only the injected `fetch` differs.
+  const usesTransport =
+    config.SHOPIFY_MODE === "live" || config.SHOPIFY_MODE === "fake";
   const liveShopify =
     config.SHOPIFY_MODE === "live"
       ? liveShopifyConfiguration(config)
-      : undefined;
+      : config.SHOPIFY_MODE === "fake"
+        ? fakeShopifyConfiguration(config)
+        : undefined;
   const store = new PostgresStore();
   let resourceRecovery:
     ((orderId: string, resourceId: string) => Promise<unknown>) | undefined;
@@ -201,9 +203,6 @@ export async function createDurableRuntime(config: Config) {
       row.merchant_id,
     ]),
   );
-  const registeredMerchant = (shop: string) =>
-    registeredByDomain.get(configuredShopifyDomains(shop)[0]!) ??
-    merchantIdForShopifyStore(shop);
   const mockCatalog =
     config.SHOPIFY_MODE === "demo"
       ? new MockShopifyAdapter({ catalogProfile: "release" })
@@ -212,36 +211,11 @@ export async function createDurableRuntime(config: Config) {
   const snapshotStores =
     liveShopify?.snapshotStores ??
     (shops.length ? shops : mockCatalog!.listStores());
-  const snapshotSource =
-    config.SHOPIFY_MODE === "live"
-      ? {
-          getSnapshot: async (shop: string) => {
-            const merchantId = registeredMerchant(shop);
-            const supplier = merchantId
-              ? supplierStores?.[merchantId]
-              : undefined;
-            if (!supplier)
-              throw new ShopifyError("SUPPLIER_STORE_NOT_CONFIGURED");
-            return new ShopifyTransport(supplier).getSnapshot(shop);
-          },
-        }
-      : mockCatalog!;
-  const batch = await ingestShopifyCapacityBatch(
-    snapshotSource,
-    snapshotStores,
-    {
-      merchantForStore: async (shop) => registeredMerchant(shop),
-      onSkippedStore: (shop) =>
-        console.info({
-          event: "shopify.reality_ingestion.store_skipped",
-          shop,
-          reason: "merchant_not_mapped",
-        }),
-    },
-  );
-  if (config.SHOPIFY_MODE === "live") {
+  const inventoryTraceId = randomUUID();
+  let inventorySync = { observed: 0, unavailable: [] as string[] };
+  if (usesTransport) {
     const inventoryTransports = new Map<string, ShopifyTransport>();
-    await syncCatalogInventory((domain) => {
+    inventorySync = await syncCatalogInventory((domain) => {
       const normalizedDomain = configuredShopifyDomains(domain)[0]!;
       const merchantId = registeredByDomain.get(normalizedDomain);
       const supplier = merchantId ? supplierStores?.[merchantId] : undefined;
@@ -252,32 +226,33 @@ export async function createDurableRuntime(config: Config) {
         inventoryTransports.set(normalizedDomain, transport);
       }
       return transport;
-    }, batch.traceId);
+    }, inventoryTraceId);
   }
   const syncedAt = new Date().toISOString();
   await store.append({
     eventId: randomUUID(),
-    traceId: batch.traceId,
+    traceId: inventoryTraceId,
     eventType: "shopify.reality_ingestion.completed",
     severity: "INFO",
     source: "shopify",
     ts: syncedAt,
     payload: {
       syncedAt,
-      accepted: batch.accepted,
-      quarantined: batch.quarantined,
-      skippedStores: batch.skippedStores,
+      observed: inventorySync.observed,
+      unavailableResources: inventorySync.unavailable,
     },
   });
-  const commerce =
-    config.SHOPIFY_MODE === "live"
-      ? new RealShopifyClient({
-          repository: journal,
-          executionEnabled: config.REAL_EXECUTION_ENABLED,
-          centralStore: liveShopify!.centralStore,
-          supplierStores: supplierStores!,
-        })
-      : new MockShopifyClient({ repository: journal });
+  const commerce = usesTransport
+    ? new RealShopifyClient({
+        repository: journal,
+        // REAL_EXECUTION_ENABLED gates mutations against real dev stores. Fake mode has no
+        // real store to mutate, so execution is enabled there without relaxing the live gate.
+        executionEnabled:
+          config.SHOPIFY_MODE === "fake" || config.REAL_EXECUTION_ENABLED,
+        centralStore: liveShopify!.centralStore,
+        supplierStores: supplierStores!,
+      })
+    : new MockShopifyClient({ repository: journal });
   return {
     store,
     async attachResourceRecovery(

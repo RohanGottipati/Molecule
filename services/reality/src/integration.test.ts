@@ -182,7 +182,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
   );
 
   it("does not let a global capacity override a stricter scoped capacity", async () => {
-    await ingestClaim(
+    const result = await ingestClaim(
       {
         merchantId: "thread-forge",
         field: "capacity",
@@ -194,6 +194,10 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       },
       "capacity-limits",
     );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "unscoped_operational_field",
+    });
     const candidate = (await service.searchCandidates(kitIntent(now))).find(
       (entry) => entry.capabilityId === "cap-thread-embroidery",
     );
@@ -290,20 +294,21 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     const first = await ingestClaim(
       {
         merchantId: "base-goods",
-        field: "capacity_per_day",
+        field: "cap-base-hoodie.capacity_per_day",
         rawValue: 20,
         sourceKind: "shopify",
         sourceReference,
         observedAt: "2026-09-19T12:00:00.000Z",
         sourceAuthority: 0.9,
         extractionConfidence: 1,
+        evidenceText: "Shopify capacity is 20 units/day",
       },
       "shopify-first-observation",
     );
     const newest = await ingestClaim(
       {
         merchantId: "base-goods",
-        field: "capacity_per_day",
+        field: "cap-base-hoodie.capacity_per_day",
         rawValue: 0,
         sourceKind: "shopify",
         sourceReference,
@@ -316,13 +321,14 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     const delayed = await ingestClaim(
       {
         merchantId: "base-goods",
-        field: "capacity_per_day",
+        field: "cap-base-hoodie.capacity_per_day",
         rawValue: 10,
         sourceKind: "shopify",
         sourceReference,
         observedAt: "2026-09-19T12:00:30.000Z",
         sourceAuthority: 0.9,
         extractionConfidence: 1,
+        evidenceText: "Shopify capacity is 10 units/day",
       },
       "shopify-delayed-observation",
     );
@@ -381,8 +387,8 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
           claims: [
             {
               merchantId: "base-goods",
-              field: "capacity",
-              rawValue: 1000,
+              field: "cap-base-hoodie.capacity",
+              rawValue: "1000 units/day",
               sourceKind: "api",
               sourceReference,
               sourceAuthority: 1,
@@ -411,8 +417,8 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     const traceId = randomUUID();
     const claim = {
       merchantId: "base-goods",
-      field: "capacity",
-      rawValue: 1000,
+      field: "cap-base-hoodie.capacity",
+      rawValue: "1000 units/day",
       sourceKind: "api",
       sourceReference: `demo:chaos:batch:${randomUUID()}`,
       sourceAuthority: 1,

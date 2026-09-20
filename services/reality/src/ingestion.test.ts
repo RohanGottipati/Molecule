@@ -3,11 +3,19 @@ import { describe, expect, it } from "vitest";
 import { normalizeValue, toCanonicalClaim } from "./ingestion.js";
 
 describe("normalizeValue", () => {
-  it("parses a clean number", () => {
-    expect(normalizeValue("capacity_per_day", 20)).toEqual({
+  it("routes bare capacity to review instead of assuming a period", () => {
+    expect(normalizeValue("capacity_per_day", 500)).toMatchObject({
+      ok: false,
+      disposition: "needs_review",
+      code: "no_period",
+    });
+  });
+
+  it("parses capacity with an explicitly stated period", () => {
+    expect(normalizeValue("capacity_per_day", "20 units/day")).toEqual({
       ok: true,
       value: 20,
-      unit: "units",
+      unit: "units/day",
     });
   });
 
@@ -31,8 +39,8 @@ describe("toCanonicalClaim", () => {
   it("builds a claim from a well-formed input", () => {
     const result = toCanonicalClaim({
       merchantId: "m-customizeco",
-      field: "capacity_per_day",
-      rawValue: "20",
+      field: "cap-customize.capacity_per_day",
+      rawValue: "20 units/day",
       sourceKind: "note",
       sourceReference: "machine-2-down",
       sourceAuthority: 0.9,
@@ -48,7 +56,7 @@ describe("toCanonicalClaim", () => {
   it("quarantines instead of throwing on a malformed CSV row", () => {
     const result = toCanonicalClaim({
       merchantId: "m-customizeco",
-      field: "capacity_per_day",
+      field: "cap-customize.capacity_per_day",
       rawValue: "N/A - call for quote",
       sourceKind: "csv",
       sourceReference: "row-14",

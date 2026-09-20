@@ -124,44 +124,79 @@ export async function catalogCandidates(
         sourceClaimIds.push(resolution.winner.claim.claimId);
       }
     }
-    const resourceRefs = binding.resources.flatMap((ref) => {
+    const resourceRefs: CandidateCapability["resourceRefs"] = [];
+    for (const ref of binding.resources) {
       const resource = resources.get(ref.resourceId);
-      if (!resource || resource.status !== "known") {
-        reasons.push(`${ref.resourceId}:${resource?.status ?? "missing"}`);
-        return [];
+      if (!resource) {
+        reasons.push(`${ref.resourceId}:missing`);
+        continue;
       }
+      const resourceField = `resource.${ref.resourceId}.${resource.kind === "inventory" ? "inventory" : "capacity"}`;
+      const claims = await listClaimsForField(
+        binding.merchantId,
+        resourceField,
+        client,
+      );
+      const resolution = claims.length ? resolveClaims(claims) : undefined;
+      if (resolution && resolution.status !== "resolved") {
+        reasons.push(`${resourceField}:${resolution.status}`);
+        continue;
+      }
+      if (!resolution && resource.status !== "known") {
+        reasons.push(`${resourceField}:${resource.status}`);
+        continue;
+      }
+      const resolvedAvailable =
+        resolution?.status === "resolved"
+          ? resolution.winner.claim.normalizedValue
+          : Number(resource.available);
+      if (
+        typeof resolvedAvailable !== "number" ||
+        !Number.isFinite(resolvedAvailable) ||
+        resolvedAvailable < 0
+      ) {
+        reasons.push(`${resourceField}:invalid`);
+        continue;
+      }
+      if (resolution?.status === "resolved")
+        sourceClaimIds.push(resolution.winner.claim.claimId);
       const available = Math.max(
         0,
-        Number(resource.available) - Number(resource.reserved),
+        resolvedAvailable - Number(resource.reserved),
       );
       if (available === 0) reasons.push(`${ref.resourceId}:unavailable`);
       if (resource.unit !== variant.unit)
         reasons.push(`${ref.resourceId}:unit_mismatch`);
-      return [
-        {
-          resourceId: ref.resourceId,
-          kind: resource.kind,
-          unit: resource.unit,
-          unitsPerItem: ref.unitsPerItem,
-          available,
-          ...(resource.period_minutes === null
-            ? {}
-            : { periodMinutes: resource.period_minutes }),
-          observedAt: resource.observed_at.toISOString(),
-          sourceReference: resource.source_reference,
-          ...(resource.kind === "processing"
-            ? {
-                occupiedIntervals: occupied.rows
-                  .filter((r) => r.resource_id === ref.resourceId)
-                  .map((r) => ({
-                    startsAt: r.starts_at.toISOString(),
-                    completesAt: r.completes_at.toISOString(),
-                  })),
-              }
-            : {}),
-        },
-      ];
-    });
+      resourceRefs.push({
+        resourceId: ref.resourceId,
+        kind: resource.kind,
+        unit: resource.unit,
+        unitsPerItem: ref.unitsPerItem,
+        available,
+        ...(resource.period_minutes === null
+          ? {}
+          : { periodMinutes: resource.period_minutes }),
+        observedAt:
+          resolution?.status === "resolved" &&
+          resolution.winner.claim.observedAt
+            ? resolution.winner.claim.observedAt
+            : resource.observed_at.toISOString(),
+        sourceReference:
+          resolution?.status === "resolved"
+            ? resolution.winner.claim.source.reference
+            : resource.source_reference,
+        ...(resource.kind === "processing"
+          ? {
+              occupiedIntervals: occupied.rows
+                .filter((r) => r.resource_id === ref.resourceId)
+                .map((r) => ({
+                  startsAt: r.starts_at.toISOString(),
+                  completesAt: r.completes_at.toISOString(),
+                })),
+            }
+          : {}),
+      });
+    }
     if (reasons.length) {
       exclusions.push({ bindingId: binding.id, reasons });
       continue;

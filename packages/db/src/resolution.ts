@@ -4,7 +4,7 @@ import {
   type ResolvedFact,
 } from "@molecule/resolution";
 
-import { listMerchantClaims } from "./claims.js";
+import { listResolvableMerchantClaims } from "./claims.js";
 import type { DbClient } from "./client.js";
 import { effectId, persistEvent } from "./operations.js";
 
@@ -31,7 +31,7 @@ export async function resolveMerchant(
     "select merchant_id from merchants where merchant_id=$1 for update",
     [merchantId],
   );
-  const claims = await listMerchantClaims(merchantId, client);
+  const claims = await listResolvableMerchantClaims(merchantId, client);
   const facts: ResolvedFact[] = [];
   for (const {
     field,

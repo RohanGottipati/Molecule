@@ -14,7 +14,7 @@ Do not relitigate these without the owner.
 
 | Decision                      | Choice                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------- |
-| Capacity uncertainty policy   | **Strict.** `ROX_CAPACITY_POLICY=strict` is the product default           |
+| Capacity uncertainty policy   | **Strict.** Runtime ingestion has no legacy-policy switch                 |
 | `rox_data` / workspace split  | **Full migration** into the pnpm workspace; delete the duplicate resolver |
 | Claim field naming convention | **`resource.<resourceId>.<inventory\|capacity>`** wins                    |
 | `services/orchestrator`       | **In scope.** Keep orchestrator edits in separate commits                 |
@@ -136,6 +136,54 @@ daily-capacity facts" drove `reserveCapacity` by inserting into
 `canonical_resolutions` directly. It now expresses the same three intentions
 through `canonical_claims`, which is the authoritative source.
 
+## 1b. Delivered 2026-09-20 (A3 and A4)
+
+- **A3 done.** Strict capacity interpretation and attribution thresholds now
+  live in `@molecule/resolution`. ROX keeps compatibility re-exports, while
+  Reality's `normalizeValue` calls the same strict interpreter. A bare `500`
+  received through `POST /api/reality/ingest` returns
+  `needs_review: no_period`, queues a durable review item and creates no claim.
+- **A4 done.** Runtime selection through `ROX_CAPACITY_POLICY` is removed.
+  Historical unsafe parsing exists only inside `compare-policies.mjs`, where it
+  is used to reproduce the stored strict-versus-legacy comparison.
+
+## 1c. Delivered 2026-09-20 (B1–B4)
+
+- The aggregate Shopify startup writer and both unscoped extraction helpers are
+  gone. Live batch synchronization and signed webhooks now share
+  `observeCatalogInventory`; the generic ingestion boundary also refuses bare
+  operational fields with `unscoped_operational_field`.
+- Migration `021_retire_unscoped_capacity.sql` retains historical unscoped
+  claims as `superseded`, records a reason, resolves their old conflict rows,
+  removes stale resolution snapshots and emits one audit event per merchant.
+- Candidate reads resolve `resource.<resourceId>.(inventory|capacity)` claims
+  before using imported state. A conflicted resource excludes only its binding
+  and names the exact field in `blockedReasons`. Compatibility capabilities
+  accept resource scope when the resource identifier is the capability ID.
+- Catalog observation now persists and resolves the claim before changing the
+  serving projection. Conflicted/unknown observations retain the last known-good
+  quantity, change resource status, and queue review instead of serving an
+  uncertified value.
+- Synthetic/local verification and the explicit live-evidence limitation are
+  recorded in `docs/evidence/rox-p0-b1-b3-2026-09-20.md`.
+
+## 1d. Delivered 2026-09-20 (C1 and C3)
+
+- **C1 done for all new runs.** Migration 022 adds insert-only,
+  run-scoped resolution snapshots. The scorer freezes those rows with the rest
+  of the run inputs, hashes the resolver source, and computes outlier
+  containment only from the frozen snapshot. Replay tests require identical
+  evaluation results. Historical runs without snapshots remain explicitly
+  uncertified instead of consulting current global state.
+- **C3 done.** A deterministic regex baseline and the historical agent run were
+  evaluated with `rox-evaluation-v3` on the same 1,152-artifact synthetic
+  population. The complete aggregate comparison and limitations are in
+  `docs/evidence/rox-p0-c1-c3-2026-09-20.md`.
+- **C2 remains a deployment operation.** The configured shared Tiger database
+  still has 724 `rox-extract-v3` rows and no v4 rows. It was inspected read-only;
+  migrations and a paid extraction rerun were not applied without explicit
+  authorization to mutate that shared environment.
+
 ## 2. Rules
 
 - Import domain schemas from `@molecule/contracts`. The migration in P0-A exists
@@ -166,7 +214,7 @@ through `canonical_claims`, which is the authoritative source.
       `rox_data` consume one implementation. Accept: a fixture set of conflicting
       claims produces byte-identical decisions before and after; the duplicated
       scoring code is gone, not merely unused.
-- [ ] **A3.** Move the strict capacity policy (`rox_data/pipeline/capacity.mjs`)
+- [x] **A3.** Move the strict capacity policy (`rox_data/pipeline/capacity.mjs`)
       and attribution thresholds into the shared package, and make
       `normalizeValue` in `services/reality/src/ingestion.ts` delegate to it.
       Today that function understands 8 numeric field names and a tight regex;
@@ -174,12 +222,12 @@ through `canonical_claims`, which is the authoritative source.
       boundary, not only the ROX CLI. Accept: `"500"` with no period is
       `needs_review: no_period` whether it arrives via the ROX pipeline or
       `POST /api/reality/ingest`.
-- [ ] **A4.** Delete `ROX_CAPACITY_POLICY=legacy` from the default path; keep it
+- [x] **A4.** Delete `ROX_CAPACITY_POLICY=legacy` from the default path; keep it
       reachable only from `compare-policies.mjs` for historical reproduction.
 
 ### B. One field convention, and resolution on the read path
 
-- [ ] **B1.** Retire the unscoped `capacity_per_day` writer. Route
+- [x] **B1.** Retire the unscoped `capacity_per_day` writer. Route
       `ingestShopifyCapacityBatch` and the inventory webhook through
       `observeCatalogInventory`, which already resolves
       `(shopify_domain, inventoryItemGid, locationGid)` to a `resource_id`.
@@ -188,12 +236,12 @@ through `canonical_claims`, which is the authoritative source.
       resource or capability scope; an integration test asserts two different
       inventory items for one merchant resolve to **two independent resolved
       facts**, not one conflict.
-- [ ] **B2.** Backfill/migrate existing unscoped claims. Migration 021: mark
+- [x] **B2.** Backfill/migrate existing unscoped claims. Migration 021: mark
       historical `capacity_per_day` claims `superseded` with a recorded reason
       rather than deleting them (provenance is evidence). Accept: the 9
       conflicted live capacity resolutions re-resolve; record before/after counts
       in `docs/evidence/`.
-- [ ] **B3.** Make `applyFacts` and `catalogCandidates` read
+- [x] **B3.** Make `applyFacts` and `catalogCandidates` read
       `resource.<id>.*` facts. Accept: a resolved resource fact changes candidate
       availability; a `conflicted` one produces a `blockedReasons` entry naming
       the field.
@@ -218,12 +266,12 @@ through `canonical_claims`, which is the authoritative source.
 
 ### C. Trustworthy measurement
 
-- [ ] **C1.** Add the run-frozen resolution snapshot Order 4 lists as missing, so
+- [x] **C1.** Add the run-frozen resolution snapshot Order 4 lists as missing, so
       resolution and outlier metrics stop reading current global state. Accept:
       re-scoring an old run reproduces its stored numbers exactly.
 - [ ] **C2.** Re-run extraction for rows still on prompt `rox-extract-v3` (Order 4
       notes live Tiger rows were never re-normalized), then re-score.
-- [ ] **C3.** Store the regex baseline scorecard next to the agent run.
+- [x] **C3.** Store the regex baseline scorecard next to the agent run.
       `baseline.mjs` exists; no stored baseline scorecard was found, so the
       "agent beats regex" claim is currently unevidenced. Accept: one table, same
       corpus, both variants, committed to `docs/evidence/`.

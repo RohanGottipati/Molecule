@@ -82,10 +82,25 @@ export async function listClaimsForField(
   const result = await client.query<ClaimRow>(
     `select * from canonical_claims
      where merchant_id = $1 and field = $2 and resolution_status != 'superseded'
+       and resolution_note is null
      order by ingested_at desc`,
     [merchantId, field],
   );
   return result.rows.map(rowToClaim);
+}
+
+/** Operational resolver input; permanently retired evidence stays queryable in history. */
+export async function listResolvableMerchantClaims(
+  merchantId: string,
+  client: DbClient = getPool(),
+): Promise<CanonicalClaim[]> {
+  const rows = await client.query<ClaimRow>(
+    `select * from canonical_claims
+     where merchant_id=$1 and resolution_note is null
+     order by field,claim_id`,
+    [merchantId],
+  );
+  return rows.rows.map(rowToClaim);
 }
 
 export async function listMerchantClaims(
@@ -106,7 +121,7 @@ export async function listClaimsForMerchants(
   if (!merchantIds.length) return [];
   const rows = await client.query<ClaimRow>(
     `select * from canonical_claims
-     where merchant_id=any($1::text[])
+     where merchant_id=any($1::text[]) and resolution_note is null
      order by merchant_id,field,claim_id`,
     [merchantIds],
   );

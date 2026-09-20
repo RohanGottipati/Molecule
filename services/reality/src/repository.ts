@@ -116,11 +116,35 @@ export async function ingestClaim(
           result.claim.source.reference,
         ],
       );
-    } else
+    } else {
+      if (result.disposition === "needs_review")
+        await connection.query(
+          `insert into rox_review_queue
+             (task_id,kind,merchant_id,field,detail,proposed_action)
+           values($1,'quarantine',$2,$3,$4,$5)
+           on conflict(task_id) do nothing`,
+          [
+            `ingest-review:${checksum}`,
+            input.merchantId,
+            input.field,
+            {
+              artifactId,
+              code: result.code ?? "needs_review",
+              reason: result.reason,
+              sourceReference: input.sourceReference,
+              evidenceText: input.evidenceText ?? null,
+            },
+            {
+              action: "ask_supplier_to_clarify",
+              requiresApproval: true,
+            },
+          ],
+        );
       await connection.query(
         "insert into quarantined_claims(quarantine_id,artifact_id,reason) values($1,$2,$3)",
         [artifactId, artifactId, result.reason],
       );
+    }
     await persistEvent(
       {
         eventId: effectId(`ingest:${artifactId}`),
@@ -128,7 +152,9 @@ export async function ingestClaim(
         merchantId: input.merchantId,
         eventType: result.ok
           ? "reality.claim.ingested"
-          : "reality.claim.quarantined",
+          : result.disposition === "needs_review"
+            ? "reality.claim.needs_review"
+            : "reality.claim.quarantined",
         severity: result.ok ? "INFO" : "WARN",
         source: "rox",
         ts: new Date().toISOString(),
@@ -138,7 +164,11 @@ export async function ingestClaim(
           field: input.field,
           ...(result.ok
             ? { claimId: result.claim.claimId }
-            : { reason: result.reason }),
+            : {
+                reason: result.reason,
+                disposition: result.disposition ?? "quarantine",
+                code: result.code,
+              }),
         },
       },
       connection,

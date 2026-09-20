@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONFLICT_MARGIN_THRESHOLD,
   claimFromRow,
+  interpretCapacity,
   resolveClaims,
   stableJson,
   type ResolvableClaim,
@@ -142,6 +143,25 @@ describe("shared claim resolver", () => {
 
   it("keeps the conflict margin at the documented value", () => {
     expect(CONFLICT_MARGIN_THRESHOLD).toBe(0.08);
+  });
+});
+
+describe("shared strict capacity policy", () => {
+  it("requires a stated period at every ingestion boundary", () => {
+    expect(
+      interpretCapacity({ value: "500", evidence: "Capacity is 500" }),
+    ).toMatchObject({
+      ok: false,
+      disposition: "needs_review",
+      code: "no_period",
+    });
+    expect(
+      interpretCapacity({
+        value: "500",
+        unit: "units/day",
+        evidence: "Capacity is 500 units/day",
+      }),
+    ).toMatchObject({ ok: true, value: 500, unit: "units/day" });
   });
 });
 

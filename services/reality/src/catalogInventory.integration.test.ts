@@ -121,13 +121,22 @@ describe.skipIf(!database)(
         (await observeCatalogInventory({ ...observation, locationId: 11 }))
           .status,
       ).toBe("unmapped");
+      expect(
+        (
+          await observeCatalogInventory({
+            ...observation,
+            inventoryItemId: 2,
+            available: 30,
+          })
+        ).status,
+      ).toBe("changed");
       const rows = (
         await getPool().query(
           "select available,synthetic from catalog_resource_state where merchant_id=$1 order by resource_id",
           [id],
         )
       ).rows;
-      expect(rows.map((r) => Number(r.available))).toEqual([0, 50]);
+      expect(rows.map((r) => Number(r.available))).toEqual([0, 30]);
       expect(rows.every((r) => r.synthetic)).toBe(true);
       expect(
         (
@@ -145,6 +154,18 @@ describe.skipIf(!database)(
           )
         ).rows[0].count,
       ).toBe("0");
+      const resolved = (
+        await getPool().query<{ field: string; status: string }>(
+          `select field,status from canonical_resolutions
+           where merchant_id=$1 and field like 'resource.%'
+           order by field`,
+          [id],
+        )
+      ).rows;
+      expect(resolved).toEqual([
+        { field: `resource.${id}:1.inventory`, status: "resolved" },
+        { field: `resource.${id}:2.inventory`, status: "resolved" },
+      ]);
       expect(
         (
           await observeCatalogInventory({
@@ -171,7 +192,7 @@ describe.skipIf(!database)(
         inventoryItemId: 2,
         locationId: 10,
         available: 20,
-        observedAt: newTime,
+        observedAt: new Date(Date.now() - 30_000).toISOString(),
         traceId: id,
       };
       await observeCatalogInventory(observation);

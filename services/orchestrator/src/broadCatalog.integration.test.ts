@@ -254,5 +254,59 @@ describe.skipIf(!database)(
       },
       30_000,
     );
+
+    it("blocks a binding on its exact conflicted resource-scoped field", async () => {
+      const binding = (
+        await getPool().query<{
+          binding_id: string;
+          merchant_id: string;
+          resource_id: string;
+          kind: "inventory" | "processing";
+        }>(
+          `select b.record_id binding_id,b.record_json->>'merchantId' merchant_id,
+             b.record_json->'resources'->0->>'resourceId' resource_id,s.kind
+           from catalog_records b
+           join catalog_resource_state s
+             on s.resource_id=b.record_json->'resources'->0->>'resourceId'
+           where b.catalog_version=$1 and b.record_type='binding'
+             and jsonb_array_length(b.record_json->'resources') > 0
+           order by b.record_id limit 1`,
+          [version],
+        )
+      ).rows[0];
+      if (!binding) throw new Error("Fixture must contain a resource binding");
+      const field = `resource.${binding.resource_id}.${binding.kind === "inventory" ? "inventory" : "capacity"}`;
+      const common = {
+        merchantId: binding.merchant_id,
+        field,
+        sourceKind: "note" as const,
+        observedAt: BROAD_CATALOG_CLOCK,
+        sourceAuthority: 1,
+        extractionConfidence: 1,
+        evidenceText: "Synthetic conflicting resource observation",
+      };
+      await ingestClaim(
+        {
+          ...common,
+          rawValue: binding.kind === "inventory" ? 10 : "10 units/day",
+          sourceReference: `resource-conflict:a:${version}`,
+        },
+        "resource-conflict",
+      );
+      await ingestClaim(
+        {
+          ...common,
+          rawValue: binding.kind === "inventory" ? 20 : "20 units/day",
+          sourceReference: `resource-conflict:b:${version}`,
+        },
+        "resource-conflict",
+      );
+
+      const report = await transaction((client) =>
+        catalogCandidates(client, undefined, [], binding.binding_id),
+      );
+      expect(report.candidates).toEqual([]);
+      expect(report.exclusions[0]?.reasons).toContain(`${field}:conflicted`);
+    });
   },
 );

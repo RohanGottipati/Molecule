@@ -62,10 +62,11 @@ export async function resolve(db, { runId, traceId, all = false }) {
   // Fields this run touched, unless asked for a full re-resolution.
   const { rows: fields } = await db.query(
     all
-      ? `select distinct merchant_id, field from canonical_claims where resolution_status in ('active','conflicted')`
+      ? `select distinct merchant_id, field from canonical_claims where resolution_status in ('active','conflicted') and resolution_note is null`
       : `select distinct c.merchant_id, c.field
            from canonical_claims c
           where c.resolution_status in ('active','conflicted')
+            and c.resolution_note is null
             and exists (select 1 from rox_extractions x where x.run_id = $1 and x.claim_id = c.claim_id)`,
     all ? [] : [runId],
   );
@@ -74,7 +75,9 @@ export async function resolve(db, { runId, traceId, all = false }) {
     counts.fields += 1;
     const { rows: claims } = await db.query(
       `select * from canonical_claims
-        where merchant_id = $1 and field = $2 and resolution_status in ('active','conflicted')`,
+        where merchant_id = $1 and field = $2
+          and resolution_status in ('active','conflicted')
+          and resolution_note is null`,
       [merchant_id, field],
     );
     const decision = resolveClaims(claims.map(claimFromRow), now);
@@ -86,6 +89,45 @@ export async function resolve(db, { runId, traceId, all = false }) {
         : null;
     const winner =
       decision.status === "resolved" ? decision.winner.claim.claimId : null;
+    const normalizedUnit =
+      decision.status === "resolved"
+        ? (decision.winner.claim.normalizedUnit ?? null)
+        : null;
+    const frozenScores = scored.map((s) => ({
+      claimId: s.claim.claimId,
+      value: s.claim.normalizedValue,
+      unit: s.claim.normalizedUnit ?? null,
+      source: s.claim.source.kind,
+      reference: s.claim.source.reference,
+      authority: s.claim.sourceAuthority,
+      confidence: s.claim.extractionConfidence,
+      recency: Number(s.recencyScore.toFixed(4)),
+      score: Number(s.score.toFixed(4)),
+    }));
+
+    // This is the evaluation authority for the run. It is insert-only: a
+    // resumed stage may fill missing fields but cannot rewrite decisions that
+    // were already observed under this run ID.
+    await db.query(
+      `insert into rox_resolution_snapshots
+         (run_id,merchant_id,field,status,winning_claim_id,value,normalized_unit,
+          explanation,scores,claim_ids,resolved_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       on conflict(run_id,merchant_id,field) do nothing`,
+      [
+        runId,
+        merchant_id,
+        field,
+        decision.status,
+        winner,
+        value === null ? null : JSON.stringify(value),
+        normalizedUnit,
+        explanation,
+        JSON.stringify(frozenScores),
+        scored.map((s) => s.claim.claimId),
+        now,
+      ],
+    );
 
     const { rows: before } = await db.query(
       `select status, value from canonical_resolutions where merchant_id = $1 and field = $2`,
@@ -104,19 +146,7 @@ export async function resolve(db, { runId, traceId, all = false }) {
         winner,
         value === null ? null : JSON.stringify(value),
         explanation,
-        JSON.stringify(
-          scored.map((s) => ({
-            claimId: s.claim.claimId,
-            value: s.claim.normalizedValue,
-            unit: s.claim.normalizedUnit ?? null,
-            source: s.claim.source.kind,
-            reference: s.claim.source.reference,
-            authority: s.claim.sourceAuthority,
-            confidence: s.claim.extractionConfidence,
-            recency: Number(s.recencyScore.toFixed(4)),
-            score: Number(s.score.toFixed(4)),
-          })),
-        ),
+        JSON.stringify(frozenScores),
       ],
     );
 

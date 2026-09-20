@@ -57,11 +57,22 @@ export function createRealityApp(options: { now?: () => Date } = {}) {
       const { claims, traceId } = request.body;
       const result = await transaction(async (client) => {
         const acceptedClaimIds: string[] = [];
-        const quarantined: { field: string; reason: string }[] = [];
+        const quarantined: {
+          field: string;
+          reason: string;
+          disposition?: "needs_review" | "quarantine";
+          code?: string;
+        }[] = [];
         for (const claim of claims) {
           const result = await ingestClaim(claim, traceId, client);
           if (result.ok) acceptedClaimIds.push(result.claim.claimId);
-          else quarantined.push({ field: claim.field, reason: result.reason });
+          else
+            quarantined.push({
+              field: claim.field,
+              reason: result.reason,
+              disposition: result.disposition,
+              code: result.code,
+            });
         }
         return { acceptedClaimIds, quarantined };
       });

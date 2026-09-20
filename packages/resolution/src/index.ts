@@ -11,6 +11,8 @@
  * LLMs propose; this module certifies. Nothing in here may call a model.
  */
 
+export * from "./normalization.js";
+
 /** Canonical JSON used for value comparison, checksums and signatures. */
 export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
