@@ -35,10 +35,13 @@ export async function catalogGallery(): Promise<CatalogGallery> {
               String(o.attributes.product ?? o.name),
             ),
           );
-          const relevant = report.candidates.filter((c) =>
-            c.capability.produces.some((port) =>
-              products.has(String(port.attributes.product ?? port.name)),
-            ),
+          const relevant = report.candidates.filter(
+            (c) =>
+              [...c.capability.produces, ...c.capability.accepts].some((port) =>
+                products.has(String(port.attributes.product ?? port.name)),
+              ) ||
+              (recipe.expected.outputKind === "bundle" &&
+                ["ASSEMBLE", "FULFILL"].includes(c.capability.kind)),
           );
           const relevantVariants = new Set(
             records
@@ -58,9 +61,15 @@ export async function catalogGallery(): Promise<CatalogGallery> {
               )
               .map((r) => r.id),
           );
-          const missing = report.exclusions
-            .filter((e) => bindings.has(e.bindingId))
-            .flatMap((e) => e.reasons);
+          const missing: string[] = [];
+          for (const operation of recipe.expected.operations)
+            if (!relevant.some((c) => c.capability.name === operation))
+              missing.push(`No evidenced operation: ${operation}`);
+          for (const asset of new Set(
+            relevant.flatMap((c) => c.requiredAssetIds ?? []),
+          ))
+            if (!recipe.intent.assets.some((a) => a.assetId === asset))
+              missing.push(`Required asset: ${asset}`);
           for (const product of products)
             if (
               !relevant.some(
@@ -72,6 +81,12 @@ export async function catalogGallery(): Promise<CatalogGallery> {
               )
             )
               missing.push(`No evidenced supply: ${product}`);
+          if (missing.length)
+            missing.push(
+              ...report.exclusions
+                .filter((e) => bindings.has(e.bindingId))
+                .flatMap((e) => e.reasons),
+            );
           return {
             id: recipe.id,
             category: recipe.category,

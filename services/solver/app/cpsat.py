@@ -370,6 +370,7 @@ def _solve(data: SolverInput) -> ProductionPlan:
                 ref.period_minutes,
                 ref.observed_at,
                 ref.source_reference,
+                ref.occupied_intervals,
             )
             != (
                 first.kind,
@@ -378,6 +379,7 @@ def _solve(data: SolverInput) -> ProductionPlan:
                 first.period_minutes,
                 first.observed_at,
                 first.source_reference,
+                first.occupied_intervals,
             )
             for ref in refs
         ):

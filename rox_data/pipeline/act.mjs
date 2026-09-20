@@ -13,6 +13,32 @@ import { MODELS } from "./config.mjs";
 import { decideAvailability } from "./availability.mjs";
 import { shortId, meter, bumpStage, emitEvent } from "./db.mjs";
 
+// `canonical_resolutions.scores` has two writers with two shapes: this pipeline
+// stores a bare array of scored claims, while services/reality stores
+// {"claims": [{claimId, score, recencyScore}]} - ids only, no values. Read both,
+// and hydrate the thin shape from canonical_claims so a draft can cite figures.
+function scoreRows(scores) {
+  if (Array.isArray(scores)) return scores;
+  if (scores && Array.isArray(scores.claims)) return scores.claims;
+  return [];
+}
+
+async function hydrateScores(db, rows) {
+  const needed = new Set();
+  for (const row of rows) {
+    for (const s of scoreRows(row.scores)) {
+      if (s.value === undefined && s.claimId) needed.add(s.claimId);
+    }
+  }
+  if (!needed.size) return new Map();
+  const { rows: claims } = await db.query(
+    `select claim_id, normalized_value, normalized_unit, source_kind, source_reference, observed_at
+       from canonical_claims where claim_id = any($1::text[])`,
+    [[...needed]],
+  );
+  return new Map(claims.map((c) => [c.claim_id, c]));
+}
+
 const DRAFT_INSTRUCTIONS = `You write a short, plain, professional email from an operations team to a supplier, asking them to confirm one operational fact.
 
 Rules:
@@ -20,13 +46,24 @@ Rules:
 - State precisely what we have on record and where each figure came from, including when it was said.
 - Ask them to confirm which is current. Do not propose a value yourself, do not guess, and do not imply they made a mistake.
 - If the figures came from different dates, say so.
-- Plain text. No subject line, no signature block - those are added by the system.`;
+- Return the subject in the subject field, never inside the body: six words or fewer, naming the supplier's capability and the fact in question.
+- The body is plain text and starts at the greeting. No "Subject:" line inside it, and no signature block - the system adds the signature.`;
 
 const DRAFT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["subject", "body"],
-  properties: { subject: { type: "string" }, body: { type: "string" } },
+  properties: {
+    subject: {
+      type: "string",
+      description: "Non-empty email subject, six words or fewer.",
+    },
+    body: {
+      type: "string",
+      description:
+        "Email body starting at the greeting, with no Subject: line.",
+    },
+  },
 };
 
 async function draftFollowUp(client, db, runId, context) {
@@ -43,7 +80,7 @@ async function draftFollowUp(client, db, runId, context) {
         strict: true,
       },
     },
-    max_output_tokens: 800,
+    max_output_tokens: 2500,
   });
   await meter(db, runId, {
     stage: "act",
@@ -55,7 +92,19 @@ async function draftFollowUp(client, db, runId, context) {
     },
     latencyMs: Date.now() - started,
   });
-  return JSON.parse(res.output_text ?? "{}");
+  // A reasoning model spends part of max_output_tokens on reasoning, so a long
+  // conflict can truncate the JSON mid-string. A missing draft is recoverable -
+  // the review row still carries the evidence - but a thrown parse error would
+  // abandon every conflict after it.
+  if (res.status === "incomplete" || !res.output_text) return null;
+  try {
+    return JSON.parse(res.output_text);
+  } catch {
+    console.warn(
+      `  act: draft for ${context.supplier}/${context.fact} came back unparseable; queued without a draft`,
+    );
+    return null;
+  }
 }
 
 export async function act(db, { runId, traceId, dry = false, apply = false }) {
@@ -83,27 +132,39 @@ export async function act(db, { runId, traceId, dry = false, apply = false }) {
              and q.kind = 'conflict' and q.status = 'open')`,
   );
 
+  const hydrated = await hydrateScores(db, open);
+
   for (const row of open) {
     counts.conflicts += 1;
     if (row.status === "unknown") counts.unknown_fields += 1;
-    const sources = (row.scores ?? []).map((s) => ({
-      value: s.value,
-      unit: s.unit,
-      saidBy: s.source,
-      reference: s.reference,
-      observed: s.observedAt ?? null,
-      score: s.score,
-    }));
+    const sources = scoreRows(row.scores)
+      .map((s) => {
+        const c = s.value === undefined ? hydrated.get(s.claimId) : null;
+        return {
+          value: s.value ?? c?.normalized_value ?? null,
+          unit: s.unit ?? c?.normalized_unit ?? null,
+          saidBy: s.source ?? c?.source_kind ?? null,
+          reference: s.reference ?? c?.source_reference ?? null,
+          observed: s.observedAt ?? c?.observed_at ?? null,
+          score: s.score,
+        };
+      })
+      .filter((s) => s.value !== null);
+    // The top few by score are what the supplier needs to reconcile; citing 27
+    // sources makes an unreadable email and a prompt long enough to truncate.
+    const cited = [...sources]
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, 8);
     let draft = null;
     if (!dry) {
       draft = await draftFollowUp(client, db, runId, {
         supplier: row.merchant_name,
         fact: row.field,
         status: row.status,
-        whatWeHaveOnRecord: sources,
+        whatWeHaveOnRecord: cited,
         whyWeAreAsking: row.explanation,
       });
-      counts.drafted += 1;
+      if (draft) counts.drafted += 1;
     }
     await db.query(
       `insert into rox_review_queue (task_id, run_id, kind, merchant_id, field, detail, proposed_action, draft_message)

@@ -1,3 +1,4 @@
+import { syncCatalogInventory } from "./catalogInventorySync.js";
 import { Serial } from "./serial.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -31,7 +32,6 @@ import { PostgresStore } from "./PostgresStore.js";
 import { DurableExecutionClient } from "./clients/DurableExecutionClient.js";
 import {
   ingestShopifyCapacityBatch,
-  ingestShopifyInventoryUpdate,
   type ShopifyInventoryUpdate,
 } from "./shopifyRealityIngestion.js";
 
@@ -195,26 +195,56 @@ export async function createDurableRuntime(config: Config) {
       return status;
     },
   };
+  const authSchema = z.union([
+    z.object({ accessToken: z.string().min(1) }),
+    z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }),
+  ]);
+  const registered = await getPool().query<{
+    merchant_id: string;
+    shopify_domain: string;
+  }>("select merchant_id,shopify_domain from merchant_stores");
+  const registeredByDomain = new Map(
+    registered.rows.map((row) => [row.shopify_domain, row.merchant_id]),
+  );
+  const registeredMerchant = (shop: string) =>
+    registeredByDomain.get(configuredShopifyDomains([shop])[0]!);
+  const defaultAuth = config.SHOPIFY_ACCESS_TOKEN
+    ? { accessToken: config.SHOPIFY_ACCESS_TOKEN }
+    : {
+        clientId: config.SHOPIFY_CLIENT_ID ?? "",
+        clientSecret: config.SHOPIFY_API_SECRET ?? "",
+      };
   const supplierSchema = z.record(
     z.string(),
     z.object({
       domain: z.string().min(1),
-      auth: z.object({ accessToken: z.string().min(1) }),
+      auth: authSchema,
     }),
   );
   const supplierStores =
     config.SHOPIFY_MODE === "live"
-      ? supplierSchema.parse(JSON.parse(config.SHOPIFY_SUPPLIER_STORES!))
+      ? supplierSchema.parse(
+          config.SHOPIFY_SUPPLIER_STORES
+            ? JSON.parse(config.SHOPIFY_SUPPLIER_STORES)
+            : Object.fromEntries(
+                registered.rows.map((row) => [
+                  row.merchant_id,
+                  { domain: row.shopify_domain, auth: defaultAuth },
+                ]),
+              ),
+        )
       : undefined;
   const mockCatalog =
     config.SHOPIFY_MODE === "demo" ? new MockShopifyAdapter() : undefined;
   const shops = configuredShopifyStores(config.SHOPIFY_STORES);
-  const snapshotStores = shops.length ? shops : mockCatalog!.listStores();
+  const snapshotStores = shops.length
+    ? shops
+    : (mockCatalog?.listStores() ?? []);
   const snapshotSource =
     config.SHOPIFY_MODE === "live"
       ? {
           getSnapshot: async (shop: string) => {
-            const merchantId = merchantIdForShopifyStore(shop);
+            const merchantId = registeredMerchant(shop);
             const supplier = merchantId
               ? supplierStores?.[merchantId]
               : undefined;
@@ -231,6 +261,7 @@ export async function createDurableRuntime(config: Config) {
     snapshotSource,
     snapshotStores,
     {
+      merchantForStore: async (shop) => registeredMerchant(shop),
       onSkippedStore: (shop) =>
         console.info({
           event: "shopify.reality_ingestion.store_skipped",
@@ -239,6 +270,14 @@ export async function createDurableRuntime(config: Config) {
         }),
     },
   );
+  if (config.SHOPIFY_MODE === "live")
+    await syncCatalogInventory((domain) => {
+      const merchantId = registeredByDomain.get(domain);
+      const supplier = merchantId ? supplierStores?.[merchantId] : undefined;
+      return supplier
+        ? new ShopifyTransport({ domain, auth: supplier.auth })
+        : undefined;
+    }, batch.traceId);
   const syncedAt = new Date().toISOString();
   await store.append({
     eventId: randomUUID(),
@@ -261,7 +300,7 @@ export async function createDurableRuntime(config: Config) {
           executionEnabled: config.REAL_EXECUTION_ENABLED,
           centralStore: {
             domain: config.SHOPIFY_STOREFRONT_DOMAIN!,
-            auth: { accessToken: config.SHOPIFY_ACCESS_TOKEN! },
+            auth: defaultAuth,
           },
           supplierStores: supplierStores!,
         })

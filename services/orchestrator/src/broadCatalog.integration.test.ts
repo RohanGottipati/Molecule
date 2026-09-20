@@ -85,7 +85,7 @@ describe.skipIf(!database)(
             field: "status",
             rawValue: "online",
             sourceKind: "manual",
-            sourceReference: `fixture:${version}`,
+            sourceReference: `demo:chaos:fixture:${version}`,
             observedAt: BROAD_CATALOG_CLOCK,
             sourceAuthority: 1,
             extractionConfidence: 1,
@@ -217,6 +217,24 @@ describe.skipIf(!database)(
         expect(
           (await repository().events(plan.orderId)).length,
         ).toBeGreaterThan(0);
+        await persistEvent({
+          eventId: randomUUID(),
+          traceId: recipe.id,
+          orderId: plan.orderId,
+          planId: plan.planId,
+          eventType: "catalog.recipe.verified",
+          severity: "INFO",
+          source: "orchestrator",
+          ts: new Date().toISOString(),
+          payload: {
+            recipeId: recipe.id,
+            catalogVersion: version,
+            mode: "mock",
+            synthetic: true,
+            productGid: receipt.compositeProduct?.productGid,
+            jobs: receipt.supplierJobs.length,
+          },
+        });
         results.push({
           recipe: recipe.id,
           category: recipe.category,

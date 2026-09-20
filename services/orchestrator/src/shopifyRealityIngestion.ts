@@ -26,6 +26,7 @@ export interface ShopifyCapacityIngestionOptions {
     input: RawClaimInput,
     traceId: string,
   ) => ReturnType<typeof ingestClaim>;
+  merchantForStore?: (shop: string) => Promise<string | undefined>;
   onSkippedStore?: (store: string) => void;
 }
 
@@ -139,7 +140,9 @@ export async function ingestShopifyCapacityBatch(
   };
 
   for (const store of stores) {
-    const merchantId = merchantIdForShopifyStore(store);
+    const merchantId = options.merchantForStore
+      ? await options.merchantForStore(store)
+      : merchantIdForShopifyStore(store);
     if (!merchantId) {
       result.skippedStores.push(store);
       options.onSkippedStore?.(store);

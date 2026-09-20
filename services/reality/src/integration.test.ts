@@ -510,6 +510,14 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       (await service.searchCandidates(intent)).some(
         (entry) => entry.merchantId === "thread-forge",
       ),
+    ).toBe(true); // Remaining daily production can fulfill this multi-day order.
+    expect(
+      (
+        await service.searchCandidates({
+          ...intent,
+          deadline: new Date(now.getTime() + 24 * 3600000).toISOString(),
+        })
+      ).some((entry) => entry.merchantId === "thread-forge"),
     ).toBe(false);
   });
 

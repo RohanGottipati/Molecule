@@ -402,7 +402,7 @@ export function broadCatalogFixture(
       recordType: "recipe" as const,
       id: `recipe:${id}`,
       category,
-      prompt: `Create 10 ${bundle ? id + " bundles containing " : "customized "}${components.join(", ")} in the specified materials. Use the supplied artwork/model; deliver to Canada by October 19, 2026 for at most CAD 2000.`,
+      prompt: `Create 10 ${bundle ? id + " bundles containing " : "customized "}${components.map((name) => `${name} (${specs.get(name)!.material}, ${specs.get(name)!.operation}${name === "phone case" ? ", iPhone 16" : ""}${name === "enclosure" ? ", 100 x 80 x 40 mm" : ""})`).join(", ")}. Use the supplied artwork/model; deliver to Canada by October 19, 2026 for at most CAD 2000.`,
       intent,
       expected: {
         outputKind: bundle ? ("bundle" as const) : ("individual" as const),

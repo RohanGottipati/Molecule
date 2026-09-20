@@ -21,6 +21,7 @@ export const ConfigSchema = z.object({
   SHOPIFY_SUPPLIER_STORES: z.string().optional(),
   SHOPIFY_STORES: z.string().optional(),
   SHOPIFY_API_SECRET: z.string().min(1).optional(),
+  SHOPIFY_CLIENT_ID: z.string().min(1).optional(),
   SOLVER_URL: z.url().default("http://localhost:8000"),
   DEMO_MODE: BooleanString.default(false),
   CHAOS_SECRET: z.string().min(16).optional(),
@@ -53,8 +54,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     config.SHOPIFY_MODE === "live" &&
     (!config.REAL_EXECUTION_ENABLED ||
       !config.SHOPIFY_STOREFRONT_DOMAIN ||
-      !config.SHOPIFY_ACCESS_TOKEN ||
-      !config.SHOPIFY_SUPPLIER_STORES ||
+      !(
+        config.SHOPIFY_ACCESS_TOKEN ||
+        (config.SHOPIFY_CLIENT_ID && config.SHOPIFY_API_SECRET)
+      ) ||
       !config.SHOPIFY_STORES)
   )
     throw new Error(
