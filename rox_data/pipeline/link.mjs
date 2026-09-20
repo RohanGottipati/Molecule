@@ -9,6 +9,7 @@
 // queued for a human instead of merged.
 
 import OpenAI from "openai";
+import { decideCapability } from "./attribution.mjs";
 
 import { ENTITY_THRESHOLDS, MODELS } from "./config.mjs";
 import { shortId, meter, bumpStage, emitEvent } from "./db.mjs";
@@ -291,45 +292,34 @@ async function llmMatch(client, db, runId, alias, shortlist) {
 
 // ------------------------------------------------------------------ capability
 
-/** Within a merchant, pick the capability a phrase refers to. */
-async function matchCapability(db, merchantId, subjectHint, fieldKind) {
-  const { rows: caps } = await db.query(
-    `select capability_id, name, description from capabilities where merchant_id = $1`,
-    [merchantId],
-  );
-  if (!caps.length) return null;
-  if (caps.length === 1)
-    return { capabilityId: caps[0].capability_id, method: "only", score: 1 };
-
+/**
+ * Within a merchant, pick the capability a phrase refers to. The decision itself
+ * is pure (attribution.mjs); this only gathers candidates and similarities.
+ * Returns { capabilityId, method, score } or { capabilityId: null, reason }.
+ */
+async function matchCapability(db, merchantId, subjectHint, allCapabilities) {
+  const own = allCapabilities.filter((c) => c.merchant_id === merchantId);
   const hint = normalizeAlias(subjectHint);
-  // A document that quotes our own identifier is the easiest case.
-  const direct = caps.find(
-    (c) =>
-      hint &&
-      normalizeAlias(c.capability_id).replace(/ /g, "") ===
-        hint.replace(/ /g, ""),
-  );
-  if (direct)
-    return { capabilityId: direct.capability_id, method: "exact", score: 1 };
-  if (!hint) return null;
-
-  const { rows } = await db.query(
-    `select c.capability_id, similarity($1, c.surface) as sim
-       from unnest($2::text[], $3::text[]) as c(capability_id, surface)
-      order by sim desc limit 2`,
-    [
-      hint,
-      caps.map((c) => c.capability_id),
-      caps.map((c) => normalizeAlias(`${c.name} ${c.description ?? ""}`)),
-    ],
-  );
-  const best = rows[0];
-  if (!best || Number(best.sim) < 0.25) return null;
-  return {
-    capabilityId: best.capability_id,
-    method: "trgm",
-    score: Number(best.sim),
-  };
+  let ranked = [];
+  if (own.length > 1 && hint) {
+    const { rows } = await db.query(
+      `select c.capability_id, similarity($1, c.surface) as sim
+         from unnest($2::text[], $3::text[]) as c(capability_id, surface)
+        order by sim desc limit 2`,
+      [
+        hint,
+        own.map((c) => c.capability_id),
+        own.map((c) => normalizeAlias(`${c.name} ${c.description ?? ""}`)),
+      ],
+    );
+    ranked = rows;
+  }
+  return decideCapability({
+    own,
+    all: allCapabilities,
+    hint: subjectHint,
+    ranked,
+  });
 }
 
 // ------------------------------------------------------------------ stage
@@ -457,6 +447,7 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
 
   const duplicates = await dedupeMerchants(db, runId);
   counts.duplicates_merged = duplicates.size;
+  const allCapabilities = await capabilityCandidates(db);
 
   // A duplicate's name and identifiers become surfaces of the canonical row, so
   // a document naming the old record still resolves to the live supplier.
@@ -609,12 +600,41 @@ export async function link(db, { runId, batchId, traceId, limit = null }) {
     }
     counts[decision.method] = (counts[decision.method] ?? 0) + 1;
 
-    const cap =
+    const found =
       capability ??
-      (await matchCapability(db, decision.merchantId, subjectHint, row.field));
+      (await matchCapability(
+        db,
+        decision.merchantId,
+        subjectHint,
+        allCapabilities,
+      ));
+    const cap = found?.capabilityId ? found : null;
     if (cap && duplicates.has(decision.merchantId))
       decision.merchantId = duplicates.get(decision.merchantId);
     if (cap) counts.capability_linked += 1;
+    else if (found?.reason) {
+      // The supplier is known but the capability is not: keep it out of the
+      // claim layer and give a human the question, rather than guess.
+      counts.capability_review = (counts.capability_review ?? 0) + 1;
+      await db.query(
+        `insert into rox_review_queue (task_id, run_id, kind, merchant_id, field, detail, proposed_action)
+         values ($1,$2,'low_confidence_link',$3,$4,$5,$6) on conflict (task_id) do nothing`,
+        [
+          shortId(runId, "capability", row.extraction_id),
+          runId,
+          decision.merchantId,
+          row.field,
+          {
+            reason: found.reason,
+            terms: found.terms ?? [],
+            subjectHint,
+            sourcePath: row.source_path,
+            extractionId: row.extraction_id,
+          },
+          { action: "ask_human_to_confirm_capability" },
+        ],
+      );
+    }
     await db.query(
       `update rox_extractions
           set resolved_merchant_id = $2, resolved_capability_id = $3::text, link_method = $4, link_score = $5,

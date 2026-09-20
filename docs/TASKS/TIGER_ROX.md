@@ -24,9 +24,9 @@ The foundation exists. Follow [DATABASE_ROX.md](../DATABASE_ROX.md) in order:
 - [x] Select the narrow apparel scenario and its uncertainty/action boundary; see [Order 2](../DATABASE_ORDER2.md).
 - [ ] Add run-specific resolution snapshots before certifying resolution/outlier accuracy.
 - [ ] Establish a human-labelled real-document holdout for one operational scenario; the private validator exists, but authorized inputs and reviews are still required ([Order 3](../DATABASE_ORDER3.md)).
-- [ ] Improve supplier attribution and normalization against that benchmark.
-- [ ] Integrate shared contracts/resolver and complete approved, idempotent actions.
-- [ ] Benchmark Tiger's workflow contribution and expose provenance to the user.
+- [x] Strict capacity normalization and supplier attribution implemented and tested on the synthetic corpus; **not yet validated on real documents**, so not benchmark-driven ([Order 4](../DATABASE_ORDER4.md)).
+- [ ] Integrate shared contracts/resolver and complete approved, idempotent actions. Decision rule and approval-gated proposals done; the trigger into `Orchestrator.recoverResource` needs an orchestrator endpoint ([Order 5](../DATABASE_ORDER5.md)).
+- [x] Benchmark Tiger's contribution live and read-only ([Order 6](../DATABASE_ORDER6.md)). Replay/recovery timing and load not measured. Exposing provenance to the user remains open.
 
 Stored scores are preliminary diagnostics, not production accuracy. Finish one
 acceptance gate before increasing dataset volume or expanding feature scope.
