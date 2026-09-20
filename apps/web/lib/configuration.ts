@@ -31,7 +31,7 @@ export async function readDemoConfiguration(
       enabled: false,
       resetAvailable: false,
       loading: false,
-      error: "Demo configuration unavailable. Recovery controls are disabled.",
+      error: "Configuration unavailable. Recovery controls are disabled.",
     });
   }
 }

@@ -1,3 +1,7 @@
+import {
+  createDemoStoreConsole,
+  demoRecipeGallery,
+} from "./demo/commercePreview.js";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -184,9 +188,17 @@ export async function createApp() {
     applyChaos: durable?.reality.applyChaos,
     resetDemo: durable?.reality.resetDemo,
     shopifyWebhook: durable?.shopifyWebhook,
-    catalogGallery: durable ? catalogGallery : undefined,
+    catalogGallery: durable
+      ? catalogGallery
+      : config.DEMO_MODE
+        ? demoRecipeGallery
+        : undefined,
     // The console reads the Postgres mirror directly, so it needs the durable runtime.
-    storeConsole: durable ? createStoreConsole(config) : undefined,
+    storeConsole: durable
+      ? createStoreConsole(config)
+      : config.DEMO_MODE
+        ? createDemoStoreConsole()
+        : undefined,
   });
   app.addHook("onClose", async () => {
     await durable?.close();

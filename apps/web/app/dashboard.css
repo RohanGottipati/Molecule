@@ -1104,3 +1104,569 @@
     gap: 6px;
   }
 }
+
+/* Sources shares Testing's graph primitives and contained inspector. */
+.knowledge-canvas {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 38px);
+  min-height: 620px;
+}
+.knowledge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px;
+  background: #fbfcfd;
+  border-bottom: 1px solid #e5ebf1;
+  z-index: 1;
+}
+.dashboard-shell .knowledge-header h1 {
+  font-size: 24px;
+  margin: 2px 0 4px;
+}
+.knowledge-header p {
+  margin: 0;
+  font-size: 12px;
+}
+.knowledge-filters {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+}
+.knowledge-filters label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-size: 10px;
+  color: #697383;
+}
+.knowledge-filters input {
+  width: 160px;
+}
+.knowledge-filters select {
+  max-width: 220px;
+}
+.dashboard-shell.canvas-shell .knowledge-canvas .decision-plan-graph {
+  flex: 1;
+  height: auto;
+  min-height: 340px;
+}
+.knowledge-canvas .graph-detail-panel {
+  top: 16px;
+  max-height: calc(100% - 90px);
+}
+.knowledge-canvas .production-node {
+  width: 350px;
+}
+.knowledge-canvas .node-metadata {
+  text-transform: uppercase;
+}
+.knowledge-canvas .knowledge-icon-source {
+  color: #5a88e3;
+}
+.knowledge-canvas .knowledge-icon-fact {
+  color: #916ee0;
+}
+.knowledge-canvas .knowledge-icon-supplier {
+  color: #3b9e7b;
+}
+.knowledge-footer {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 12px 22px;
+  background: #fbfcfd;
+  border-top: 1px solid #e5ebf1;
+  color: #697383;
+  font-size: 11px;
+}
+.knowledge-legend,
+.knowledge-legend span,
+.knowledge-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.knowledge-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.knowledge-legend {
+  flex-wrap: wrap;
+}
+.knowledge-dot-source {
+  background: #5a88e3;
+}
+.knowledge-dot-fact {
+  background: #916ee0;
+}
+.knowledge-dot-supplier {
+  background: #3b9e7b;
+}
+.knowledge-dot-capability {
+  background: #59b5c8;
+}
+.knowledge-dot-warning {
+  background: #d99457;
+}
+.knowledge-pagination {
+  white-space: nowrap;
+}
+.knowledge-reference {
+  overflow-wrap: anywhere;
+}
+.knowledge-evidence {
+  padding: 16px 0;
+  border-top: 1px solid #e5ebf1;
+  font-size: 12px;
+}
+.knowledge-evidence-head {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+}
+.knowledge-evidence-head strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.knowledge-evidence p {
+  margin: 8px 0;
+}
+.knowledge-evidence blockquote {
+  margin: 12px 0;
+  padding-left: 12px;
+  border-left: 2px solid #cad8f4;
+  color: #526172;
+}
+.knowledge-restriction {
+  background: #fff7e5;
+  color: #795723;
+  padding: 12px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+.knowledge-empty {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  height: 100%;
+  padding: 28px;
+  text-align: center;
+}
+.knowledge-empty p {
+  max-width: 400px;
+  color: #697383;
+}
+@media (max-width: 1200px) {
+  .knowledge-header {
+    align-items: start;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .knowledge-motion-note {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .knowledge-header {
+    padding: 18px;
+  }
+  .knowledge-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .knowledge-filters label:first-child {
+    grid-column: 1 / -1;
+  }
+  .knowledge-filters input,
+  .knowledge-filters select {
+    width: 100%;
+    max-width: 100%;
+  }
+  .knowledge-footer {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 16px;
+    padding: 8px;
+  }
+  .knowledge-canvas {
+    min-height: 740px;
+  }
+}
+.knowledge-error {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  background: #fff7e5;
+  color: #795723;
+  font-size: 12px;
+}
+.knowledge-identity {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: #697383;
+}
+.knowledge-canvas
+  .decision-plan-graph
+  .production-node
+  > .knowledge-icon-source {
+  color: #5a88e3;
+}
+.knowledge-canvas .decision-plan-graph .production-node > .knowledge-icon-fact {
+  color: #916ee0;
+}
+.knowledge-canvas
+  .decision-plan-graph
+  .production-node
+  > .knowledge-icon-supplier {
+  color: #3b9e7b;
+}
+.knowledge-atlas {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  background: radial-gradient(circle at 50% 45%, #fff, #f3f6f8);
+}
+.knowledge-atlas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.atlas-counts {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  right: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  pointer-events: none;
+  font-size: 11px;
+  color: #697383;
+}
+.atlas-counts strong {
+  color: #26384b;
+  font-size: 14px;
+}
+.atlas-controls {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  padding: 4px;
+  border: 1px solid #e0e7ee;
+  border-radius: 14px;
+  background: #fffffff2;
+  box-shadow: 0 4px 18px #23364a08;
+}
+.atlas-controls button {
+  background: transparent;
+  color: #52677b;
+  border: 0;
+  padding: 8px 12px;
+  min-height: 36px;
+  font-size: 12px;
+}
+.atlas-hint {
+  position: absolute;
+  bottom: 24px;
+  right: 20px;
+  max-width: 55%;
+  font-size: 11px;
+  color: #64748b;
+  pointer-events: none;
+  text-align: right;
+}
+
+/* Commerce and recipe previews share the workspace's light surface system. */
+.dashboard-shell .store-console {
+  display: grid;
+  gap: 24px;
+}
+.dashboard-shell .store-console > header h2 {
+  font-size: 24px;
+  letter-spacing: -0.6px;
+  margin: 0 0 8px;
+}
+.dashboard-shell .store-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.dashboard-shell .store-picker button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+  min-width: 0;
+  border-radius: 22px;
+  border: 1px solid #e5eaf1;
+  background: #fff;
+  color: #283449;
+  text-align: left;
+  box-shadow: 0 4px 18px #273b5310;
+  transition:
+    border-color 180ms,
+    background 180ms;
+}
+.dashboard-shell .store-picker button.active {
+  background: #edf3ff;
+  border-color: #90b4fb;
+  color: #245cd4;
+}
+.dashboard-shell .store-picker button:hover {
+  border-color: #90b4fb;
+}
+.dashboard-shell .store-picker .small {
+  font-size: 12px;
+}
+.dashboard-shell .store-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  background: #eaf0f6;
+  border-radius: 999px;
+}
+.dashboard-shell .store-tabs button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #52627a;
+  padding: 10px 20px;
+}
+.dashboard-shell .store-tabs button.active {
+  color: #fff;
+  background: #2563eb;
+  box-shadow: 0 3px 8px #2563eb22;
+}
+.dashboard-shell .store-panel {
+  background: #fff;
+  border: 1px solid #e8edf3;
+  border-radius: 28px;
+  padding: 28px;
+  overflow-x: auto;
+}
+.dashboard-shell .store-demo-note {
+  display: inline-flex;
+  margin: 0 0 12px;
+  color: #486789;
+  background: #f0f5fc;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.dashboard-shell .store-list {
+  list-style: none;
+  display: grid;
+  gap: 16px;
+  padding: 0;
+}
+.dashboard-shell .store-list > li {
+  border: 1px solid #e8edf3;
+  border-radius: 20px;
+  padding: 20px;
+}
+.dashboard-shell .store-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dashboard-shell .store-row-head strong {
+  font-size: 17px;
+  font-weight: 600;
+}
+.dashboard-shell .store-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.dashboard-shell .store-table th {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dashboard-shell .store-table :is(th, td) {
+  text-align: left;
+  padding: 14px 10px;
+  border-bottom: 1px solid #edf1f6;
+}
+.dashboard-shell .store-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.dashboard-shell .store-panel .detail-grid {
+  gap: 12px;
+  margin: 20px 0 32px;
+}
+.dashboard-shell .store-panel .detail-grid > div {
+  padding: 20px;
+  background: #f7f9fc;
+  border-radius: 18px;
+}
+.dashboard-shell .store-panel .detail-grid dd {
+  font-size: 24px;
+  margin-top: 10px;
+}
+.dashboard-shell .store-bars {
+  height: 200px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  list-style: none;
+  padding: 16px 0 28px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid #e8edf3;
+}
+.dashboard-shell .store-bars li {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+}
+.dashboard-shell .store-bar {
+  width: 100%;
+  background: #83b5f6;
+  border-radius: 8px 8px 2px 2px;
+}
+.dashboard-shell .store-bar-label {
+  font-size: 10px;
+  color: #52627a;
+  position: absolute;
+  top: calc(100% + 6px);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+.dashboard-shell .recipe-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 24px 0;
+  color: #63728a;
+}
+.dashboard-shell .recipe-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.dashboard-shell .recipe-toolbar select {
+  width: auto;
+  border-radius: 999px;
+  background: #fff;
+}
+.dashboard-shell .recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.dashboard-shell .recipe-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 28px;
+  border: 1px solid #e6ecf4;
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 6px 24px #243a5610;
+}
+.dashboard-shell .recipe-card:first-child {
+  background: #f0f5ff;
+  border-color: #cdddfb;
+}
+.dashboard-shell .recipe-card > small {
+  color: #62718a;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.dashboard-shell .recipe-card h2 {
+  font-size: 24px;
+  font-weight: 550;
+  letter-spacing: -0.6px;
+  text-transform: capitalize;
+  margin: 20px 0 12px;
+}
+.dashboard-shell .recipe-card p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #59677b;
+}
+.dashboard-shell .recipe-readiness {
+  font-size: 12px;
+  color: #2f5eb2;
+  background: #eaf1ff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  margin: 4px 0 16px;
+}
+.dashboard-shell .recipe-operations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dashboard-shell .recipe-operations span {
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: #f2f5f9;
+  color: #52627a;
+  font-size: 11px;
+}
+.dashboard-shell .recipe-card details {
+  color: #62718a;
+  font-size: 12px;
+  margin: 8px 0 20px;
+}
+.dashboard-shell .recipe-card-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 22px;
+}
+.dashboard-shell .recipe-card-footer button {
+  font-size: 13px;
+}
+@media (max-width: 1200px) {
+  .dashboard-shell .recipe-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dashboard-shell .store-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .dashboard-shell .recipe-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-shell .recipe-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dashboard-shell .store-panel {
+    padding: 16px;
+  }
+  .dashboard-shell .store-picker button {
+    padding: 14px;
+  }
+}

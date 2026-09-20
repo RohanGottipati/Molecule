@@ -74,7 +74,9 @@ export function OrderWorkspace({
     sidebarDestinations.find((item) => item.key === workspace.view) ??
     sidebarDestinations[0]!;
   const canvasView =
-    workspace.view === "testing" || workspace.view === "execution";
+    workspace.view === "testing" ||
+    workspace.view === "execution" ||
+    workspace.view === "reality";
   const home = !workspace.orderId && workspace.view === "command";
   const projectTitle =
     workspace.order?.intent?.desiredOutputs
@@ -98,41 +100,6 @@ export function OrderWorkspace({
       }
     } else heading.current?.focus();
   }, [workspace.view, workspace.orderId, workspace.draftScope, draft.ready]);
-
-  // Auto-navigate to Plan & actions the first time a plan appears for the
-  // order being watched, so submitting a brief on Home lands the user on the
-  // plan without a manual sidebar click. Only fires once a loaded snapshot of
-  // the order was seen without a plan, so a page reload or deep link whose
-  // first loaded snapshot already carries a plan stays on the requested view.
-  // Never fires twice for the same order.
-  const priorPlanRef = useRef<{
-    orderId: string | null;
-    planId: string | null;
-    loaded: boolean;
-  }>({ orderId: null, planId: null, loaded: false });
-  const autoNavigatedRef = useRef<Set<string>>(new Set());
-  const loadedOrderId = workspace.order?.orderId ?? null;
-  const activePlanId = workspace.order?.activePlan?.planId ?? null;
-  useEffect(() => {
-    const orderId = workspace.orderId;
-    const loaded = orderId !== null && loadedOrderId === orderId;
-    const planId = loaded ? activePlanId : null;
-    const prior = priorPlanRef.current;
-    if (prior.orderId !== orderId || !prior.loaded) {
-      priorPlanRef.current = { orderId, planId, loaded };
-      return;
-    }
-    if (
-      planId &&
-      !prior.planId &&
-      orderId &&
-      !autoNavigatedRef.current.has(orderId)
-    ) {
-      autoNavigatedRef.current.add(orderId);
-      if (workspace.view === "command") workspace.navigate("execution");
-    }
-    priorPlanRef.current = { orderId, planId, loaded };
-  }, [workspace.orderId, loadedOrderId, activePlanId, workspace.view]);
 
   function compose() {
     if (workspace.view === "command") textarea.current?.focus();
@@ -255,6 +222,8 @@ export function OrderWorkspace({
             <RealityView
               marketplace={workspace.marketplace}
               loading={workspace.marketplaceLoading}
+              error={workspace.marketplaceError}
+              onRefresh={() => void workspace.refreshMarketplace()}
             />
           )}
           {workspace.view === "operations" && (

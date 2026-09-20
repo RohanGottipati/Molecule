@@ -9,12 +9,13 @@ import type {
   ProductionPlan,
 } from "@molecule/contracts";
 import { useState } from "react";
+import { KnowledgeGraph } from "./KnowledgeGraph";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DecisionApproval } from "./DecisionApproval";
 import { DecisionReceipts } from "./DecisionReceipts";
 import { DecisionRecovery } from "./DecisionRecovery";
 import { Badge } from "./DecisionPrimitives";
-import { evidenceGroups, merchantSelection } from "../lib/decisionEvidence";
+import { merchantSelection } from "../lib/decisionEvidence";
 import { nodeEvidenceContext, type PlanSelection } from "../lib/decisionPlan";
 import { kindColorVar } from "../lib/planVisuals";
 import { PlanKindIcon } from "./PlanKindIcon";
@@ -158,7 +159,7 @@ export function MerchantDetail({
                     <h3>{item.name}</h3>
                     <span className="eyebrow">{humanize(item.kind)}</span>
                   </div>
-                  <p>{item.description}</p>
+                  <p>{item.description?.replace(/^Synthetic demo: /, "")}</p>
                   <dl className="detail-grid">
                     <div>
                       <dt>Unit price</dt>
@@ -404,144 +405,10 @@ export function MerchantsView({
   );
 }
 
-export function RealityView({
-  marketplace,
-  loading = false,
-}: {
-  marketplace: MarketplaceSnapshot | null;
-  loading?: boolean;
-}) {
-  const [filter, setFilter] = useState("all");
-  const merchants = marketplace?.merchants ?? [];
-  const claims = merchants.flatMap((merchant) => merchant.claims);
-  return (
-    <section className="panel evidence-view" aria-busy={loading}>
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">SUPPLIER EVIDENCE</p>
-          <h2>Source records</h2>
-          <p className="muted">
-            Compare supplier facts and review unresolved evidence.
-          </p>
-        </div>
-        <label className="filter-label">
-          Claim status
-          <select
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          >
-            <option value="all">All claims ({claims.length})</option>
-            {[
-              "active",
-              "conflicted",
-              "unknown",
-              "quarantined",
-              "superseded",
-            ].map((status) => (
-              <option key={status} value={status}>
-                {humanize(status)} (
-                {
-                  claims.filter((claim) => claim.resolutionStatus === status)
-                    .length
-                }
-                )
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <details className="evidence-scope">
-        <summary>About evidence coverage</summary>
-        <p>
-          Counts reflect available records. Missing or expired facts may have no
-          record; a zero count does not mean evidence is complete.
-        </p>
-      </details>
-      {merchants
-        .filter(
-          (merchant) =>
-            merchant.claims.some(
-              (claim) => filter === "all" || claim.resolutionStatus === filter,
-            ) ||
-            (filter === "all" &&
-              merchant.capabilities.some(
-                (candidate) => candidate.blockedReasons.length,
-              )),
-        )
-        .map((merchant) => (
-          <section className="reality-merchant" key={merchant.merchantId}>
-            <h3>
-              {merchant.name}
-              <Badge value={merchant.status} />
-            </h3>
-            {merchant.capabilities
-              .filter((candidate) => candidate.blockedReasons.length)
-              .map((candidate) => (
-                <div className="evidence-impact" key={candidate.capabilityId}>
-                  <strong>
-                    {candidate.capability.name} · planning restrictions
-                  </strong>
-                  <ul>
-                    {candidate.blockedReasons.map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            {evidenceGroups(merchant.claims, filter).map((group) => (
-              <div className="evidence-field" key={group.key}>
-                <div className="section-heading">
-                  <h4>{humanize(group.field)}</h4>
-                  <span className="muted small">
-                    {group.claims.length} source claims
-                  </span>
-                </div>
-                {group.conflicted && (
-                  <p className="inline-warning">
-                    Sources disagree on this value. It remains unresolved; the
-                    solver checks whether the plan can proceed.
-                  </p>
-                )}
-                <ul className="evidence-comparison">
-                  {group.claims.map((claim) => (
-                    <li key={claim.claimId}>
-                      <span>
-                        <strong>
-                          {displayValue(claim.normalizedValue)}{" "}
-                          {claim.normalizedUnit}
-                        </strong>
-                        <small>
-                          {humanize(claim.source.kind)} ·{" "}
-                          {claim.source.reference}
-                        </small>
-                      </span>
-                      <Badge value={claim.resolutionStatus} />
-                    </li>
-                  ))}
-                </ul>
-                <details>
-                  <summary>
-                    Source evidence, confidence &amp; claim history
-                  </summary>
-                  <ClaimTable claims={group.claims} />
-                </details>
-              </div>
-            ))}
-          </section>
-        ))}
-      {!claims.some(
-        (claim) => filter === "all" || claim.resolutionStatus === filter,
-      ) && (
-        <Empty
-          title={loading ? "Loading source evidence" : "No matching claim rows"}
-        >
-          {loading
-            ? "Waiting for source claims from the server."
-            : "Choose another claim status or refresh the marketplace. Missing claim rows do not establish that operational fields are known."}
-        </Empty>
-      )}
-    </section>
-  );
+export function RealityView(
+  props: React.ComponentProps<typeof KnowledgeGraph>,
+) {
+  return <KnowledgeGraph {...props} />;
 }
 
 export function OperationsView({
@@ -588,10 +455,10 @@ export function OperationsView({
               <article key={provider.name}>
                 <div>
                   <strong>{humanize(provider.name)}</strong>
-                  <span className="mode-tag">{humanize(provider.mode)}</span>
+
                   <Badge value={provider.status} />
                 </div>
-                <p>{provider.detail}</p>
+                {provider.mode === "live" && <p>{provider.detail}</p>}
               </article>
             ))}
           </div>

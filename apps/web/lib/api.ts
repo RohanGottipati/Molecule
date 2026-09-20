@@ -335,7 +335,7 @@ export async function getDemoCapabilities(
     typeof config.demoMode !== "boolean"
   )
     throw new RequestError(
-      "Demo controls are unavailable.",
+      "Recovery controls are unavailable.",
       502,
       "INVALID_RESPONSE",
     );
@@ -493,7 +493,7 @@ export async function resetDemoMarketplace(): Promise<void> {
   } catch (error) {
     if (error instanceof RequestError && error.status === 404)
       throw new RequestError(
-        "Demo reset is only available when the server runs in demo mode with PostgreSQL storage.",
+        "Marketplace recovery is unavailable with the current server configuration.",
         404,
         "NOT_FOUND",
       );

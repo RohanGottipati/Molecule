@@ -264,8 +264,8 @@ export function TestingPlan() {
                   </ul>
                 </details>
                 <p className="muted small">
-                  Synthetic data for visual testing. Real plan popups include
-                  the project’s quotes and evidence.
+                  Production step details include the project’s quotes and
+                  evidence.
                 </p>
               </>
             </GraphDetailPanel>

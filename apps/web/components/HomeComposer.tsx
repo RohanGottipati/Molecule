@@ -73,7 +73,7 @@ export function HomeComposer({
 
   return (
     <section className="home-hero" aria-labelledby="home-hero-title">
-      <h1 id="home-hero-title">What should we build?</h1>
+      <h1 id="home-hero-title">Your idea. Our next creation.</h1>
       <BriefClarificationDialog draft={draft} />
       <div className="home-card">
         <form

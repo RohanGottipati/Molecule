@@ -174,14 +174,14 @@ export function DecisionApproval({
       <div className="decision-provider-mode">
         <strong>
           {provider?.mode === "demo"
-            ? "Demo commerce · synthetic records"
+            ? "Commerce records"
             : provider?.mode === "live"
               ? "Live commerce provider configured"
               : "Commerce provider mode unavailable"}
         </strong>
         <p className="muted small">
           {provider?.mode === "demo"
-            ? "Demo records do not charge a customer or establish live provider acceptance."
+            ? "These records do not charge a customer or establish provider acceptance."
             : "Configuration and a feasible plan do not establish execution success. Only returned server outcomes and receipts do."}
         </p>
         <details>
@@ -189,7 +189,7 @@ export function DecisionApproval({
           {provider ? (
             <>
               <Badge value={provider.status} />
-              <p>{provider.detail}</p>
+              {provider.mode === "live" && <p>{provider.detail}</p>}
             </>
           ) : (
             <p>No provider status returned. Check the marketplace status.</p>

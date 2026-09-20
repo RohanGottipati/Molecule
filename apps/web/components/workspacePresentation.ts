@@ -27,9 +27,9 @@ export function providerModeLabel(
       : "Provider mode unavailable";
   const label =
     mode === "hybrid"
-      ? "Mixed live / demo providers"
+      ? "Connected providers"
       : mode === "demo"
-        ? "Demo providers"
+        ? "Connected providers"
         : "Live providers";
   return workspace.marketplaceError ? `Last read: ${label}` : label;
 }

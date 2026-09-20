@@ -49,18 +49,6 @@ export const sidebarDestinations: {
       "Review the solver’s plan, approve it and inspect commerce records.",
     icon: "plan",
   },
-  {
-    key: "stores",
-    label: "Stores",
-    description: "Browse connected store catalogs, orders and customers.",
-    icon: "stores",
-  },
-  {
-    key: "testing",
-    label: "Testing",
-    description: "Preview the production flow chart with sample data.",
-    icon: "plan",
-  },
 ];
 
 /**

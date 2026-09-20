@@ -39,3 +39,7 @@ card), so there is no uncontrolled extraction timing to depend on. If a live run
 memory recall still looks inconsistent, re-seed via the same call immediately before
 going on and treat the memory step as **readonly** for that demo — do not attempt to
 record new memory from the live assistant on stage.
+
+## Local demo presentation
+
+With `STORAGE_MODE=local` and `DEMO_MODE=true`, Stores serves a read-only synthetic commerce preview: eight demo suppliers, catalog items derived from the existing demo capabilities, and sample orders, customers and sales rollups. These display records are separate from execution receipts and never feed the solver. Recipe gallery includes six synthetic brief starters; only the canonical onboarding-kit brief uses the pinned golden path. Other starters require review and normal planning. Durable configurations continue using their actual catalog and store mirrors. Testing remains available at `/?view=testing`, but is hidden from the shared sidebar for recordings.

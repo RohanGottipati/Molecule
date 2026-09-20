@@ -4,7 +4,6 @@ import type { RefObject } from "react";
 import type { Workspace } from "../lib/useWorkspace";
 import type { useBriefDraft } from "./useBriefDraft";
 import { HomeComposer } from "./HomeComposer";
-import { WorkspaceLink } from "./WorkspaceLink";
 import { WorkspaceNotices } from "./WorkspaceNotices";
 import { AsciiCursorTrail } from "./AsciiCursorTrail";
 
@@ -36,16 +35,6 @@ export function HomePage({
       <a className="skip-link" href="#home-main">
         Skip to workspace
       </a>
-      <header className="home-header">
-        <WorkspaceLink
-          orderId={null}
-          view="projects"
-          onNavigate={workspace.navigate}
-          className="home-next"
-        >
-          Next
-        </WorkspaceLink>
-      </header>
       <div className="main-shell">
         <main id="home-main" className="home-layout" tabIndex={-1}>
           <WorkspaceNotices workspace={workspace} />

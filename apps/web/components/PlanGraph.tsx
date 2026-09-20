@@ -91,7 +91,7 @@ const nodeTypes = { production: ProductionNode };
 
 type ProductionEdgeData = { animated: boolean };
 
-function ProductionEdge({
+export function ProductionEdge({
   sourceX,
   sourceY,
   sourcePosition,

@@ -171,7 +171,7 @@ export function BriefComposer({
           !workspace.configLoading &&
           !workspace.configError && (
             <p>
-              Demo example: onboarding kits. The solver still checks feasibility
+              Example: onboarding kits. The solver still checks feasibility
               against the configured suppliers.
             </p>
           )}

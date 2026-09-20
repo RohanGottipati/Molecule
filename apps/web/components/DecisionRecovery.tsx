@@ -44,11 +44,11 @@ export function DecisionRecovery({
     <section className="panel decision-recovery">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">DEMO RECOVERY</p>
+          <p className="eyebrow">SUPPLIER RECOVERY</p>
           <h2>Replace an unavailable supplier</h2>
         </div>
         <span className="mode-tag">
-          {demoMode ? "Demo enabled by server" : "Demo controls unavailable"}
+          {demoMode ? "Recovery available" : "Recovery unavailable"}
         </span>
       </div>
       <div className="inset">
@@ -132,18 +132,18 @@ export function DecisionRecovery({
           <p className="muted">
             {demoMode
               ? "A selected production plan is required."
-              : "The server must enable demo mode to use supplier-offline controls."}
+              : "Supplier recovery is unavailable with the current configuration."}
           </p>
         )}
         {demoMode && onReset && (
           <div className="decision-recovery-reset">
             <div className="decision-recovery-choice">
               <div>
-                <strong>Restore synthetic suppliers</strong>
+                <strong>Restore suppliers</strong>
                 <p className="muted">
-                  Brings offline demo suppliers back, releases their demo
-                  reservations and restores capacity so the next brief starts
-                  from a clean marketplace. Project history is kept.
+                  Brings offline suppliers back, releases their reservations and
+                  restores capacity so the next brief starts from a clean
+                  marketplace. Project history is kept.
                   {offlineMerchants.length
                     ? ` Currently offline: ${offlineMerchants
                         .map((item) => item.name)
@@ -157,15 +157,15 @@ export function DecisionRecovery({
                 disabled={busy || resetting}
                 onClick={() => setConfirmingReset(true)}
               >
-                {resetting ? "Restoring…" : "Restore demo suppliers"}
+                {resetting ? "Restoring…" : "Restore suppliers"}
               </button>
             </div>
             {confirmingReset && (
               <div className="decision-confirmation">
                 <p>
-                  Restore the synthetic marketplace baseline? Active demo
-                  reservations are released, so plans that are still executing
-                  should be treated as superseded.
+                  Restore the marketplace baseline? Active reservations are
+                  released, so plans that are still executing should be treated
+                  as superseded.
                 </p>
                 <div>
                   <button
