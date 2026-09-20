@@ -4,6 +4,8 @@ import { DesktopStore } from "./state/desktop-store.js";
 import { useVoice } from "./useVoice.js";
 import { TemporaryCompany } from "./components/TemporaryCompany.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
+import { VoiceDock, voiceStatusLabel } from "./components/VoiceDock.js";
+import { VoiceOrb } from "./components/VoiceOrb.js";
 import { captureFrame } from "./services/screen-context.js";
 
 export function App() {
@@ -11,6 +13,8 @@ export function App() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [text, setText] = useState("");
   const [lastText, setLastText] = useState("");
+  const [submittingText, setSubmittingText] = useState(false);
+  const textSubmission = useRef(false);
   const [showSettings, setShowSettings] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [sources, setSources] = useState<ScreenSource[] | null>(null);
@@ -102,50 +106,68 @@ export function App() {
         );
       }}
     >
-      <header className="drag-region">
-        <button
-          className="orb"
-          aria-label="Expand Molecule"
-          onClick={() =>
-            run(
-              store.mode(state.mode === "compact" ? "conversation" : "compact"),
-            )
-          }
-        >
-          M
-        </button>
-        <div className="brand">
-          <strong>
-            Molecule <span>OS</span>
-          </strong>
-          <small>
-            {voiceActive
-              ? audio.muted
-                ? "Microphone muted"
-                : audio.state
-              : state.connection === "connected"
-                ? "Ready when you are"
-                : `Backend ${state.connection}`}
-          </small>
-        </div>
-        <button
-          className={`mic-button ${voiceActive ? "active" : ""}`}
-          aria-label={voiceActive ? "Stop voice" : "Start voice"}
-          onClick={() => run(toggleVoice())}
-        >
-          {voiceActive ? "Stop" : "Talk"}
-        </button>
-        <span
-          className={`connection ${state.connection}`}
-          aria-label={`Backend ${state.connection}`}
-        />
-        <button
-          aria-label="Hide Molecule"
-          onClick={() => run(store.bridge.hideOverlay())}
-        >
-          ×
-        </button>
-      </header>
+      <VoiceDock voice={voice} state={audio}>
+        <header className="drag-region">
+          <button
+            className="orb"
+            aria-label="Expand Molecule"
+            onClick={() =>
+              run(
+                store.mode(
+                  state.mode === "compact" ? "conversation" : "compact",
+                ),
+              )
+            }
+          >
+            M
+          </button>
+          <div className="brand">
+            <strong>
+              Molecule <span>OS</span>
+            </strong>
+            <small id="voice-status" role="status" aria-live="polite">
+              {voiceActive || audio.state === "error"
+                ? voiceStatusLabel(audio)
+                : state.connection === "connected"
+                  ? "Ready when you are"
+                  : `Backend ${state.connection}`}
+            </small>
+          </div>
+          <button
+            className={`mic-button ${voiceActive ? "active" : ""}`}
+            aria-label={
+              voiceActive
+                ? "Stop voice input"
+                : audio.state === "error"
+                  ? "Retry voice input"
+                  : "Start voice input"
+            }
+            aria-pressed={voiceActive}
+            aria-busy={[
+              "requesting_permission",
+              "connecting",
+              "reconnecting",
+            ].includes(audio.state)}
+            aria-describedby="voice-status"
+            onClick={() => run(toggleVoice())}
+          >
+            <VoiceOrb state={audio} />
+          </button>
+          <span
+            className={`connection ${state.connection}`}
+            aria-label={`Backend ${state.connection}`}
+          />
+          <button
+            aria-label="Hide Molecule"
+            onClick={() => {
+              voice.stop();
+              run(store.bridge.hideOverlay());
+            }}
+          >
+            ×
+          </button>
+        </header>
+      </VoiceDock>
       {state.mode !== "compact" && (
         <div className="content">
           {showSettings && state.bootstrap ? (
@@ -218,9 +240,12 @@ export function App() {
                 </div>
               )}
               {audio.error && (
-                <div role="alert" className="error">
+                <div
+                  role={audio.state === "error" ? "alert" : "status"}
+                  className="error"
+                >
                   {audio.error}
-                  {audio.error.includes("Microphone access") && (
+                  {audio.errorCode === "permission" && (
                     <button
                       onClick={() =>
                         run(store.bridge.openPermissionSettings("microphone"))
@@ -228,6 +253,13 @@ export function App() {
                     >
                       Open microphone settings
                     </button>
+                  )}
+                  {audio.state === "error" ? (
+                    <button onClick={() => run(toggleVoice())}>
+                      Try voice again
+                    </button>
+                  ) : (
+                    <button onClick={() => voice.clearError()}>Dismiss</button>
                   )}
                 </div>
               )}
@@ -257,31 +289,30 @@ export function App() {
                 </div>
               )}
               {voiceActive && (
-                <div className="voice-controls">
-                  <div
-                    className={`waveform ${audio.muted ? "muted" : ""}`}
-                    aria-label={
-                      audio.muted
-                        ? "Microphone muted"
-                        : `Microphone ${audio.state}`
-                    }
+                <div
+                  className="voice-controls"
+                  role="group"
+                  aria-label="Voice controls"
+                >
+                  <span>{voiceStatusLabel(audio)}</span>
+                  <button
+                    aria-pressed={audio.muted}
+                    disabled={[
+                      "requesting_permission",
+                      "connecting",
+                      "reconnecting",
+                    ].includes(audio.state)}
+                    onClick={() => voice.mute(!audio.muted)}
                   >
-                    {[0.5, 0.85, 1, 0.65, 0.9, 0.5, 0.7].map(
-                      (weight, index) => (
-                        <i
-                          key={index}
-                          style={{
-                            height: `${4 + audio.level * 26 * weight}px`,
-                          }}
-                        />
-                      ),
-                    )}
-                  </div>
-                  <span>{audio.muted ? "Muted" : audio.state}</span>
-                  <button onClick={() => voice.mute(!audio.muted)}>
                     {audio.muted ? "Unmute" : "Mute"}
                   </button>
-                  <button onClick={() => voice.interrupt()}>Interrupt</button>
+                  {["transcribing", "processing", "speaking"].includes(
+                    audio.state,
+                  ) && (
+                    <button onClick={() => voice.interrupt()}>
+                      Stop response
+                    </button>
+                  )}
                 </div>
               )}
               {(audio.transcript || lastText) && (
@@ -304,13 +335,25 @@ export function App() {
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (!text.trim()) return;
+                  if (!text.trim() || textSubmission.current) return;
                   const intent = text.trim();
+                  const draft = text;
+                  textSubmission.current = true;
+                  setSubmittingText(true);
                   setLastText(intent);
-                  if (voiceActive) voice.interrupt();
-                  setText("");
+                  if (voiceActive) voice.stop();
                   run(
-                    store.command({ name: "start_project", args: { intent } }),
+                    store
+                      .command({ name: "start_project", args: { intent } })
+                      .then(() =>
+                        setText((current) =>
+                          current === draft ? "" : current,
+                        ),
+                      )
+                      .finally(() => {
+                        textSubmission.current = false;
+                        setSubmittingText(false);
+                      }),
                   );
                 }}
               >
@@ -321,15 +364,27 @@ export function App() {
                   placeholder="200 onboarding kits by Friday, under $7,000 CAD…"
                   value={text}
                   onChange={(event) => setText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
                 />
                 <button
                   className="primary"
-                  disabled={!text.trim()}
+                  disabled={!text.trim() || submittingText}
                   type="submit"
                 >
-                  {state.pending
-                    ? "Send updated instruction"
-                    : "Build with Molecule"}
+                  {submittingText
+                    ? "Sending…"
+                    : state.pending
+                      ? "Send updated instruction"
+                      : "Build with Molecule"}
                 </button>
               </form>
               <div className="context-tools">

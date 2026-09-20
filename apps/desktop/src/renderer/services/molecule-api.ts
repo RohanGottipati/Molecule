@@ -30,7 +30,11 @@ export class MoleculeApi {
     private readonly transport: typeof fetch = (...args) =>
       globalThis.fetch(...args),
   ) {}
-  private async request(path: string, init: RequestInit = {}) {
+  private async request(
+    path: string,
+    init: RequestInit = {},
+    timeoutMs = init.method === "POST" ? 120_000 : 15_000,
+  ) {
     for (let attempt = 0; ; attempt += 1) {
       try {
         init.signal?.throwIfAborted();
@@ -39,7 +43,7 @@ export class MoleculeApi {
           redirect: "error",
           signal: AbortSignal.any([
             ...(init.signal ? [init.signal] : []),
-            AbortSignal.timeout(init.method === "POST" ? 120_000 : 15_000),
+            AbortSignal.timeout(timeoutMs),
           ]),
         });
         if (!response.ok) {
@@ -84,12 +88,21 @@ export class MoleculeApi {
       }
     }
   }
-  private post(path: string, value: unknown) {
-    return this.request(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-    });
+  private post(
+    path: string,
+    value: unknown,
+    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ) {
+    return this.request(
+      path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+        signal: options.signal,
+      },
+      options.timeoutMs,
+    );
   }
   async config() {
     return DesktopConfigSchema.parse(await this.request("/api/desktop/config"));
@@ -123,9 +136,13 @@ export class MoleculeApi {
       }),
     );
   }
-  async createRealtimeSession(projectId: string) {
+  async createRealtimeSession(projectId: string, signal?: AbortSignal) {
     return RealtimeSessionSchema.parse(
-      await this.post("/api/desktop/realtime-session", { projectId }),
+      await this.post(
+        "/api/desktop/realtime-session",
+        { projectId },
+        { signal, timeoutMs: 15_000 },
+      ),
     );
   }
   async uploadContext(projectId: string, file: File, actionId: string) {

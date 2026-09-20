@@ -17,13 +17,32 @@ export function SettingsPanel({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    void navigator.mediaDevices
-      .enumerateDevices()
-      .then((all) =>
-        setDevices(all.filter((item) => item.kind === "audioinput")),
-      )
-      .catch(() => setError("Microphone devices are unavailable."));
+    const media = navigator.mediaDevices;
+    if (!media?.enumerateDevices) {
+      setError("Microphone devices are unavailable.");
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      try {
+        const all = await media.enumerateDevices();
+        if (active)
+          setDevices(all.filter((item) => item.kind === "audioinput"));
+      } catch {
+        if (active) setError("Microphone devices are unavailable.");
+      }
+    };
+    const changed = () => void load();
+    void load();
+    media.addEventListener("devicechange", changed);
+    return () => {
+      active = false;
+      media.removeEventListener("devicechange", changed);
+    };
   }, []);
+  const selectedAvailable =
+    !draft.microphoneDevice ||
+    devices.some((device) => device.deviceId === draft.microphoneDevice);
   return (
     <section className="settings">
       <div className="section-title">
@@ -73,6 +92,11 @@ export function SettingsPanel({
             }
           >
             <option value="">System default</option>
+            {!selectedAvailable && (
+              <option value={draft.microphoneDevice} disabled>
+                Selected microphone is unavailable
+              </option>
+            )}
             {devices.map((device, index) => (
               <option key={device.deviceId || index} value={device.deviceId}>
                 {device.label ||

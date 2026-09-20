@@ -92,11 +92,13 @@ Realtime call IDs map to `voice:{callId}`; transport retries retain action IDs. 
 
 ## Voice, context, and interruption
 
-The backend configures the editable desktop instructions in `packages/openai/src/prompts/desktopVoice.ts`. The renderer sends SDP to OpenAI's current `/v1/realtime/calls` WebRTC endpoint using only the short-lived credential minted by `/v1/realtime/client_secrets`. Audio goes directly between the renderer and OpenAI.
+The backend configures the editable desktop instructions in `packages/openai/src/prompts/desktopVoice.ts`. The renderer sends SDP to OpenAI's current `/v1/realtime/calls` WebRTC endpoint using only the short-lived credential minted by `/v1/realtime/client_secrets`. Audio goes directly between the renderer and OpenAI. Once connected, the explicitly started conversation stays ready between turns until Stop, hide, project change, text submission, or teardown. Semantic VAD uses low eagerness so ordinary mid-sentence pauses remain in one turn; an unended turn is bounded at one minute.
 
-Speech-start events, local microphone energy during playback, and the Interrupt control mute/pause local audio immediately, send `response.cancel`, and clear `output_audio_buffer`. Late output and undispatched tools from interrupted responses are ignored. Already-running backend work is reconciled through versioned corrections. A constraint spoken during the first compilation waits for the initial intent, then changes backend state and invokes the solver again.
+Speech-start events, local microphone energy during playback, and the Stop response control mute/pause local audio immediately, send `response.cancel`, and clear `output_audio_buffer`. Partial transcription is display-only. A backend tool can run only after the matching `item_id` has a non-empty committed transcript; duplicate call IDs, older utterance events, interrupted responses, and late session callbacks are ignored. Already-running backend work is reconciled through versioned corrections. A constraint spoken during the first compilation waits for the initial intent, then changes backend state and invokes the solver again.
 
-Mute disables microphone tracks. Stop, hide, project switch, and lifecycle teardown close WebRTC, stop tracks, cancel retry timers, close the audio context, and release playback. Hiding does not cancel backend orchestration.
+The Dock's `VoiceBeam` reads a normalized real microphone level through a getter, without React updates per animation frame or a second capture stream. The local analyser applies an adaptive noise floor, fast attack, slower release, and soft saturation before the beam's final envelope. Listening and processing use distinct beam behavior; idle and stopped sessions return to zero.
+
+Mute disables microphone tracks. Stop, hide, project switch, text submission, and lifecycle teardown close WebRTC, stop tracks, disconnect analyser nodes, cancel animation frames and timers, remove device listeners, close the audio context, and release playback. Hiding does not cancel backend orchestration.
 
 Files: PNG, JPG/JPEG, PDF, CSV, TXT, JSON; 1 byte–10 MB each and at most eight per operation. The backend checks extension/MIME agreement and image/PDF signatures. XLSX is not supported because the existing backend has no parser. Explicit paste accepts text, files, or images; the clipboard is not polled.
 
@@ -167,7 +169,7 @@ pnpm --filter @molecule/desktop package:mac
 | State        | Appearance and behavior                                                                                 |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
 | Hidden       | No dashboard/window; shortcut and tray remain active; server work continues                             |
-| Compact      | Dark translucent pill, orb, microphone label, connection dot, voice bars                                |
+| Compact      | Dark Dock, microphone status, connection dot, single input-driven VoiceBeam                             |
 | Conversation | Transcript/response, stop/mute/interrupt, text composer, attachment chips, filtered events              |
 | Company      | Conversation plus compact branched graph, budget/deadline, constraints, approval/cancel, Command Center |
 | Alert        | Supplier/plan/approval/recovery card with persisted facts and relevant action                           |
@@ -180,7 +182,13 @@ Controls are keyboard accessible, statuses include text, and animation respects 
 - SSE: cursor-based reconnect with snapshot refresh and exponential backoff capped at 8 s; after eight consecutive failures, the UI offers Reconnect.
 - HTTP: three transport attempts with the same mutation ID. Server validation errors are surfaced without automatic logical retries.
 - Backend: **“Can’t reach Molecule right now.”**
-- Microphone: **“Microphone access is off. Enable it in System Settings.”**
+- Microphone permission: **“Microphone access is off. Enable it in System Settings.”**
+- Missing, selected-but-disconnected, busy, unsupported, and aborted microphone capture have separate concise recovery messages. Capture failures do not enter network reconnect loops.
+- Empty or failed transcription never reaches an orchestrator tool and returns to listening with **“Didn’t catch that. Try again.”** or **“Couldn’t transcribe that. Try again.”**
+- Desktop semantic VAD detects turn boundaries with low eagerness. Automatic response creation is disabled: the client requests one response only after a nonempty final transcript. Responses carry the client turn in metadata, so a late response cannot revive a canceled request. This follows the [Realtime conversation controls](https://developers.openai.com/api/docs/guides/realtime-conversations).
+- Transcription has a 15-second deadline after speech ends. Responses have a 45-second watchdog, extended to 120 seconds while backend tools run. A timed-out backend action may still finish; the UI asks users to check project state rather than implying rollback.
+- Stop response discards pending transcription, clears buffered input/output, and suppresses late tool dispatch. Muting during an unfinished utterance also discards that utterance. Concurrent tools return their outputs before a single follow-up response is requested.
+- Starting voice expands the conversation so permission guidance and transcripts stay visible. Failed text submissions preserve the draft, and successful submissions do not erase a newer edit.
 - Screen: **“Screen context requires Screen Recording permission.”**
 - File: **“That file type isn’t supported yet.”**
 - UNSAT: **“No valid company can satisfy all current requirements.”** Public solver explanations follow.
@@ -299,3 +307,75 @@ CI. On this integration host, Node 26.5.1 exited with an unsettled top-level
 await in Electron Packager; Node 22.23.1 produced the ad-hoc signed arm64 bundle
 and `codesign --verify --deep --strict` passed. This is local packaging evidence,
 not production distribution signing or notarization.
+
+## Voice reliability acceptance (2026-09-19)
+
+The resumed implementation was checked with 101 desktop tests (including 44
+voice lifecycle and meter cases), 110 OpenAI adapter tests, and 37 orchestrator
+tests. Three PostgreSQL-dependent orchestrator tests were skipped without a test
+database. Desktop/OpenAI lint and typecheck, the desktop production build,
+formatting, client-secret scan, and the real CP-SAT `verify:desktop` integration
+passed. The configured live compiler and Realtime ephemeral-grant smoke test
+also passed; credentials were kept server-side.
+
+Live repetition exposed a false interruption after sustained speech: the local
+detector accumulated speech frames, then needed several seconds of silence to
+clear them. It now requires three consecutive speech frames and clears detection
+on silence, independently of the visual meter's smooth decay. A regression test
+covers a long utterance followed by silence and fresh speech.
+
+After that fix, two consecutive native sessions passed with real OpenAI WebRTC:
+the synthetic 200-hoodie request reached the real intent compiler and persisted
+`NEEDS_CLARIFICATION`, then a spoken status follow-up read the same project.
+Both completed audio playback, returned to listening, and released microphone
+tracks, peers, and meter AudioContexts when stopped, with no renderer exceptions.
+Missing embroidery details remained unknown; this is evidence of a complete
+voice-to-authoritative-result cycle, not a live-compiled valid plan. Results are
+recorded in `artifacts/voice/live-result.json`.
+
+The native runner `scripts/verify-voice.mjs` launches the production Electron
+renderer with an isolated profile and synthetic microphone. Ten consecutive
+sessions exercised Chromium capture, AudioContext construction/closure, mute,
+transcription states, deterministic Realtime tool dispatch, real backend
+persistence and solver-validated plans, return to listening, and track/peer
+cleanup, including hiding the Dock and disabling voice in Settings. It also
+checks a failed text submission retains its draft, denied
+microphone guidance, narrow layout, and reduced motion. Realtime events are
+mocked in this default run; merchant and commerce providers are also mocked.
+Screenshots and machine-readable results are written to `artifacts/voice/`.
+
+Run after building desktop and OpenAI. The runner requires an existing
+Playwright installation; set `PLAYWRIGHT_MODULE` to its absolute module path
+when it is not resolvable from the repository. It uses the installed Electron,
+so no browser download is required. It also requires permission to launch a
+native app and listen on ephemeral local ports. The isolated test instance uses
+direct networking to avoid host proxy autodetection delays.
+
+```bash
+pnpm --filter @molecule/desktop build
+pnpm --filter @molecule/openai build
+pnpm verify:voice
+```
+
+`--live` runs two sessions through real OpenAI WebRTC and compilation while
+keeping merchant/commerce providers mocked and never approving commerce. Load
+server credentials normally and provide `VOICE_TEST_WAV` pointing to synthetic
+PCM speech with at least six seconds of leading silence and a long silent tail.
+Set `VOICE_TEST_NEXT_WAV` to a second synthetic clip asking for the current
+project status. Using a follow-up avoids expecting a redundant mutation when
+the model correctly recognizes a repeated request.
+The live runner injects this fixture through a Web Audio media stream after
+connection, avoiding capture from the host microphone. An authoritative
+clarification or infeasible result is accepted without weakening requirements;
+only the deterministic mock run requires a solver-validated plan:
+
+```bash
+node --env-file=.env --import tsx scripts/verify-voice.mjs --live
+```
+
+The runner simulates OS permission responses and mutes speaker output at the
+host. It does not certify physical microphone quality, acoustic echo
+cancellation, speaker audibility, or physical-device barge-in. Those remain
+hands-on checks with the target Mac and audio devices. Web voice remains
+explicitly unavailable in this release; the desktop Dock is the supported
+voice surface.

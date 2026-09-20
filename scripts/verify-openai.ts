@@ -3,8 +3,10 @@ import { performance } from "node:perf_hooks";
 import { RealOpenAIAdapter } from "../packages/openai/src/index.ts";
 
 const apiKey = process.env.OPENAI_API_KEY;
-const compilerModel = process.env.OPENAI_COMPILER_MODEL ?? "gpt-5.6-terra";
-const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2.1";
+const compilerModel =
+  process.env.OPENAI_COMPILER_MODEL?.trim() || "gpt-5.6-terra";
+const realtimeModel =
+  process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1";
 
 async function main(): Promise<void> {
   if (!apiKey) {

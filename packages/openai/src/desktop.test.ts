@@ -23,9 +23,12 @@ describe("desktop provider adapter", () => {
     expect(body.session.audio.input.transcription.model).toBe(
       "account-transcriber",
     );
-    expect(body.session.audio.input.turn_detection.interrupt_response).toBe(
-      true,
-    );
+    expect(body.session.audio.input.turn_detection).toMatchObject({
+      type: "semantic_vad",
+      eagerness: "low",
+      interrupt_response: true,
+      create_response: false,
+    });
     expect(
       body.session.tools.map((tool: { name: string }) => tool.name),
     ).toEqual(DESKTOP_VOICE_TOOLS.map((tool) => tool.name));

@@ -95,8 +95,14 @@ export function dateLabel(value: string | null | undefined, withTime = false) {
   );
 }
 
+const KNOWN_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+};
+
 export function humanize(value: string) {
   const text = value.replace(/[_.-]+/g, " ").toLowerCase();
+  const known = KNOWN_NAMES[text];
+  if (known) return known;
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
@@ -189,7 +195,7 @@ export function graphPositions(plan: ProductionPlan) {
   for (const [level, nodes] of rows)
     nodes.forEach((id, index) =>
       positions.set(id, {
-        x: level * 310,
+        x: level * 400,
         y: (index + (maxRows - nodes.length) / 2) * 175,
       }),
     );

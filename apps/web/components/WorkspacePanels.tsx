@@ -640,7 +640,7 @@ export function ExecutionView({
           {order && <Badge value={order.state} />}
         </div>
         <div className="inset">
-          {plan ? (
+          {plan && plan.status === "VALID" ? (
             <>
               <dl className="detail-grid">
                 <div>
@@ -657,11 +657,7 @@ export function ExecutionView({
                 </div>
                 <div>
                   <dt>Feasibility</dt>
-                  <dd>
-                    {plan.status === "VALID"
-                      ? "Validated by solver"
-                      : "No feasible plan"}
-                  </dd>
+                  <dd>Validated by solver</dd>
                 </div>
               </dl>
               <p className="muted">
@@ -683,6 +679,12 @@ export function ExecutionView({
                       : "Awaiting a current validated plan"}
               </button>
             </>
+          ) : plan ? (
+            <Empty title="No feasible plan to approve">
+              The solver could not satisfy all requirements for intent version{" "}
+              {plan.intentVersion}. Return to Command Center to review the
+              conflicts and revise the brief.
+            </Empty>
           ) : (
             <Empty title="No plan to approve">
               Describe the outcome in Command Center, then review the

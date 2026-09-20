@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  MicrophoneLevelProcessor,
   RealtimeClient,
+  reduceVoiceState,
   type RealtimeDependencies,
 } from "./realtime-client.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
@@ -77,7 +79,238 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("voice state machine and level processing", () => {
+  it("allows only coherent state transitions", () => {
+    expect(reduceVoiceState("idle", "speech_started")).toBe("idle");
+    let state = reduceVoiceState("idle", "start");
+    expect(state).toBe("requesting_permission");
+    state = reduceVoiceState(state, "permission_granted");
+    expect(state).toBe("connecting");
+    state = reduceVoiceState(state, "connected");
+    expect(state).toBe("listening");
+    state = reduceVoiceState(state, "speech_started");
+    expect(state).toBe("speech_detected");
+    state = reduceVoiceState(state, "speech_stopped");
+    expect(state).toBe("transcribing");
+    state = reduceVoiceState(state, "transcript_ready");
+    expect(state).toBe("processing");
+    state = reduceVoiceState(state, "output_started");
+    expect(state).toBe("speaking");
+    state = reduceVoiceState(state, "output_stopped");
+    expect(state).toBe("listening");
+    expect(reduceVoiceState(state, "stop")).toBe("idle");
+  });
+  it("gates steady room noise while preserving soft through loud speech", () => {
+    const processor = new MicrophoneLevelProcessor();
+    let sample = processor.sample(0.02);
+    for (let index = 0; index < 30; index += 1)
+      sample = processor.sample(0.021 + (index % 2) * 0.001);
+    expect(sample.level).toBeLessThan(0.02);
+    for (let index = 0; index < 8; index += 1) sample = processor.sample(0.045);
+    const soft = sample.level;
+    for (let index = 0; index < 8; index += 1) sample = processor.sample(0.09);
+    const normal = sample.level;
+    for (let index = 0; index < 8; index += 1) sample = processor.sample(0.5);
+    expect(soft).toBeGreaterThan(0.04);
+    expect(normal).toBeGreaterThan(soft);
+    expect(sample.level).toBeGreaterThan(normal);
+    expect(sample.level).toBeLessThanOrEqual(1);
+  });
+  it("detects a short utterance and decays cleanly to silence", () => {
+    const processor = new MicrophoneLevelProcessor();
+    processor.sample(0.005);
+    expect(processor.sample(0.08).speech).toBe(false);
+    expect(processor.sample(0.08).speech).toBe(false);
+    expect(processor.sample(0.08).speech).toBe(true);
+    let sample = processor.sample(0);
+    for (let index = 0; index < 60; index += 1) sample = processor.sample(0);
+    expect(sample).toMatchObject({ level: 0, speech: false });
+  });
+  it("does not treat silence after sustained speech as a new interruption", () => {
+    const meter = new MicrophoneLevelProcessor();
+    meter.sample(0);
+    for (let frame = 0; frame < 600; frame++) meter.sample(0.12);
+    expect(meter.sample(0.12).speech).toBe(true);
+    expect(meter.sample(0).speech).toBe(false);
+    expect(meter.sample(0.12).speech).toBe(false);
+    expect(meter.sample(0.12).speech).toBe(false);
+    expect(meter.sample(0.12).speech).toBe(true);
+  });
+});
+
 describe("Realtime lifecycle without paid calls", () => {
+  it("waits for all tool outputs and response.done before one continuation", async () => {
+    const finishes: Array<(value: ReturnType<typeof projectResult>) => void> =
+      [];
+    const execute = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof projectResult>>((resolve) =>
+          finishes.push(resolve),
+        ),
+    );
+    const { client, channel } = fixture({ tools: new ToolDispatcher(execute) });
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started", item_id: "one" });
+    channel.emit({ type: "input_audio_buffer.speech_stopped", item_id: "one" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "one",
+      transcript: "Show status and plan",
+    });
+    channel.emit({ type: "response.created", response: { id: "tools" } });
+    channel.send.mockClear();
+    for (const name of ["get_project_status", "get_active_plan"])
+      channel.emit({
+        type: "response.function_call_arguments.done",
+        response_id: "tools",
+        call_id: name,
+        name,
+        arguments: "{}",
+      });
+    channel.emit({
+      type: "response.done",
+      response: { id: "tools", status: "completed" },
+    });
+    expect(client.getSnapshot().state).toBe("processing");
+    const responses = () =>
+      channel.send.mock.calls
+        .map(([raw]) => JSON.parse(raw))
+        .filter((event) => event.type === "response.create");
+    finishes[0]!(projectResult());
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalledTimes(1));
+    expect(responses()).toHaveLength(0);
+    finishes[1]!(projectResult());
+    await vi.waitFor(() => expect(responses()).toHaveLength(1));
+    client.stop();
+  });
+  it("cancels a delayed response.created from a previous request", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started", item_id: "one" });
+    channel.emit({ type: "input_audio_buffer.speech_stopped", item_id: "one" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "one",
+      transcript: "Old request",
+    });
+    const request = channel.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .find((event) => event.type === "response.create");
+    client.interrupt();
+    channel.emit({ type: "input_audio_buffer.speech_started", item_id: "two" });
+    channel.emit({
+      type: "response.created",
+      response: { id: "stale", metadata: request.response.metadata },
+    });
+    expect(channel.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "response.cancel", response_id: "stale" }),
+    );
+    expect(client.getSnapshot().state).toBe("speech_detected");
+    client.stop();
+  });
+  it("recovers when transcription never arrives and ignores its late completion", async () => {
+    vi.useFakeTimers();
+    const { client, channel, execute } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "lost",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "lost",
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(client.getSnapshot()).toMatchObject({
+      state: "listening",
+      errorCode: "transcription",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "lost",
+      transcript: "Cancel it",
+    });
+    channel.emit({ type: "response.created", response: { id: "late" } });
+    channel.emit({
+      type: "response.function_call_arguments.done",
+      response_id: "late",
+      call_id: "late",
+      name: "cancel_project",
+      arguments: "{}",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    client.stop();
+  });
+  it.each(["interrupt", "mute"])(
+    "discards an unfinished utterance on %s",
+    async (action) => {
+      const { client, channel, execute } = fixture();
+      await client.start();
+      channel.open();
+      channel.emit({
+        type: "input_audio_buffer.speech_started",
+        item_id: "cancelled",
+      });
+      channel.emit({
+        type: "input_audio_buffer.speech_stopped",
+        item_id: "cancelled",
+      });
+      if (action === "interrupt") client.interrupt();
+      else client.mute(true);
+      channel.emit({
+        type: "conversation.item.input_audio_transcription.completed",
+        item_id: "cancelled",
+        transcript: "Cancel it",
+      });
+      channel.emit({ type: "response.created", response: { id: "late" } });
+      channel.emit({
+        type: "response.function_call_arguments.done",
+        response_id: "late",
+        call_id: "late",
+        name: "cancel_project",
+        arguments: "{}",
+      });
+      expect(execute).not.toHaveBeenCalled();
+      expect(client.getSnapshot().state).toBe("listening");
+      client.stop();
+    },
+  );
+  it("requests exactly one response after a nonempty committed transcript", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started", item_id: "one" });
+    channel.emit({ type: "input_audio_buffer.speech_stopped", item_id: "one" });
+    const completed = {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "one",
+      transcript: "Show the plan",
+    };
+    channel.emit(completed);
+    channel.emit(completed);
+    expect(
+      channel.send.mock.calls
+        .map(([raw]) => JSON.parse(raw))
+        .filter((event) => event.type === "response.create"),
+    ).toHaveLength(1);
+    client.stop();
+  });
+  it("recovers when a response never completes", async () => {
+    vi.useFakeTimers();
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "response.created", response: { id: "stuck" } });
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(client.getSnapshot()).toMatchObject({
+      state: "listening",
+      errorCode: "response",
+    });
+    client.stop();
+  });
   it("requests a realtime grant for the project in the refreshed snapshot", async () => {
     const createSession = vi.fn(async () => ({
       value: "ephemeral-test-secret",
@@ -88,7 +321,10 @@ describe("Realtime lifecycle without paid calls", () => {
       refresh: async () => snapshot,
     });
     await client.start();
-    expect(createSession).toHaveBeenCalledWith(snapshot.project.orderId);
+    expect(createSession).toHaveBeenCalledWith(
+      snapshot.project.orderId,
+      expect.any(AbortSignal),
+    );
     client.stop();
   });
   it("ignores late permission denial after stopping", async () => {
@@ -162,7 +398,36 @@ describe("Realtime lifecycle without paid calls", () => {
     client.interrupt();
     played();
     await Promise.resolve();
-    expect(client.getSnapshot().state).toBe("interrupted");
+    expect(client.getSnapshot().state).toBe("listening");
+    expect(audio.muted).toBe(true);
+    client.stop();
+  });
+  it("does not resurrect playback after a failed response", async () => {
+    let played!: (value?: undefined) => void;
+    const { client, channel, audio } = fixture();
+    audio.play.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          played = resolve;
+        }),
+    );
+    await client.start();
+    channel.open();
+    channel.emit({ type: "response.created", response: { id: "failed" } });
+    channel.emit({
+      type: "output_audio_buffer.started",
+      response_id: "failed",
+    });
+    channel.emit({
+      type: "response.done",
+      response: { id: "failed", status: "failed" },
+    });
+    played();
+    await Promise.resolve();
+    expect(client.getSnapshot()).toMatchObject({
+      state: "listening",
+      errorCode: "response",
+    });
     expect(audio.muted).toBe(true);
     client.stop();
   });
@@ -172,6 +437,19 @@ describe("Realtime lifecycle without paid calls", () => {
     channel.open();
     channel.emit({ type: "response.created", response: { id: "old" } });
     client.interrupt();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "new-input",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "new-input",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "new-input",
+      transcript: "Show status",
+    });
     channel.emit({ type: "response.created", response: { id: "new" } });
     channel.emit({
       type: "response.output_audio_transcript.delta",
@@ -185,7 +463,7 @@ describe("Realtime lifecycle without paid calls", () => {
     });
     channel.emit({ type: "output_audio_buffer.stopped", response_id: "old" });
     expect(client.getSnapshot()).toMatchObject({
-      state: "thinking",
+      state: "processing",
       response: "Current",
     });
     client.stop();
@@ -222,6 +500,19 @@ describe("Realtime lifecycle without paid calls", () => {
     const { client, channel } = fixture({ tools: new ToolDispatcher(execute) });
     await client.start();
     channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "turn",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "turn",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "turn",
+      transcript: "Cancel it.",
+    });
     channel.emit({ type: "response.created", response: { id: "old" } });
     channel.emit({
       type: "response.function_call_arguments.done",
@@ -231,6 +522,7 @@ describe("Realtime lifecycle without paid calls", () => {
       arguments: "{}",
     });
     expect(execute).toHaveBeenCalledTimes(1);
+    channel.send.mockClear();
     client.interrupt();
     finish(projectResult());
     await Promise.resolve();
@@ -271,8 +563,23 @@ describe("Realtime lifecycle without paid calls", () => {
     const { client, channel, execute } = fixture();
     await client.start();
     channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "turn",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "turn",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "turn",
+      transcript: "No polyester.",
+    });
+    channel.emit({ type: "response.created", response: { id: "response-1" } });
     const call = {
       type: "response.function_call_arguments.done",
+      response_id: "response-1",
       call_id: "call_1",
       name: "add_constraint",
       arguments: JSON.stringify({
@@ -331,6 +638,24 @@ describe("Realtime lifecycle without paid calls", () => {
     );
     client.stop();
   });
+  it("bounds a data-channel connection that never opens", async () => {
+    vi.useFakeTimers();
+    const createSession = vi.fn(async () => ({
+      value: "ephemeral-test-secret",
+    }));
+    const { client, track, peer } = fixture({ createSession });
+    await client.start();
+    expect(client.getSnapshot().state).toBe("connecting");
+    await vi.runAllTimersAsync();
+    expect(createSession).toHaveBeenCalledTimes(4);
+    expect(client.getSnapshot()).toMatchObject({
+      state: "error",
+      errorCode: "network",
+    });
+    expect(track.stop).toHaveBeenCalledTimes(4);
+    expect(peer.close).toHaveBeenCalledTimes(4);
+    client.stop();
+  });
   it("does not negotiate or request a stream after microphone denial", async () => {
     const createSession = vi.fn(async () => ({ value: "unused" }));
     const { client } = fixture({
@@ -340,6 +665,336 @@ describe("Realtime lifecycle without paid calls", () => {
     await client.start();
     expect(createSession).not.toHaveBeenCalled();
     expect(client.getSnapshot().error).toContain("Microphone access is off");
+    client.stop();
+  });
+  it("exposes permission resolution as an explicit state", async () => {
+    let permit!: (value: boolean) => void;
+    const { client } = fixture({
+      permission: () =>
+        new Promise((resolve) => {
+          permit = resolve;
+        }),
+    });
+    const starting = client.start();
+    const state = client.getSnapshot().state;
+    client.stop();
+    permit(false);
+    await starting;
+    expect(state).toBe("requesting_permission");
+  });
+  it("coalesces rapid starts into one permission request", async () => {
+    const permits: Array<(value: boolean) => void> = [];
+    const permission = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          permits.push(resolve);
+        }),
+    );
+    const { client } = fixture({ permission });
+    const starts = [client.start(), client.start(), client.start()];
+    await Promise.resolve();
+    permits.forEach((permit) => permit(false));
+    await Promise.all(starts);
+    client.stop();
+    expect(permission).toHaveBeenCalledTimes(1);
+  });
+  it("maps a busy microphone to an immediate recoverable error", async () => {
+    const getUserMedia = vi.fn(async () => {
+      throw new DOMException(
+        "Could not start audio source",
+        "NotReadableError",
+      );
+    });
+    const { client } = fixture({ media: { getUserMedia } });
+    await client.start();
+    const snapshot = client.getSnapshot();
+    client.stop();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(snapshot).toMatchObject({
+      state: "error",
+      error: expect.stringContaining("in use"),
+    });
+  });
+  it("does not dispatch a tool for an empty final transcript", async () => {
+    const { client, channel, execute } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started" });
+    channel.emit({ type: "input_audio_buffer.speech_stopped" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "   ",
+    });
+    channel.emit({ type: "response.created", response: { id: "empty" } });
+    channel.emit({
+      type: "response.function_call_arguments.done",
+      response_id: "empty",
+      call_id: "empty-call",
+      name: "cancel_project",
+      arguments: "{}",
+    });
+    await Promise.resolve();
+    client.stop();
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it("ignores transcript deltas after a final transcript", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.delta",
+      delta: "Show orders",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "Show orders.",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.delta",
+      delta: " duplicate",
+    });
+    const transcript = client.getSnapshot().transcript;
+    client.stop();
+    expect(transcript).toBe("Show orders.");
+  });
+  it("recovers from a transcription failure without staying busy", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started" });
+    channel.emit({ type: "input_audio_buffer.speech_stopped" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.failed",
+    });
+    const snapshot = client.getSnapshot();
+    client.stop();
+    expect(snapshot).toMatchObject({
+      state: "listening",
+      error: "Couldn’t transcribe that. Try again.",
+    });
+  });
+  it("keeps meter frames out of React store notifications", async () => {
+    let frame: FrameRequestCallback | undefined;
+    const request = vi.fn((callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    });
+    const { client, channel } = fixture({
+      createAudioContext: () =>
+        ({
+          close: async () => undefined,
+          createMediaStreamSource: () => ({ connect: () => undefined }),
+          createAnalyser: () => ({
+            fftSize: 256,
+            getFloatTimeDomainData: (samples: Float32Array) =>
+              samples.fill(0.1),
+          }),
+        }) as unknown as AudioContext,
+    });
+    vi.stubGlobal("requestAnimationFrame", request);
+    const listener = vi.fn();
+    const unsubscribe = client.subscribe(listener);
+    await client.start();
+    channel.open();
+    listener.mockClear();
+    for (let index = 0; index < 6; index += 1) {
+      const callback = frame;
+      if (!callback) throw new Error("Meter frame was not scheduled");
+      callback(index * 16);
+    }
+    const notifications = listener.mock.calls.length;
+    unsubscribe();
+    client.stop();
+    expect(notifications).toBe(0);
+  });
+  it("waits for a committed transcript before dispatching one tool call", async () => {
+    const { client, channel, execute } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "item-current",
+    });
+    channel.emit({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "item-current",
+    });
+    channel.emit({
+      type: "response.created",
+      response: { id: "response-current" },
+    });
+    const call = {
+      type: "response.function_call_arguments.done",
+      response_id: "response-current",
+      call_id: "queued-call",
+      name: "cancel_project",
+      arguments: "{}",
+    };
+    channel.emit(call);
+    channel.emit(call);
+    expect(execute).not.toHaveBeenCalled();
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-current",
+      transcript: "Stop.",
+    });
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    client.stop();
+  });
+  it("ignores out-of-order transcript events from an older utterance", async () => {
+    const { client, channel } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({ type: "input_audio_buffer.speech_started", item_id: "old" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "old",
+      delta: "Old request",
+    });
+    channel.emit({ type: "input_audio_buffer.speech_started", item_id: "new" });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "old",
+      transcript: "Old request.",
+    });
+    channel.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "new",
+      transcript: "Show orders.",
+    });
+    const transcript = client.getSnapshot().transcript;
+    client.stop();
+    expect(transcript).toBe("Show orders.");
+  });
+  it.each([
+    ["NotAllowedError", "permission", "Microphone access"],
+    ["NotFoundError", "no_device", "No microphone"],
+    ["AbortError", "audio", "start the microphone"],
+    ["OverconstrainedError", "no_device", "Selected microphone"],
+  ] as const)(
+    "maps %s capture failures without reconnecting",
+    async (name, errorCode, copy) => {
+      const getUserMedia = vi.fn(async () => {
+        throw new DOMException("capture failed", name);
+      });
+      const { client } = fixture({ media: { getUserMedia } });
+      await client.start();
+      const snapshot = client.getSnapshot();
+      client.stop();
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(snapshot).toMatchObject({
+        state: "error",
+        errorCode,
+        error: expect.stringContaining(copy),
+      });
+    },
+  );
+  it("stops cleanly when the selected microphone disconnects", async () => {
+    const { client, track } = fixture({ microphoneDevice: () => "external" });
+    await client.start();
+    const ended = (track as typeof track & { onended?: () => void }).onended;
+    expect(ended).toBeTypeOf("function");
+    ended?.();
+    expect(client.getSnapshot()).toMatchObject({
+      state: "error",
+      errorCode: "device_lost",
+    });
+    expect(track.stop).toHaveBeenCalled();
+    client.stop();
+  });
+  it("releases every resource across ten consecutive sessions", async () => {
+    const closes: Array<ReturnType<typeof vi.fn>> = [];
+    const { client, channel, track, peer } = fixture({
+      createAudioContext: () => {
+        const close = vi.fn(async () => undefined);
+        closes.push(close);
+        return {
+          state: "running",
+          close,
+          createMediaStreamSource: () => ({
+            connect: () => undefined,
+            disconnect: () => undefined,
+          }),
+          createAnalyser: () => ({
+            fftSize: 256,
+            smoothingTimeConstant: 0,
+            disconnect: () => undefined,
+            getFloatTimeDomainData: () => undefined,
+          }),
+        } as unknown as AudioContext;
+      },
+    });
+    for (let session = 0; session < 10; session += 1) {
+      await client.start();
+      channel.open();
+      expect(client.getSnapshot().state).toBe("listening");
+      client.stop();
+      expect(client.getSnapshot().state).toBe("idle");
+    }
+    await Promise.all(closes.map((close) => close.mock.results[0]?.value));
+    expect(closes).toHaveLength(10);
+    closes.forEach((close) => expect(close).toHaveBeenCalledTimes(1));
+    expect(track.stop).toHaveBeenCalledTimes(10);
+    expect(peer.close).toHaveBeenCalledTimes(10);
+    expect(cancelAnimationFrame).toHaveBeenCalledTimes(10);
+  });
+  it("resumes a suspended AudioContext before metering", async () => {
+    const resume = vi.fn(async () => undefined);
+    const { client } = fixture({
+      createAudioContext: () =>
+        ({
+          state: "suspended",
+          resume,
+          close: async () => undefined,
+          createMediaStreamSource: () => ({
+            connect: () => undefined,
+            disconnect: () => undefined,
+          }),
+          createAnalyser: () => ({
+            fftSize: 256,
+            smoothingTimeConstant: 0,
+            disconnect: () => undefined,
+            getFloatTimeDomainData: () => undefined,
+          }),
+        }) as unknown as AudioContext,
+    });
+    await client.start();
+    expect(resume).toHaveBeenCalledTimes(1);
+    client.stop();
+  });
+  it("fails gracefully when microphone capture is unsupported", async () => {
+    const originalNavigator = globalThis.navigator;
+    vi.stubGlobal("navigator", {});
+    const { client } = fixture({ media: undefined });
+    await client.start();
+    const snapshot = client.getSnapshot();
+    client.stop();
+    vi.stubGlobal("navigator", originalNavigator);
+    expect(snapshot).toMatchObject({
+      state: "error",
+      errorCode: "unsupported",
+    });
+  });
+  it("keeps a thirty-second utterance and bounds an unended turn at one minute", async () => {
+    vi.useFakeTimers();
+    const { client, channel, track } = fixture();
+    await client.start();
+    channel.open();
+    channel.emit({
+      type: "input_audio_buffer.speech_started",
+      item_id: "long",
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(client.getSnapshot().state).toBe("speech_detected");
+    expect(track.stop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(client.getSnapshot()).toMatchObject({
+      state: "error",
+      errorCode: "audio",
+      error: expect.stringContaining("one minute"),
+    });
+    expect(track.stop).toHaveBeenCalledTimes(1);
     client.stop();
   });
 });

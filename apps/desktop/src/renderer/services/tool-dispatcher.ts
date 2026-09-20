@@ -29,6 +29,12 @@ export class ToolDispatcher {
     }
     const result = this.execute(command, `voice:${callId}`);
     this.calls.set(callId, { fingerprint, result });
+    void result
+      .finally(() => {
+        if (this.calls.size > 500)
+          this.calls.delete(this.calls.keys().next().value!);
+      })
+      .catch(() => undefined);
     return result;
   }
 }
