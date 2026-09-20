@@ -85,14 +85,21 @@ export function HomeScreen({
           }}
         />
         <div className="home-composer-toolbar">
-          <button type="button" className="home-attach" onClick={onAttach}>
-            <DockIcon name="attach" />
-            Attach
-          </button>
+          <div className="home-composer-tools">
+            <button
+              type="button"
+              className="home-icon-button"
+              aria-label="Attach context"
+              title="Attach files, images, or text as context"
+              onClick={onAttach}
+            >
+              <DockIcon name="attach" />
+            </button>
+          </div>
           <div className="home-composer-actions">
             <button
               type="button"
-              className="home-voice-button"
+              className="home-icon-button home-voice-button"
               aria-label="Start voice conversation"
               title="Start voice conversation"
               onClick={onTalk}
@@ -101,7 +108,7 @@ export function HomeScreen({
             </button>
             <button
               type="submit"
-              className="home-send"
+              className="home-icon-button home-send"
               aria-label="Send"
               title="Send (Enter)"
               disabled={sending || (!text.trim() && !staged.length)}

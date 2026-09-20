@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { VoiceSnapshot, VoiceState } from "../services/realtime-client.js";
 
 const ringColor: Partial<Record<VoiceState, string>> = {
@@ -136,6 +136,7 @@ export function VoiceOrb({
   size?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [fallback, setFallback] = useState(false);
   const live = useRef({
     color: [1, 1, 1] as [number, number, number],
     pulse: 0,
@@ -160,17 +161,27 @@ export function VoiceOrb({
       antialias: true,
       premultipliedAlpha: false,
     });
-    if (!gl) return;
+    if (!gl) {
+      setFallback(true);
+      return;
+    }
 
     const program = gl.createProgram()!;
-    gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SRC));
-    gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT_SRC));
+    try {
+      gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SRC));
+      gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT_SRC));
+    } catch (error) {
+      console.error(error);
+      setFallback(true);
+      return;
+    }
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       console.error(
         "voice-orb program link failed",
         gl.getProgramInfoLog(program),
       );
+      setFallback(true);
       return;
     }
     gl.useProgram(program);
@@ -246,12 +257,17 @@ export function VoiceOrb({
       ref={canvasRef}
       className="voice-orb"
       aria-hidden="true"
+      data-fallback={fallback || undefined}
       style={{
         width: size,
         height: size,
         borderRadius: "50%",
         display: "block",
         filter: `drop-shadow(0 0 ${Math.round(size * 0.16)}px ${color}4d)`,
+        // Static sphere with the same crescent when WebGL is unavailable.
+        background: fallback
+          ? `radial-gradient(circle at 32% 30%, ${color}b3 0%, ${color}33 22%, #15151a 48%, #050506 100%)`
+          : undefined,
       }}
     />
   );
