@@ -33,6 +33,7 @@ import type { SessionRepository } from "./repositories.js";
 import { createOrderSession, toSnapshot } from "./session/OrderSession.js";
 import { Orchestrator } from "./workflow/Orchestrator.js";
 import { registerDesktopRoutes } from "./desktopRoutes.js";
+import { chaosAuthorized } from "./demoAuthorization.js";
 import type { ContextStore } from "./LocalStore.js";
 import { ActionLedger } from "./ActionLedger.js";
 import { apiFailure, RequestProblem } from "./errors.js";
@@ -401,12 +402,8 @@ export async function buildServer(deps: ServerDependencies) {
   app.post("/api/chaos", async (request, reply) => {
     if (!deps.config.DEMO_MODE)
       return reply.code(404).send({ error: "not_found" });
-    const local = ["127.0.0.1", "::1"].includes(request.ip);
-    const authorized =
-      local ||
-      (deps.config.CHAOS_SECRET !== undefined &&
-        request.headers["x-chaos-secret"] === deps.config.CHAOS_SECRET);
-    if (!authorized) return reply.code(403).send({ error: "forbidden" });
+    if (!chaosAuthorized(deps.config, request))
+      return reply.code(403).send({ error: "forbidden" });
     const body = z
       .object({
         scenario: z.literal("supplier_offline"),
@@ -459,11 +456,7 @@ export async function buildServer(deps: ServerDependencies) {
   app.post("/api/demo/reset", async (request, reply) => {
     if (!deps.config.DEMO_MODE || !deps.resetDemo)
       return reply.code(404).send({ error: "not_found" });
-    if (
-      !["127.0.0.1", "::1"].includes(request.ip) &&
-      (!deps.config.CHAOS_SECRET ||
-        request.headers["x-chaos-secret"] !== deps.config.CHAOS_SECRET)
-    )
+    if (!chaosAuthorized(deps.config, request))
       return reply.code(403).send({ error: "forbidden" });
     await deps.resetDemo();
     return {
