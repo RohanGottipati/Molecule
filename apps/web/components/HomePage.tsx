@@ -6,6 +6,7 @@ import type { useBriefDraft } from "./useBriefDraft";
 import { HomeComposer } from "./HomeComposer";
 import { WorkspaceLink } from "./WorkspaceLink";
 import { WorkspaceNotices } from "./WorkspaceNotices";
+import { AsciiCursorTrail } from "./AsciiCursorTrail";
 
 /**
  * Focused landing composer before entering the production workspace.
@@ -21,6 +22,17 @@ export function HomePage({
 }) {
   return (
     <div className="app-shell dashboard-shell home-shell">
+      <video
+        className="home-background-video"
+        src="/backvid.mp4"
+        autoPlay
+        loop
+        muted
+        playsInline
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+      <AsciiCursorTrail />
       <a className="skip-link" href="#home-main">
         Skip to workspace
       </a>
