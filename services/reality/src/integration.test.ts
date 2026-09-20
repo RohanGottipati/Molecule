@@ -435,6 +435,27 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     expect(stitch?.capabilities[0]?.capability.capacity.available).toBe(20);
   });
 
+  it("reads merchant summaries without waiting for the global writer lock", async () => {
+    const client = await getPool().connect();
+    let operation: ReturnType<typeof service.listMerchants> | undefined;
+    try {
+      await client.query("begin");
+      await client.query("select pg_advisory_xact_lock(73481203)");
+      operation = service.listMerchants();
+      const outcome = await Promise.race([
+        operation.then(() => "completed" as const),
+        new Promise<"blocked">((resolve) =>
+          setTimeout(() => resolve("blocked"), 2_000),
+        ),
+      ]);
+      expect(outcome).toBe("completed");
+    } finally {
+      await client.query("rollback");
+      client.release();
+      await operation;
+    }
+  });
+
   it("honors scoped/global materials, exclusions, deadline, currency and reservations", async () => {
     const intent = kitIntent(now);
     intent.hardConstraints.push({

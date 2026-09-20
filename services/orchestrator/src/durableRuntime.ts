@@ -112,7 +112,28 @@ export async function createDurableRuntime(config: Config) {
         : undefined,
   });
   const traceId = randomUUID();
-  for (const merchant of await reality.listMerchants()) {
+  const merchantSummaries = await reality.listMerchants();
+  const merchantIds = merchantSummaries.map((merchant) => merchant.merchantId);
+  const [assistants, documents, memories] = await Promise.all([
+    merchants.repository.listAssistantsForMerchants(merchantIds),
+    merchants.repository.listDocumentsForMerchants(merchantIds),
+    merchants.repository.listMemoryForMerchants(merchantIds),
+  ]);
+  await merchants.repository.syncMerchantAssistantIds(merchantIds);
+  for (const merchant of merchantSummaries) {
+    const policyDocument = (documents.get(merchant.merchantId) ?? []).some(
+      (document) =>
+        document.category === "materials_policy" && document.version === 1,
+    );
+    const recordedPolicies = new Set(
+      (memories.get(merchant.merchantId) ?? []).map((memory) => memory.note),
+    );
+    if (
+      assistants.has(merchant.merchantId) &&
+      (!merchant.policies.length || policyDocument) &&
+      merchant.policies.every((policy) => recordedPolicies.has(policy))
+    )
+      continue;
     const initialized = await merchants.initialize({
       traceId,
       identity: {
@@ -292,13 +313,15 @@ export async function createDurableRuntime(config: Config) {
       : undefined,
     async marketplace(providers: ProviderStatus[]) {
       const summaries = await reality.listMerchants();
+      const merchantIds = summaries.map((merchant) => merchant.merchantId);
+      const [memories, documents] = await Promise.all([
+        merchants.listMemoryForMerchants(merchantIds),
+        merchants.repository.listDocumentsForMerchants(merchantIds),
+      ]);
       for (const merchant of summaries) {
-        merchant.memories = await merchants.listMemory(merchant.merchantId);
-        const documents = await merchants.repository.listDocuments(
-          merchant.merchantId,
-        );
+        merchant.memories = memories.get(merchant.merchantId) ?? [];
         merchant.documents.push(
-          ...documents.map((document) => ({
+          ...(documents.get(merchant.merchantId) ?? []).map((document) => ({
             documentId: document.documentId,
             name: document.fileName,
             status: "indexed",

@@ -7,6 +7,7 @@ import {
   allowsMediaRequest,
   clampPosition,
   dashboardUrl,
+  isPlainEscape,
   projectFromLink,
   registerShortcut,
   toggleWindow,
@@ -156,7 +157,7 @@ describe("desktop platform policy", () => {
       );
     },
   );
-  it("registers a toggle and falls back if Option+Space is owned", () => {
+  it("registers a toggle and falls back if Shift+Escape is owned", () => {
     const window = {
       isVisible: () => visible,
       show: vi.fn(() => {
@@ -171,17 +172,23 @@ describe("desktop platform policy", () => {
     const registry = {
       register: vi.fn((key: string, action: () => void) => {
         callback = action;
-        return key !== "Alt+Space";
+        return key !== "Shift+Escape";
       }),
       unregister: vi.fn(),
     };
     expect(
-      registerShortcut(registry, "Alt+Space", () => toggleWindow(window)),
+      registerShortcut(registry, "Shift+Escape", () => toggleWindow(window)),
     ).toBe("CommandOrControl+Shift+M");
     callback();
     expect(visible).toBe(true);
     callback();
     expect(visible).toBe(false);
+  });
+  it("keeps plain Escape for hiding without consuming Shift+Escape", () => {
+    expect(isPlainEscape({ type: "keyDown", key: "Escape" })).toBe(true);
+    expect(isPlainEscape({ type: "keyDown", key: "Escape", shift: true })).toBe(
+      false,
+    );
   });
   it("opens only a fixed web origin and validated project path", () => {
     const id = "bc812dea-31c8-4258-a81d-08c7eeb14b97";

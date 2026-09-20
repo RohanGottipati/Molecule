@@ -140,16 +140,21 @@ export async function getMerchantRisk(
   capabilityId: string,
   client: DbClient = getPool(),
 ) {
-  const result = await client.query<{
-    p50_hours: number;
-    p95_hours: number;
-    p99_hours: number;
-    sample_count: string;
-  }>("select * from merchant_risk where merchant_id=$1 and capability_id=$2", [
-    merchantId,
+  return (await getMerchantRisks([{ merchantId, capabilityId }], client)).get(
     capabilityId,
-  ]);
-  const row = result.rows[0];
+  )!;
+}
+
+interface RiskRow {
+  merchant_id: string;
+  capability_id: string;
+  p50_hours: number;
+  p95_hours: number;
+  p99_hours: number;
+  sample_count: string;
+}
+
+function riskFromRow(row?: RiskRow) {
   const count = Number(row?.sample_count ?? 0);
   return CandidateRiskSchema.parse({
     p50Hours: row?.p50_hours,
@@ -158,6 +163,32 @@ export async function getMerchantRisk(
     sampleCount: count,
     confidence: count >= 100 ? "high" : count >= 20 ? "medium" : "low",
   });
+}
+
+export async function getMerchantRisks(
+  capabilities: { merchantId: string; capabilityId: string }[],
+  client: DbClient = getPool(),
+) {
+  if (!capabilities.length) return new Map();
+  const merchantIds = [
+    ...new Set(capabilities.map(({ merchantId }) => merchantId)),
+  ];
+  const capabilityIds = capabilities.map(({ capabilityId }) => capabilityId);
+  const result = await client.query<RiskRow>(
+    `select merchant_id,capability_id,p50_hours,p95_hours,p99_hours,sample_count
+     from merchant_risk
+     where merchant_id=any($1::text[]) and capability_id=any($2::text[])`,
+    [merchantIds, capabilityIds],
+  );
+  const rowsByCapability = new Map(
+    result.rows.map((row) => [row.capability_id, row]),
+  );
+  return new Map(
+    capabilities.map(({ capabilityId }) => [
+      capabilityId,
+      riskFromRow(rowsByCapability.get(capabilityId)),
+    ]),
+  );
 }
 
 export async function getDatabaseFeatures(client: DbClient = getPool()) {

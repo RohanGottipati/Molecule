@@ -279,8 +279,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/events
       fastify:
-        specifier: 5.1.0
-        version: 5.1.0
+        specifier: 5.12.5
+        version: 5.12.5
     devDependencies:
       "@molecule/test-fixtures":
         specifier: workspace:*

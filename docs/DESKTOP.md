@@ -24,7 +24,7 @@ DEMO_MODE=true pnpm --filter @molecule/orchestrator dev
 pnpm --filter @molecule/desktop dev
 ```
 
-The desktop launches hidden. Press **Option+Space**; the fallback is **Command+Shift+M**. The web app is optional until opening Command Center:
+The desktop launches hidden. Press **Shift+Escape**; the fallback is **Command+Shift+M**. The web app is optional until opening Command Center:
 
 ```bash
 pnpm --filter @molecule/web dev
@@ -290,7 +290,7 @@ This verifies live voice transport, authoritative mutations and lifecycle cleanu
 
 On a Mac with account-supported OpenAI models and the missing real provider integrations connected:
 
-1. Start solver/backend and desktop with no dashboard open. Press Option+Space.
+1. Start solver/backend and desktop with no dashboard open. Press Shift+Escape.
 2. Enable notifications in Settings. Start voice and grant microphone permission.
 3. Say the 200-kit request, explicitly supplying currency and a reachable deadline if asked. Verify transcript, project, and intentional backend events.
 4. Drop a real logo. Confirm its chip; say “Put this on the hoodie.”

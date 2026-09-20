@@ -80,6 +80,9 @@ export interface MerchantRuntime {
   ): Promise<MerchantMemoryCardEntry>;
   quote(request: QuoteRequest, signal?: AbortSignal): Promise<QuoteResponse>;
   listMemory(merchantId: string): Promise<MerchantMemoryCardEntry[]>;
+  listMemoryForMerchants(
+    merchantIds: string[],
+  ): Promise<Map<string, MerchantMemoryCardEntry[]>>;
   retrieveDocuments(
     merchantId: string,
     query: string,
@@ -334,6 +337,19 @@ export function createMerchantRuntime(
     check();
     return (await repository.listMemory(merchantId)).map((entry) =>
       MerchantMemoryCardEntrySchema.parse(entry),
+    );
+  }
+
+  async function listMemoryForMerchants(
+    merchantIds: string[],
+  ): Promise<Map<string, MerchantMemoryCardEntry[]>> {
+    check();
+    const entries = await repository.listMemoryForMerchants(merchantIds);
+    return new Map(
+      [...entries].map(([merchantId, memories]) => [
+        merchantId,
+        memories.map((entry) => MerchantMemoryCardEntrySchema.parse(entry)),
+      ]),
     );
   }
 
@@ -626,6 +642,7 @@ export function createMerchantRuntime(
     recordMemory,
     quote,
     listMemory,
+    listMemoryForMerchants,
     async retrieveDocuments(merchantId, query, depth) {
       check();
       return retrieveTopDocuments(
