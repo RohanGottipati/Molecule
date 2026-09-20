@@ -154,12 +154,27 @@ export function goldenPathIntent(input: {
   });
 }
 
+function isSupportedTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function goldenPathCorrectedIntent(
   previous: ProductIntent,
+  assets: ProductIntent["assets"] = [],
 ): ProductIntent {
   return ProductIntentSchema.parse({
     ...previous,
     version: previous.version + 1,
+    assets: [
+      ...new Map(
+        [...previous.assets, ...assets].map((asset) => [asset.assetId, asset]),
+      ).values(),
+    ],
     hardConstraints: [
       ...previous.hardConstraints.filter(
         (constraint) => constraint.constraintId !== "no-polyester",
@@ -198,6 +213,8 @@ export class GoldenPathOpenAIAdapter implements OpenAIAdapter {
     input: CompileIntentRequest,
   ): Promise<CompileIntentResult> {
     const parsed = CompileIntentRequestSchema.parse(input);
+    if (!isSupportedTimeZone(parsed.timeZone))
+      return this.inner.compileIntent(parsed);
     if (!parsed.previousIntent && isGoldenPathPrompt(parsed.text)) {
       return {
         status: "READY",
@@ -218,11 +235,11 @@ export class GoldenPathOpenAIAdapter implements OpenAIAdapter {
     if (
       previous.success &&
       previous.data.intentId === goldenPathIntentId(parsed.orderId) &&
-      isGoldenPathCorrection(parsed.text)
+      isGoldenPathCorrection(parsed.correction?.text ?? parsed.text)
     ) {
       return {
         status: "READY",
-        intent: goldenPathCorrectedIntent(previous.data),
+        intent: goldenPathCorrectedIntent(previous.data, parsed.assets),
       };
     }
     return this.inner.compileIntent(parsed);
@@ -232,7 +249,11 @@ export class GoldenPathOpenAIAdapter implements OpenAIAdapter {
     input: BriefClarificationRequest,
   ): Promise<BriefClarificationResult> {
     const parsed = BriefClarificationRequestSchema.parse(input);
-    if (!parsed.previousIntent && isGoldenPathPrompt(parsed.text))
+    if (
+      isSupportedTimeZone(parsed.timeZone) &&
+      !parsed.previousIntent &&
+      isGoldenPathPrompt(parsed.text)
+    )
       return { status: "CLEAR" };
     return this.inner.clarifyBrief(parsed);
   }

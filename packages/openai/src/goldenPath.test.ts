@@ -169,6 +169,94 @@ describe("GoldenPathOpenAIAdapter", () => {
     expect(compile).not.toHaveBeenCalled();
   });
 
+  it("recognises the correction from the typed correction payload", async () => {
+    compile.mockClear();
+    const first = goldenPathIntent({
+      orderId: base.orderId,
+      requestedAt: base.requestedAt,
+      timeZone: base.timeZone,
+    });
+    const corrected = await adapter.compileIntent({
+      ...base,
+      text: GOLDEN_PATH_PROMPT,
+      correction: { kind: "constraint", text: GOLDEN_PATH_CORRECTION },
+      previousIntent: first,
+    });
+    expect(corrected.status).toBe("READY");
+    if (corrected.status !== "READY") return;
+    expect(corrected.intent.version).toBe(2);
+    expect(corrected.intent.hardConstraints.at(-1)?.constraintId).toBe(
+      "no-polyester",
+    );
+    expect(compile).not.toHaveBeenCalled();
+  });
+
+  it("merges context attached with the correction into the new version", async () => {
+    const existing = {
+      assetId: "asset-1",
+      name: "logo.svg",
+      mimeType: "image/svg+xml",
+      url: "https://example.com/logo.svg",
+    };
+    const added = {
+      assetId: "asset-2",
+      name: "names.csv",
+      mimeType: "text/csv",
+      url: "https://example.com/names.csv",
+    };
+    const first = goldenPathIntent({
+      orderId: base.orderId,
+      requestedAt: base.requestedAt,
+      timeZone: base.timeZone,
+      assets: [existing],
+    });
+    const corrected = await adapter.compileIntent({
+      ...base,
+      text: GOLDEN_PATH_CORRECTION,
+      previousIntent: first,
+      assets: [{ ...existing, name: "logo-v2.svg" }, added],
+    });
+    expect(corrected.status === "READY" && corrected.intent.assets).toEqual([
+      { ...existing, name: "logo-v2.svg" },
+      added,
+    ]);
+  });
+
+  it("delegates requests with an unsupported time zone", async () => {
+    compile.mockReset();
+    clarify.mockReset();
+    const delegated: CompileIntentResult = {
+      status: "UNSUPPORTED",
+      reason: "delegated",
+    };
+    compile.mockResolvedValue(delegated);
+    clarify.mockResolvedValue({ status: "UNSUPPORTED", reason: "delegated" });
+    const { orderId: _orderId, traceId: _traceId, ...preflight } = base;
+    await expect(
+      adapter.clarifyBrief({
+        ...preflight,
+        text: GOLDEN_PATH_PROMPT,
+        timeZone: "Mars/Olympus",
+      }),
+    ).resolves.toEqual({ status: "UNSUPPORTED", reason: "delegated" });
+    await expect(
+      adapter.compileIntent({
+        ...base,
+        text: GOLDEN_PATH_PROMPT,
+        timeZone: "Mars/Olympus",
+      }),
+    ).resolves.toEqual(delegated);
+    expect(clarify).toHaveBeenCalledTimes(1);
+    expect(compile).toHaveBeenCalledTimes(1);
+    const full = new GoldenPathOpenAIAdapter(new MockOpenAIAdapter());
+    const result = await full.compileIntent({
+      ...base,
+      text: GOLDEN_PATH_PROMPT,
+      timeZone: "Mars/Olympus",
+    });
+    expect(result.status).toBe("NEEDS_CLARIFICATION");
+  });
+
   it("delegates every other message to the wrapped adapter", async () => {
     const delegated: CompileIntentResult = {
       status: "UNSUPPORTED",
