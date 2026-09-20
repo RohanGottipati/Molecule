@@ -416,10 +416,11 @@ remain read-only; test fixtures that edit claims directly explicitly resolve
 them before asserting persisted reservation behavior.
 
 Durable recovery acceptance uses an explicit 400-unit Thread Forge mock
-snapshot matching the operational seed. The separate broad Shopify fixture
-reports 180 units, which cannot satisfy a 200-unit quote under the current
-reservation model. Passing the recovery fixture does not certify that the
-unaltered broad catalog can fulfill that request.
+snapshot matching the operational seed. The broad Shopify fixture now reports
+the same 400 units (Needle North 300, Laser Lab 400), so the unaltered broad
+catalog can fulfill the 200-unit canonical request and its supplier-offline
+recovery; a demo reset keeps older same-stream observations superseded rather
+than reviving them alongside the newer value.
 
 Ten native mock Realtime sessions and two live OpenAI sessions passed again
 against the merged client, including completed playback and teardown. Physical

@@ -55,7 +55,7 @@ export type ShopifyInventoryIngestionResult =
 
 function inventorySourceReference(inventoryItemId: string | number): string {
   const value = String(inventoryItemId).trim();
-  return value.startsWith("gid://shopify/InventoryItem/")
+  return value.startsWith("gid://")
     ? value
     : `gid://shopify/InventoryItem/${value}`;
 }

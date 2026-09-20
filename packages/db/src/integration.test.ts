@@ -253,6 +253,38 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     await getPool().query("delete from merchants where merchant_id=$1", [id]);
   });
 
+  it("keeps older same-stream observations superseded across a demo reset", async () => {
+    const older = `claim:${randomUUID()}`;
+    const newer = `claim:${randomUUID()}`;
+    const insert = (claimId: string, value: number, at: string) =>
+      getPool().query(
+        `insert into canonical_claims(claim_id,merchant_id,field,normalized_value,source_kind,source_reference,
+           observed_at,ingested_at,source_authority,extraction_confidence,resolution_status)
+         values($1,'laser-lab','capacity_per_day',$2::jsonb,'shopify','gid://test/Variant/1',$3,$3,0.9,1,'active')`,
+        [claimId, String(value), at],
+      );
+    await insert(older, 250, "2026-09-01T00:00:00Z");
+    await insert(newer, 400, "2026-09-02T00:00:00Z");
+    await getPool().query(
+      "update canonical_claims set resolution_status='superseded' where claim_id=$1",
+      [older],
+    );
+    await resetDemoData();
+    const statuses = Object.fromEntries(
+      (
+        await getPool().query<{ claim_id: string; resolution_status: string }>(
+          "select claim_id,resolution_status from canonical_claims where claim_id = any($1::text[])",
+          [[older, newer]],
+        )
+      ).rows.map((row) => [row.claim_id, row.resolution_status]),
+    );
+    expect(statuses).toEqual({ [older]: "superseded", [newer]: "active" });
+    await getPool().query(
+      "delete from canonical_claims where claim_id = any($1::text[])",
+      [[older, newer]],
+    );
+  });
+
   it("counts real session/plan/execution rows without counting missing plans or double counting", async () => {
     await transaction(async (client) => {
       await client.query(
