@@ -8,10 +8,12 @@ import {
 
 export const views = [
   "command",
+  "projects",
   "merchants",
   "reality",
   "operations",
   "execution",
+  "testing",
 ] as const;
 export type WorkspaceView = (typeof views)[number];
 export function parseView(value: string | null): WorkspaceView {
@@ -208,8 +210,8 @@ export function graphPositions(plan: ProductionPlan) {
   for (const [level, nodes] of rows)
     nodes.forEach((id, index) =>
       positions.set(id, {
-        x: level * 400,
-        y: (index + (maxRows - nodes.length) / 2) * 175,
+        x: level * 540,
+        y: (index + (maxRows - nodes.length) / 2) * 230,
       }),
     );
   return positions;
