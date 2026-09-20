@@ -214,7 +214,14 @@ export function estimateCost(model, usage, table = FALLBACK_PRICES) {
 export async function meter(
   db,
   runId,
-  { stage, model, usage = {}, latencyMs, ok = true, error = null },
+  {
+    stage,
+    model,
+    usage = /** @type {{input_tokens?: number, cached_tokens?: number, output_tokens?: number}} */ ({}),
+    latencyMs,
+    ok = true,
+    error = null,
+  },
 ) {
   const table = { ...FALLBACK_PRICES, ...(await prices(db)) };
   const cost = estimateCost(model, usage, table);

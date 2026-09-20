@@ -1,0 +1,504 @@
+{
+  "capturedAt": "2026-09-20T00:53:19.093Z",
+  "checks": {
+    "extensions": {
+      "rows": [
+        {
+          "extname": "pg_buffercache",
+          "extversion": "1.6"
+        },
+        {
+          "extname": "pg_stat_statements",
+          "extversion": "1.12"
+        },
+        {
+          "extname": "pg_trgm",
+          "extversion": "1.6"
+        },
+        {
+          "extname": "pgcrypto",
+          "extversion": "1.4"
+        },
+        {
+          "extname": "plpgsql",
+          "extversion": "1.0"
+        },
+        {
+          "extname": "postgres_fdw",
+          "extversion": "1.2"
+        },
+        {
+          "extname": "timescaledb",
+          "extversion": "2.30.0"
+        },
+        {
+          "extname": "timescaledb_toolkit",
+          "extversion": "1.26.0"
+        },
+        {
+          "extname": "vector",
+          "extversion": "0.8.6"
+        }
+      ],
+      "ms": 59
+    },
+    "migrations": {
+      "rows": [
+        {
+          "filename": "001_core.sql",
+          "checksum": "2963419d5a7ba7b1ba7e201e616681a92d1ae538f163c66d37a7a22ad9c95822"
+        },
+        {
+          "filename": "002_timeseries.sql",
+          "checksum": "b3afefce95ef4d7cb56f0bc73666546ecff232851f1301ff8966616521796891"
+        },
+        {
+          "filename": "003_aggregates.sql",
+          "checksum": "c459478dca549fc42a968d3d5b1dc4a7adf5e2564411b78504c9062115b8afbf"
+        },
+        {
+          "filename": "005_runtime.sql",
+          "checksum": "7ce812284c2ef046edf478e578a8303ac87e8844ce4b06fee4b45ca329a863c3"
+        },
+        {
+          "filename": "006_backboard.sql",
+          "checksum": "981f7fd5d99b260026d04056ac41bc2ffadafd7ea0f904272981be3b04dd986b"
+        },
+        {
+          "filename": "007_shopify.sql",
+          "checksum": "76f54fb3af3f732a834fafcacdb55af93ab4a666c21b116a5737846fb99f17b1"
+        },
+        {
+          "filename": "008_orchestrator.sql",
+          "checksum": "0cd718a8a9720d4dd7476982e1e08d89b777fa06ae87337a5ca29025f5710948"
+        },
+        {
+          "filename": "009_inventory_projection.sql",
+          "checksum": "be074131d4739e1e4ff3e86a4f4572fd4f61909631b899c50b6fcdfacfef4348"
+        },
+        {
+          "filename": "009_shopify_catalog.sql",
+          "checksum": "218a59b4c1f6ed62c9daf8d566d1b4f782f6262a2ce63f80ad46b31197c669e9"
+        },
+        {
+          "filename": "010_bulk_commerce.sql",
+          "checksum": "0f6e7d749690f0bdaf2a5c35528e684d098a90739744530396ed6bcc80b24b94"
+        },
+        {
+          "filename": "011_bulk_shopify_fill.sql",
+          "checksum": "de69e275135d65d2aebc09826224bb404440670c2a318d5d7c74b52e6eae44bc"
+        },
+        {
+          "filename": "012_bulk_shopify_ops.sql",
+          "checksum": "e6d469a514509b0a69d9f0d8ca5cc4859ae19f86b8fec27560a628d2c31fa5d6"
+        },
+        {
+          "filename": "013_rox_ingest.sql",
+          "checksum": "b3606a8b7f2f72724bdf02e5ca35abaf69061c5974897e13a7605e8b957a665d"
+        },
+        {
+          "filename": "014_merchant_placeholders.sql",
+          "checksum": "b15ba5bb255a82fbeabeaa9c481553d147f3aaecbd0b8086d27ea7ad220f5284"
+        },
+        {
+          "filename": "014_rox_links.sql",
+          "checksum": "5b0e37e5a5d7cbfac12df33ec82dadd733ea136d696f1e4ede3ff414edfbd32c"
+        },
+        {
+          "filename": "015_rox_quantities.sql",
+          "checksum": "b22a5998608855b914a3e78979e727fb3cb6fb10c184292df45868d95ec025fa"
+        },
+        {
+          "filename": "016_rox_attempts.sql",
+          "checksum": "c439c6785dad92de54d524882d733398263659641f17bb8a8a2d02152bf5b492"
+        },
+        {
+          "filename": "017_broad_catalog_handoff.sql",
+          "checksum": "8d115ab3af19da4310162aea385068f4d5ce63f25947d3464011f4b077966685"
+        },
+        {
+          "filename": "018_catalog_network.sql",
+          "checksum": "236a2b90015baa7739fa8945d27c6f2e806f816605f5d5cdc9b3690521d794a5"
+        },
+        {
+          "filename": "019_catalog_recovery.sql",
+          "checksum": "3ebc1f62a1e45d5af147dbd45d6165ea80d5b727e26ff134243613be9641c471"
+        },
+        {
+          "filename": "020_marketplace_read_indexes.sql",
+          "checksum": "41b164cdfe2e06782f7bc5441ac93b60398de3f410d3444b133e7d34f6c1c988"
+        }
+      ],
+      "ms": 57
+    },
+    "sales": {
+      "rows": [
+        {
+          "pass": 0,
+          "rows": "1032918"
+        },
+        {
+          "pass": 1,
+          "rows": "1032918"
+        },
+        {
+          "pass": 2,
+          "rows": "993873"
+        },
+        {
+          "pass": 3,
+          "rows": "952088"
+        },
+        {
+          "pass": 4,
+          "rows": "1011075"
+        }
+      ],
+      "ms": 1441
+    },
+    "products": {
+      "rows": [
+        {
+          "source": "open_food_facts",
+          "price_is_synthetic": true,
+          "rows": "107420"
+        },
+        {
+          "source": "uci_online_retail_ii",
+          "price_is_synthetic": false,
+          "rows": "4721"
+        }
+      ],
+      "ms": 147
+    },
+    "merchants": {
+      "rows": [
+        {
+          "provenance": "MOLECULE_DEMO",
+          "rows": "8"
+        },
+        {
+          "provenance": "UNLABELLED",
+          "rows": "219"
+        }
+      ],
+      "ms": 54
+    },
+    "artifacts": {
+      "rows": [
+        {
+          "batch_id": "rox-full-s42",
+          "parse_status": "failed",
+          "rows": "74"
+        },
+        {
+          "batch_id": "rox-full-s42",
+          "parse_status": "parsed",
+          "rows": "1152"
+        },
+        {
+          "batch_id": null,
+          "parse_status": "pending",
+          "rows": "45"
+        }
+      ],
+      "ms": 57
+    },
+    "claims": {
+      "rows": [
+        {
+          "source_kind": "api",
+          "resolution_status": "active",
+          "rows": "29"
+        },
+        {
+          "source_kind": "api",
+          "resolution_status": "conflicted",
+          "rows": "39"
+        },
+        {
+          "source_kind": "api",
+          "resolution_status": "superseded",
+          "rows": "16"
+        },
+        {
+          "source_kind": "csv",
+          "resolution_status": "active",
+          "rows": "127"
+        },
+        {
+          "source_kind": "csv",
+          "resolution_status": "conflicted",
+          "rows": "114"
+        },
+        {
+          "source_kind": "csv",
+          "resolution_status": "quarantined",
+          "rows": "2"
+        },
+        {
+          "source_kind": "csv",
+          "resolution_status": "superseded",
+          "rows": "33"
+        },
+        {
+          "source_kind": "document",
+          "resolution_status": "active",
+          "rows": "62"
+        },
+        {
+          "source_kind": "document",
+          "resolution_status": "conflicted",
+          "rows": "42"
+        },
+        {
+          "source_kind": "document",
+          "resolution_status": "superseded",
+          "rows": "43"
+        },
+        {
+          "source_kind": "note",
+          "resolution_status": "active",
+          "rows": "1"
+        },
+        {
+          "source_kind": "note",
+          "resolution_status": "conflicted",
+          "rows": "1"
+        },
+        {
+          "source_kind": "note",
+          "resolution_status": "superseded",
+          "rows": "1"
+        },
+        {
+          "source_kind": "shopify",
+          "resolution_status": "active",
+          "rows": "4"
+        },
+        {
+          "source_kind": "shopify",
+          "resolution_status": "conflicted",
+          "rows": "7"
+        },
+        {
+          "source_kind": "shopify",
+          "resolution_status": "superseded",
+          "rows": "2"
+        }
+      ],
+      "ms": 53
+    },
+    "attempts": {
+      "rows": [
+        {
+          "run_id": "rox-20260919210029-d119c8a7",
+          "completed_artifacts": "1144",
+          "candidates": "724",
+          "empty": "784"
+        }
+      ],
+      "ms": 53
+    },
+    "quantities": {
+      "rows": [
+        {
+          "method": "model",
+          "rows": "161"
+        },
+        {
+          "method": "rule",
+          "rows": "59383"
+        },
+        {
+          "method": "unparseable",
+          "rows": "276"
+        }
+      ],
+      "ms": 59
+    },
+    "duplicate_artifacts": {
+      "rows": [
+        {
+          "groups": "0",
+          "excess_rows": "0"
+        }
+      ],
+      "ms": 56
+    },
+    "duplicate_product_names": {
+      "rows": [
+        {
+          "groups": "9854",
+          "excess_rows": "36700"
+        }
+      ],
+      "ms": 471
+    },
+    "duplicate_claim_observations": {
+      "rows": [
+        {
+          "groups": "0",
+          "excess_rows": "0"
+        }
+      ],
+      "ms": 56
+    },
+    "activity": {
+      "rows": [
+        {
+          "state": "idle",
+          "sessions": "4",
+          "old_transactions": "0"
+        }
+      ],
+      "ms": 53
+    },
+    "locks": {
+      "rows": [
+        {
+          "waiting_locks": "0"
+        }
+      ],
+      "ms": 59
+    },
+    "fulfillment": {
+      "rows": [
+        {
+          "rows": "1200000"
+        }
+      ],
+      "ms": 72
+    },
+    "duplicate_sales_within_pass": {
+      "complete": true,
+      "groups": 53973,
+      "excess_rows": 57972,
+      "by_pass": {
+        "0": {
+          "groups": 10985,
+          "excess_rows": 11792,
+          "partitions": 25
+        },
+        "1": {
+          "groups": 10998,
+          "excess_rows": 11806,
+          "partitions": 25
+        },
+        "2": {
+          "groups": 10685,
+          "excess_rows": 11475,
+          "partitions": 25
+        },
+        "3": {
+          "groups": 10469,
+          "excess_rows": 11270,
+          "partitions": 25
+        },
+        "4": {
+          "groups": 10836,
+          "excess_rows": 11629,
+          "partitions": 25
+        }
+      },
+      "partition_count": 125
+    }
+  },
+  "server": {
+    "default_read_only": "off",
+    "in_recovery": false,
+    "bytes": "1430099647"
+  },
+  "localMigrations": [
+    {
+      "file": "001_core.sql",
+      "status": "matches"
+    },
+    {
+      "file": "002_timeseries.sql",
+      "status": "matches"
+    },
+    {
+      "file": "003_aggregates.sql",
+      "status": "matches"
+    },
+    {
+      "file": "005_runtime.sql",
+      "status": "matches"
+    },
+    {
+      "file": "006_backboard.sql",
+      "status": "matches"
+    },
+    {
+      "file": "007_shopify.sql",
+      "status": "matches"
+    },
+    {
+      "file": "008_orchestrator.sql",
+      "status": "matches"
+    },
+    {
+      "file": "009_inventory_projection.sql",
+      "status": "matches"
+    },
+    {
+      "file": "009_shopify_catalog.sql",
+      "status": "matches"
+    },
+    {
+      "file": "010_bulk_commerce.sql",
+      "status": "matches"
+    },
+    {
+      "file": "011_bulk_shopify_fill.sql",
+      "status": "matches"
+    },
+    {
+      "file": "012_bulk_shopify_ops.sql",
+      "status": "matches"
+    },
+    {
+      "file": "013_rox_ingest.sql",
+      "status": "matches"
+    },
+    {
+      "file": "014_merchant_placeholders.sql",
+      "status": "matches"
+    },
+    {
+      "file": "014_rox_links.sql",
+      "status": "matches"
+    },
+    {
+      "file": "015_rox_quantities.sql",
+      "status": "matches"
+    },
+    {
+      "file": "016_rox_attempts.sql",
+      "status": "matches"
+    },
+    {
+      "file": "017_broad_catalog_handoff.sql",
+      "status": "matches"
+    },
+    {
+      "file": "018_catalog_network.sql",
+      "status": "matches"
+    },
+    {
+      "file": "019_catalog_recovery.sql",
+      "status": "matches"
+    },
+    {
+      "file": "020_marketplace_read_indexes.sql",
+      "status": "matches"
+    }
+  ],
+  "caveats": [
+    "Duplicate signatures are review candidates, not proof of accidental duplication.",
+    "Sales comparison includes pass, so intentional replay across passes is excluded.",
+    "Unlabelled provenance is unknown, not real.",
+    "Checks use separate read-only transactions; concurrent writes may change counts."
+  ]
+}

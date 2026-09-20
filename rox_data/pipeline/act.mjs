@@ -10,6 +10,7 @@
 import OpenAI from "openai";
 
 import { MODELS } from "./config.mjs";
+import { decideAvailability } from "./availability.mjs";
 import { shortId, meter, bumpStage, emitEvent } from "./db.mjs";
 
 const DRAFT_INSTRUCTIONS = `You write a short, plain, professional email from an operations team to a supplier, asking them to confirm one operational fact.
@@ -182,6 +183,70 @@ export async function act(db, { runId, traceId, dry = false, apply = false }) {
           },
           note: "scripts/shopify-writeback.mjs applies this",
           requiresApproval: !apply,
+        },
+      ],
+    );
+  }
+
+  // 3. A resolved capacity is compared with the job (Order 5). Only a fact we
+  //    are sure of can exclude a supplier and propose a replan; anything
+  //    uncertain becomes a question. Nothing here executes: the queue row is a
+  //    proposal, and approval is what a bridge to the orchestrator waits for.
+  const job = {
+    units: Number(process.env.ROX_JOB_UNITS ?? 200),
+    windowHours: Number(process.env.ROX_JOB_WINDOW_HOURS ?? 72),
+  };
+  counts.replans_proposed = 0;
+  counts.availability_blocked = 0;
+  const { rows: capacities } = await db.query(
+    `select r.merchant_id, r.field, r.status, r.value, r.winning_claim_id,
+            c.normalized_unit, c.observed_at
+       from canonical_resolutions r
+       left join canonical_claims c on c.claim_id = r.winning_claim_id
+      where r.field like '%.capacity'`,
+  );
+  for (const row of capacities) {
+    const capabilityId = row.field.split(".")[0];
+    const decision = decideAvailability({
+      subject: { merchantId: row.merchant_id, capabilityId },
+      job,
+      resolution: {
+        status: row.status,
+        value: row.value,
+        unit: row.normalized_unit ?? undefined,
+        observedAt: row.observed_at?.toISOString?.() ?? row.observed_at,
+        claimId: row.winning_claim_id ?? undefined,
+      },
+      now: new Date(),
+    });
+    if (decision.decision === "eligible") continue;
+    // Unknown and conflicted facts already have a drafted question (step 1).
+    if (["unknown", "conflicted"].includes(decision.code)) continue;
+    if (decision.decision === "excluded") counts.replans_proposed += 1;
+    else counts.availability_blocked += 1;
+    await db.query(
+      `insert into rox_review_queue (task_id, run_id, kind, merchant_id, field, detail, proposed_action, status)
+       values ($1,$2,'missing_fact',$3,$4,$5,$6,'open')
+       on conflict (task_id) do update set detail = excluded.detail, proposed_action = excluded.proposed_action`,
+      [
+        decision.actionKey,
+        runId,
+        row.merchant_id,
+        row.field,
+        {
+          decision: decision.decision,
+          code: decision.code,
+          reason: decision.reason,
+          job,
+          evidence: decision.evidence ?? null,
+          claimId: row.winning_claim_id,
+        },
+        {
+          action: decision.action,
+          actionKey: decision.actionKey,
+          merchantId: row.merchant_id,
+          capabilityId,
+          requiresApproval: true,
         },
       ],
     );

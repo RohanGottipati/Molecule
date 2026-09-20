@@ -1,0 +1,63 @@
+{
+  "capacityExtractions": 334,
+  "legacy": {
+    "claim_wrong": 69,
+    "claim_correct": 242,
+    "claim_unmatched": 15,
+    "quarantine": 8
+  },
+  "strict": {
+    "needs_review": 214,
+    "claim_correct": 100,
+    "claim_unmatched": 13,
+    "quarantine": 7
+  },
+  "transitions": {
+    "claim_wrong -> needs_review (no_period)": 62,
+    "claim_correct -> needs_review (period_inherited)": 9,
+    "claim_correct -> needs_review (no_period)": 138,
+    "claim_wrong -> claim_correct": 5,
+    "claim_wrong -> needs_review (period_inherited)": 2,
+    "quarantine -> needs_review (lower_bound)": 1,
+    "claim_unmatched -> needs_review (no_period)": 2
+  },
+  "strictReviewReasons": {
+    "no_period": 202,
+    "period_inherited": 11,
+    "unreadable": 7,
+    "lower_bound": 1
+  },
+  "bySourceType": {
+    "wms": {
+      "legacy_wrong": 59,
+      "strict_wrong": 0,
+      "refused_by_strict": 185,
+      "n": 185
+    },
+    "threads": {
+      "legacy_wrong": 2,
+      "strict_wrong": 0,
+      "refused_by_strict": 14,
+      "n": 60
+    },
+    "emails": {
+      "legacy_wrong": 8,
+      "strict_wrong": 0,
+      "refused_by_strict": 18,
+      "n": 55
+    },
+    "portal": {
+      "legacy_wrong": 0,
+      "strict_wrong": 0,
+      "refused_by_strict": 3,
+      "n": 33
+    },
+    "pricesheets": {
+      "legacy_wrong": 0,
+      "strict_wrong": 0,
+      "refused_by_strict": 1,
+      "n": 1
+    }
+  },
+  "note": "Synthetic ROX corpus only; refusing a value that the truth says is correct lowers recall by design."
+}
