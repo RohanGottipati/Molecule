@@ -50,6 +50,12 @@ export const sidebarDestinations: {
     icon: "plan",
   },
   {
+    key: "stores",
+    label: "Stores",
+    description: "Browse connected store catalogs, orders and customers.",
+    icon: "stores",
+  },
+  {
     key: "testing",
     label: "Testing",
     description: "Preview the production flow chart with sample data.",

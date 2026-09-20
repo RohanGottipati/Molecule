@@ -24,6 +24,7 @@ import {
   humanize,
   money,
   rangeLabel,
+  variantAdminUrl,
 } from "../lib/workspace";
 
 export { Badge };
@@ -700,6 +701,95 @@ export function ExecutionView({
   );
 }
 
+/**
+ * The catalog item and live resource readings a plan node was certified against.
+ *
+ * `selectedItem` and `resourceRefs` already travel on every PlanNode via
+ * `CatalogReferencesShape`; until now the UI dropped them. Showing them is what lets an
+ * operator see WHICH SKU and WHICH inventory reading a decision rests on.
+ *
+ * `available` is the value observed at `observedAt`, not a live reading. It is labelled that
+ * way so a stale number is never mistaken for current truth.
+ */
+function NodeCatalogDetail({
+  node,
+}: {
+  node: ProductionPlan["nodes"][number];
+}) {
+  const item = node.selectedItem;
+  const resources = node.resourceRefs ?? [];
+  if (!item && !resources.length) return null;
+  const adminUrl =
+    item?.shopDomain && item.variantGid
+      ? variantAdminUrl(item.shopDomain, item.variantGid)
+      : undefined;
+  return (
+    <>
+      <h3>Catalog item and inventory</h3>
+      {item ? (
+        <dl className="detail-grid">
+          <div>
+            <dt>SKU</dt>
+            <dd>
+              <code>{item.sku}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Item kind</dt>
+            <dd>{humanize(item.itemKind)}</dd>
+          </div>
+          <div>
+            <dt>Store</dt>
+            <dd>{item.shopDomain ?? "Not mapped to a store"}</dd>
+          </div>
+          <div>
+            <dt>Variant</dt>
+            <dd>
+              {item.variantGid ? (
+                adminUrl ? (
+                  <a href={adminUrl} target="_blank" rel="noreferrer">
+                    <code>{item.variantGid}</code>
+                  </a>
+                ) : (
+                  <code>{item.variantGid}</code>
+                )
+              ) : (
+                "Not provisioned"
+              )}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="muted">
+          This node is not bound to a catalog item, so no SKU or store is
+          available.
+        </p>
+      )}
+      {resources.length > 0 && (
+        <ul className="detail-list">
+          {resources.map((resource) => (
+            <li key={resource.resourceId}>
+              <strong>{humanize(resource.kind)}</strong>{" "}
+              <code>{resource.resourceId}</code>
+              <br />
+              {resource.available} {resource.unit} available
+              {resource.periodMinutes
+                ? ` per ${resource.periodMinutes} minutes`
+                : ""}{" "}
+              · {resource.unitsPerItem} {resource.unit} per item
+              <br />
+              <span className="muted small">
+                Observed {dateLabel(resource.observedAt, true)} ·{" "}
+                {resource.sourceReference}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 export function NodeDetail({
   node: selectedNode,
   order,
@@ -797,6 +887,7 @@ export function NodeDetail({
           <dd>{dateLabel(node.completesAt, true)}</dd>
         </div>
       </dl>
+      <NodeCatalogDetail node={node} />
       <h3>
         {evidence.current ? "Current quote" : "Historical quote unavailable"}
       </h3>

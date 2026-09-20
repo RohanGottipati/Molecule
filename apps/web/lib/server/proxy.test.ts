@@ -222,6 +222,16 @@ describe("same-origin proxy with a real local upstream", () => {
     ).toBe(404);
     expect(requests).toHaveLength(count);
   });
+  it("forwards store console reads for a myshopify domain", async () => {
+    const domain = "molecule-demo.myshopify.com";
+    const response = await proxyRequest(
+      incoming(`stores/${domain}/catalog`),
+      ["stores", domain, "catalog"],
+      backend,
+    );
+    expect(response.status).toBe(200);
+    expect(requests.at(-1)?.path).toBe(`/api/stores/${domain}/catalog`);
+  });
   it("streams SSE immediately and preserves the replay cursor", async () => {
     const controller = new AbortController();
     const response = await proxyRequest(

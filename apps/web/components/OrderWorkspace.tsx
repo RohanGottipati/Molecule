@@ -7,6 +7,7 @@ import { dateLabel } from "../lib/workspace";
 import { BriefClarificationDialog } from "./BriefClarificationDialog";
 import { BriefComposer } from "./BriefComposer";
 import { HomePage } from "./HomePage";
+import { StoreConsole } from "./StoreConsole";
 import { TestingPlan } from "./TestingPlan";
 import { PlanReview } from "./PlanReview";
 import { ProductionConversation } from "./ProductionConversation";
@@ -281,6 +282,7 @@ export function OrderWorkspace({
               </details>
             </div>
           )}
+          {workspace.view === "stores" && <StoreConsole />}
           {workspace.view === "testing" && <TestingPlan />}
           {workspace.view === "execution" && (
             <PlanReview

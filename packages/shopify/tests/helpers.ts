@@ -3,11 +3,11 @@ import {
   type MoleculeEvent,
   type ProductionPlan,
 } from "@molecule/contracts";
-import { z } from "zod";
 import type {
   OrderJournal,
   ShopifyActionRepository,
 } from "../src/repository.js";
+import { FakeShopifyAdmin } from "../src/fake/admin.js";
 import { ShopifyError, type ShopifyOrderState } from "../src/types.js";
 import type { RealShopifyEffectsOptions } from "../src/effects.js";
 
@@ -117,203 +117,106 @@ export class TestRepository implements ShopifyActionRepository {
   }
 }
 
-const ProductInput = z.object({
-  title: z.string(),
-  handle: z.string(),
-  tags: z.array(z.string()),
-  variants: z.array(
-    z.object({
-      price: z.string(),
-      optionValues: z.array(
-        z.object({ optionName: z.string(), name: z.string() }),
-      ),
-    }),
-  ),
-});
-const DraftInput = z.object({
-  tags: z.array(z.string()),
-  customAttributes: z.array(z.object({ key: z.string(), value: z.string() })),
-  lineItems: z.array(z.record(z.string(), z.unknown())).optional(),
-});
-type Draft = {
-  id: string;
-  invoiceUrl: string;
-  status: string;
-  tags: string[];
-  totalPriceSet: { presentmentMoney: { amount: string; currencyCode: string } };
-};
-type Product = {
-  id: string;
-  tags: string[];
-  variants: {
-    nodes: { id: string; selectedOptions: { name: string; value: string }[] }[];
-    pageInfo: { hasNextPage: boolean };
-  };
-};
+/**
+ * Test-facing facade over the shared `FakeShopifyAdmin`.
+ *
+ * There is exactly ONE implementation of fake Admin API semantics (`src/fake/`), so the fake
+ * these tests assert against is the same one `SHOPIFY_MODE=fake` serves in the orchestrator.
+ * This class only adapts its shape to what the suite reads: operation-name call records and
+ * flat `products` / `drafts` maps keyed `domain:key`.
+ */
 export class FakeShopify {
-  calls: {
+  readonly admin: FakeShopifyAdmin;
+
+  constructor() {
+    this.admin = new FakeShopifyAdmin({
+      stores: [
+        "molecule.myshopify.com",
+        "base-goods.myshopify.com",
+        "thread-forge.myshopify.com",
+        "needle-north.myshopify.com",
+      ],
+      // Durable-execution tests create every resource by mutation; a seeded catalog would
+      // only add noise to the `products` / `drafts` size assertions.
+      seedCatalog: false,
+      seedCommerce: false,
+      // The suite asserts literal Admin URLs and GIDs, so number from 1.
+      idStart: 1,
+    });
+  }
+
+  get calls(): {
     operation: string;
     variables: Record<string, unknown>;
     domain: string;
-  }[] = [];
-  products = new Map<string, Product>();
-  drafts = new Map<string, Draft>();
-  fail?: (
-    operation: string,
-    domain: string,
-  ) => "lost-response" | "unauthorized" | "bad-input" | undefined;
-  hideRecovery = false;
-  tax = 0;
+  }[] {
+    return this.admin.calls.map((call) => ({
+      operation: call.operationName,
+      variables: call.variables,
+      domain: call.domain,
+    }));
+  }
 
-  fetch: typeof globalThis.fetch = async (url, init) => {
-    const domain = new URL(String(url)).hostname;
-    const { query, variables } = z
-      .object({
-        query: z.string(),
-        variables: z.record(z.string(), z.unknown()),
-      })
-      .parse(JSON.parse(String(init?.body)));
-    const operation = /(?:query|mutation) (\w+)/.exec(query)?.[1] ?? "";
-    this.calls.push({ operation, variables, domain });
-    const failure = this.fail?.(operation, domain);
-    if (failure === "unauthorized")
-      return new Response("shpat_do_not_log", { status: 401 });
-    const response = (data: unknown) => {
-      if (failure === "lost-response")
-        throw new Error("connection lost with shpat_do_not_log");
-      return Response.json(
-        { data },
-        { headers: { "x-shopify-api-version": "2026-07" } },
-      );
-    };
-    if (operation === "VerifyStore")
-      return response({
-        shop: {
-          name: "Synthetic store",
-          myshopifyDomain: domain,
-          currencyCode: "CAD",
-        },
-        currentAppInstallation: {
-          accessScopes: [
-            { handle: "write_products" },
-            { handle: "write_draft_orders" },
-          ],
-        },
-      });
-    if (operation === "SeedLocation")
-      return response({
-        locations: {
-          nodes: [{ id: "gid://shopify/Location/1", isActive: true }],
-        },
-      });
-    if (operation === "Composite" || operation === "SeedProduct") {
-      const input = ProductInput.parse(variables.input);
-      const existing = this.products.get(`${domain}:${input.handle}`);
-      const number = this.products.size + 1;
-      const product = {
-        id: existing?.id ?? `gid://shopify/Product/${number}`,
-        tags: input.tags,
-        variants: existing?.variants ?? {
-          nodes: input.variants.map((variant, index) => ({
-            id: `gid://shopify/ProductVariant/${number}${index}`,
-            selectedOptions: variant.optionValues.map((option) => ({
-              name: option.optionName,
-              value: option.name,
-            })),
-          })),
-          pageInfo: { hasNextPage: false },
-        },
-      };
-      this.products.set(`${domain}:${input.handle}`, product);
-      return response({ productSet: { product, userErrors: [] } });
+  get products(): Map<string, { id: string; tags: string[] }> {
+    const out = new Map<string, { id: string; tags: string[] }>();
+    for (const domain of this.admin.listStores()) {
+      for (const product of this.admin.store(domain).products.values()) {
+        out.set(`${domain}:${product.handle}`, product);
+      }
     }
-    if (operation === "Product" || operation === "SeedFind") {
-      const identifier = z
-        .object({ handle: z.string() })
-        .parse(variables.identifier);
-      return response({
-        productByIdentifier: this.hideRecovery
-          ? null
-          : (this.products.get(`${domain}:${identifier.handle}`) ?? null),
-      });
+    return out;
+  }
+
+  get drafts(): Map<string, { id: string; tags: string[]; status: string }> {
+    const out = new Map<
+      string,
+      { id: string; tags: string[]; status: string }
+    >();
+    for (const domain of this.admin.listStores()) {
+      for (const draft of this.admin.store(domain).draftOrders.values()) {
+        out.set(`${domain}:${draft.id}`, draft);
+      }
     }
-    if (operation === "CreateDraft" || operation === "UpdateDraft") {
-      const input = DraftInput.parse(variables.input);
-      const key =
-        operation === "CreateDraft" ? "draftOrderCreate" : "draftOrderUpdate";
-      if (failure === "bad-input" || input.tags.some((tag) => tag.length > 40))
-        return response({
-          [key]: {
-            draftOrder: null,
-            userErrors: [{ message: "private provider details" }],
-          },
-        });
-      const id =
-        operation === "CreateDraft"
-          ? `gid://shopify/DraftOrder/${this.drafts.size + 1}`
-          : z.string().parse(variables.id);
-      const line = input.lineItems?.[0];
-      const money = line
-        ? z
-            .object({ amount: z.string(), currencyCode: z.string() })
-            .parse(line.priceOverride ?? line.originalUnitPriceWithCurrency)
-        : undefined;
-      const lineTotal = input.lineItems?.reduce((total, item) => {
-        const itemMoney = z
-          .object({ amount: z.string(), currencyCode: z.string() })
-          .parse(item.priceOverride ?? item.originalUnitPriceWithCurrency);
-        return (
-          total +
-          Number(itemMoney.amount) *
-            z.number().int().positive().parse(item.quantity)
-        );
-      }, 0);
-      const old = this.drafts.get(`${domain}:${id}`);
-      const draft = {
-        id,
-        invoiceUrl: `https://${domain}/draft_orders/${this.drafts.size + 1}/invoice`,
-        status: "OPEN",
-        tags: input.tags,
-        totalPriceSet: money
-          ? {
-              presentmentMoney: {
-                amount: String(lineTotal! + this.tax),
-                currencyCode: money.currencyCode,
-              },
-            }
-          : old!.totalPriceSet,
-      };
-      this.drafts.set(`${domain}:${id}`, draft);
-      return response({ [key]: { draftOrder: draft, userErrors: [] } });
-    }
-    if (operation === "Draft")
-      return response({
-        draftOrder:
-          this.drafts.get(`${domain}:${String(variables.id)}`) ?? null,
-      });
-    if (operation === "FindDraft") {
-      const tag = z.string().parse(variables.query).slice(4);
-      return response({
-        draftOrders: {
-          nodes: this.hideRecovery
-            ? []
-            : [...this.drafts.entries()]
-                .filter(
-                  ([key, value]) =>
-                    key.startsWith(`${domain}:`) && value.tags.includes(tag),
-                )
-                .map(([, value]) => value),
-        },
-      });
-    }
-    throw new Error(`Unhandled test operation ${operation}`);
-  };
+    return out;
+  }
+
+  set fail(
+    value:
+      | ((
+          operation: string,
+          domain: string,
+        ) => "lost-response" | "unauthorized" | "bad-input" | undefined)
+      | undefined,
+  ) {
+    this.admin.requestFailure = value;
+  }
+  get fail() {
+    return this.admin.requestFailure;
+  }
+
+  set hideRecovery(value: boolean) {
+    this.admin.hideRecovery = value;
+  }
+  get hideRecovery(): boolean {
+    return this.admin.hideRecovery;
+  }
+
+  set tax(value: number) {
+    this.admin.tax = value;
+  }
+  get tax(): number {
+    return this.admin.tax;
+  }
+
+  get fetch(): typeof globalThis.fetch {
+    return this.admin.fetch;
+  }
 
   options(): RealShopifyEffectsOptions {
     const store = (domain: string) => ({
       domain,
       auth: { accessToken: "shpat_test_only" },
-      fetch: this.fetch,
+      fetch: this.admin.fetch,
     });
     return {
       centralStore: store("molecule.myshopify.com"),

@@ -12,6 +12,9 @@ const readPaths = [
   /^orders\/[^/]+(?:\/(?:events|messages|actions|capabilities))?$/,
   /^projects$/,
   /^projects\/[^/]+$/,
+  // Store console. The proxy is deny-by-default, so these stay invisible until listed here.
+  /^stores$/,
+  /^stores\/[a-z0-9][a-z0-9-]*\.myshopify\.com\/(?:catalog|orders|customers|analytics)$/,
 ];
 const writePaths = [
   /^briefs\/clarify$/,
@@ -31,7 +34,13 @@ export async function proxyRequest(
   segments: string[],
   backend = process.env.ORCHESTRATOR_URL ?? "http://127.0.0.1:3001",
 ): Promise<Response> {
-  if (segments.some((segment) => !/^[a-zA-Z0-9_-]+$/.test(segment)))
+  if (
+    segments.some(
+      (segment) =>
+        !/^[a-zA-Z0-9_-]+$/.test(segment) &&
+        !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(segment),
+    )
+  )
     return failure(404, "Route not found");
   const path = segments.join("/");
   const allowed = request.method === "GET" ? readPaths : writePaths;

@@ -5,6 +5,8 @@
 //
 //   --bulk       submit a Shopify bulk mutation per store (server-side, async; --batch=10000 products each)
 //   --collect    poll open bulk operations and record their results in Tiger
+//   --uci        load the non-food UCI Online Retail II catalogue into the supplier
+//                stores instead of OFF food (one pass, all stores, prices GBP->CAD)
 //
 // Products are upserted by handle (`off-<barcode>`), tagged MOLECULE_DEMO, and recorded in bulk_shopify_fill.
 // Prices are synthetic (OFF has none) and the tag `synthetic-price` says so. Re-run until the cap is reached.
@@ -117,12 +119,18 @@ async function fillStore(handle) {
   }
   const snack = /^snackbox/.test(handle);
   const { rows } = await db.query(
-    `select p.* from bulk_products p left join bulk_shopify_fill f on f.sku = p.sku and f.store = $1
-     where p.source = 'open_food_facts' and f.sku is null and p.category is not null and p.category <> all($2::text[])
-       and p.title <> '' and p.price is not null and p.sku ~ '^[0-9]{6,14}$'
-       and ${snack ? "p.category = any($3::text[])" : "p.category <> all($3::text[])"}
-       and not exists (select 1 from bulk_shopify_fill f2 where f2.sku = p.sku)   -- a product lives in one store
-     order by p.scans desc nulls last, p.sku limit $4`,
+    `with have as (${HAVE_PER_CATEGORY}),
+     pool as (
+       select p.*, ${FAIR_RANK} as fair_rank
+         from bulk_products p
+         left join have h on h.category = p.category
+         left join bulk_shopify_fill f on f.sku = p.sku and f.store = $1
+        where p.source = 'open_food_facts' and f.sku is null and p.category is not null
+          and p.category <> all($2::text[])
+          and p.title <> '' and p.price is not null and p.sku ~ '^[0-9]{6,14}$'
+          and ${snack ? "p.category = any($3::text[])" : "p.category <> all($3::text[])"}
+          and not exists (select 1 from bulk_shopify_fill f2 where f2.sku = p.sku))   -- a product lives in one store
+     select * from pool order by fair_rank, category, sku limit $4`,
     [handle, JUNK, SNACK, room],
   );
   log(handle, `have ${have}, adding up to ${rows.length}`);
@@ -172,20 +180,126 @@ async function fillStore(handle) {
   );
 }
 
+// ---------- non-food: the UCI Online Retail II catalogue ----------
+//
+// Every Open Food Facts row is food, so no ordering of it can make a store look like
+// anything but a grocer. These 4,721 rows are the only non-food catalogue in Tiger,
+// and they are the only one whose prices are real rather than generated. They were
+// invisible to the loader because its candidate filter requires a `^[0-9]{6,14}$`
+// barcode and UCI stock codes are alphanumeric ("85023C"), so none of the 4,721
+// matched.
+//
+// They go to the five supplier stores, which hold 25-66 products each against
+// BaseGoods' and SnackBox's 20,000. Each store leads with the category that matches
+// what it actually makes; "Home & gifts" is over half the corpus and is dealt out
+// afterwards to whichever store is smallest, which lands them all on one headcount.
+const UCI_ROUTES = {
+  packship: ["Storage & bags", "Kitchen & dining"],
+  printpress: ["Stationery & wrap", "Seasonal"],
+  laserlab: ["Lighting & candles"],
+  stitchworks: [],
+  threadforge: [],
+};
+// UCI is a UK dataset priced in GBP and every dev store settles in CAD, so the price
+// is converted rather than pasted. Same rate as rox_data/pipeline/config.mjs FX_TO_CAD.
+const GBP_TO_CAD = 1 / 0.58;
+const roleOf = (handle) => handle.replace(/-[a-z0-9]+$/, "");
+// UCI titles are uppercase inventory strings; the admin reads better in title case.
+const titleCase = (s) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (c) => c.toUpperCase());
+
+function toUciInput(p) {
+  const title = titleCase(p.title);
+  const price = (Number(p.price) * GBP_TO_CAD).toFixed(2);
+  return {
+    handle: `uci-${String(p.sku).toLowerCase()}`,
+    title: title.slice(0, 250),
+    vendor: "Online Retail",
+    productType: (p.category || "General merchandise").slice(0, 100),
+    status: "ACTIVE",
+    tags: [
+      "MOLECULE_DEMO",
+      "uci-online-retail",
+      // The listed price is real; only the currency conversion is ours. Both facts
+      // are on the product so neither is mistaken for the other.
+      "real-price",
+      "price-converted-gbp-cad",
+      p.category && `cat:${p.category}`.slice(0, 40),
+    ].filter(Boolean),
+    descriptionHtml: `<p>${esc(title)}.</p><p><small>Source: UCI Online Retail II. Listed at £${Number(p.price).toFixed(2)} GBP, shown here converted to CAD.</small></p>`,
+    productOptions: [{ name: "Size", values: [{ name: "Standard" }] }],
+    variants: [
+      {
+        optionValues: [{ optionName: "Size", name: "Standard" }],
+        price,
+        sku: `UCI-${p.sku}`,
+      },
+    ],
+  };
+}
+
+/** Deal the UCI rows out to the supplier stores: lead categories first, then balance. */
+function assignUci(rows, handles) {
+  const byStore = new Map(handles.map((h) => [h, []]));
+  const lead = new Map();
+  for (const h of handles)
+    for (const cat of UCI_ROUTES[roleOf(h)] ?? []) lead.set(cat, h);
+
+  const spare = [];
+  for (const p of rows) {
+    const h = lead.get(p.category);
+    if (h && byStore.has(h)) byStore.get(h).push(p);
+    else spare.push(p);
+  }
+  // Smallest store takes the next row, so the stores converge on equal totals
+  // regardless of how lopsided the lead categories are.
+  spare.sort((a, b) => (a.sku < b.sku ? -1 : 1));
+  for (const p of spare) {
+    let smallest = null;
+    for (const [h, list] of byStore)
+      if (!smallest || list.length < byStore.get(smallest).length) smallest = h;
+    byStore.get(smallest).push(p);
+  }
+  return byStore;
+}
+
 // ---------- bulk mode: Shopify runs the mutations server-side, no client process has to stay alive ----------
 const BULK_MUTATION = MUTATION.replace(/\s+/g, " ").trim();
 const batchSize = Number(args.batch ?? 10000);
+
+// Round-robin across categories instead of straight popularity. Ordering by
+// `scans desc` spends a whole batch on the handful of huge categories: six of
+// BaseGoods' 2,041 categories hold 78% of its rows, so 793 small categories stayed
+// nearly empty. Ranking within each category and ordering by that rank takes one
+// product from every category before it takes a second from any, which exhausts the
+// small categories first and throttles the giants - a max-min fair split.
+//
+// The rank starts at however many of that category are already in the store, so the
+// target is the FINAL headcount, not the increment. A category that earlier
+// popularity-ordered runs already over-filled begins deep in the order and waits
+// while the rest catch up. `scans desc` still decides which products win inside a
+// category, so the popular ones go first where it does not cost diversity.
+const FAIR_RANK = `coalesce(h.n, 0) + row_number() over (
+       partition by p.category order by p.scans desc nulls last, p.sku)`;
+const HAVE_PER_CATEGORY = `select p.category, count(*) n
+       from bulk_products p join bulk_shopify_fill f on f.sku = p.sku
+      where p.source = 'open_food_facts' group by 1`;
 
 async function candidates(handle, n) {
   const snack = /^snackbox/.test(handle);
   return (
     await db.query(
-      `select p.* from bulk_products p
-     where p.source = 'open_food_facts' and p.category is not null and p.category <> all($1::text[])
-       and p.title <> '' and p.price is not null and p.sku ~ '^[0-9]{6,14}$'
-       and ${snack ? "p.category = any($2::text[])" : "p.category <> all($2::text[])"}
-       and not exists (select 1 from bulk_shopify_fill f where f.sku = p.sku)
-     order by p.scans desc nulls last, p.sku limit $3`,
+      `with have as (${HAVE_PER_CATEGORY}),
+     pool as (
+       select p.*, ${FAIR_RANK} as fair_rank
+         from bulk_products p left join have h on h.category = p.category
+        where p.source = 'open_food_facts' and p.category is not null and p.category <> all($1::text[])
+          and p.title <> '' and p.price is not null and p.sku ~ '^[0-9]{6,14}$'
+          and ${snack ? "p.category = any($2::text[])" : "p.category <> all($2::text[])"}
+          and not exists (select 1 from bulk_shopify_fill f where f.sku = p.sku))
+     select * from pool order by fair_rank, category, sku limit $3`,
       [JUNK, SNACK, n],
     )
   ).rows;
@@ -215,12 +329,15 @@ async function submitBulk(handle) {
   if (n <= 0) return log(handle, `cap reached (${have}/${perStore})`);
   const rows = await candidates(handle, n);
   if (!rows.length) return log(handle, "no more candidate products");
-  const jsonl =
-    rows
-      .map((p) =>
-        JSON.stringify({ input: toInput(p), id: { handle: `off-${p.sku}` } }),
-      )
-      .join("\n") + "\n";
+  return stageAndRun(handle, rows, (p) => ({
+    input: toInput(p),
+    id: { handle: `off-${p.sku}` },
+  }));
+}
+
+/** Stage a JSONL of productSet variables and hand it to Shopify to run server-side. */
+async function stageAndRun(handle, rows, build) {
+  const jsonl = rows.map((p) => JSON.stringify(build(p))).join("\n") + "\n";
   if (args.dry)
     return log(
       handle,
@@ -278,6 +395,40 @@ async function submitBulk(handle) {
   );
 }
 
+/** One pass over the whole UCI catalogue: assign, then submit one bulk op per store. */
+async function submitUci(handles) {
+  const targets = handles.filter((h) => roleOf(h) in UCI_ROUTES);
+  if (!targets.length)
+    return log("uci", "none of the requested stores take non-food products");
+  const open = (
+    await db.query(
+      "select count(*) n from bulk_shopify_ops where store = any($1::text[]) and collected_at is null",
+      [targets],
+    )
+  ).rows[0].n;
+  if (Number(open) > 0)
+    return log("uci", `${open} bulk operation(s) still open: run --collect first`);
+
+  const { rows } = await db.query(
+    `select * from bulk_products
+      where source = 'uci_online_retail_ii' and title <> '' and price is not null
+        and not exists (select 1 from bulk_shopify_fill f where f.sku = bulk_products.sku)
+      order by sku`,
+  );
+  if (!rows.length) return log("uci", "no more candidate products");
+
+  const byStore = assignUci(rows, targets);
+  for (const [handle, list] of byStore) {
+    if (!list.length) continue;
+    const mix = [...new Set(list.map((p) => p.category))].join(", ");
+    log(handle, `${list.length} non-food products (${mix})`);
+    await stageAndRun(handle, list, (p) => ({
+      input: toUciInput(p),
+      id: { handle: `uci-${String(p.sku).toLowerCase()}` },
+    }));
+  }
+}
+
 async function collectBulk(handle) {
   const ops = (
     await db.query(
@@ -314,14 +465,16 @@ async function collectBulk(handle) {
         const ps = JSON.parse(line).data?.productSet;
         if (ps?.product?.id) {
           ok++;
-          skus.push(String(ps.product.handle).replace(/^off-/, ""));
+          // Shopify lowercases handles, and UCI stock codes carry letters
+          // ("85023C" -> "uci-85023c"), so the sku is recovered case-insensitively.
+          skus.push(String(ps.product.handle).replace(/^(?:off|uci)-/, ""));
           gids.push(ps.product.id);
         } else bad++;
       }
       // one round trip per 2,000 products instead of one per product
       for (let i = 0; i < skus.length; i += 2000) {
         await db.query(
-          "update bulk_shopify_fill f set product_gid = t.gid, error = null from (select unnest($2::text[]) as sku, unnest($3::text[]) as gid) t where f.store = $1 and f.sku = t.sku",
+          "update bulk_shopify_fill f set product_gid = t.gid, error = null from (select unnest($2::text[]) as sku, unnest($3::text[]) as gid) t where f.store = $1 and lower(f.sku) = t.sku",
           [handle, skus.slice(i, i + 2000), gids.slice(i, i + 2000)],
         );
       }
@@ -342,11 +495,13 @@ async function collectBulk(handle) {
 }
 
 try {
-  await Promise.all(
-    stores.map((h) =>
-      args.collect ? collectBulk(h) : args.bulk ? submitBulk(h) : fillStore(h),
-    ),
-  );
+  if (args.uci && !args.collect) await submitUci(stores);
+  else
+    await Promise.all(
+      stores.map((h) =>
+        args.collect ? collectBulk(h) : args.bulk ? submitBulk(h) : fillStore(h),
+      ),
+    );
 } finally {
   const t = (
     await db.query(

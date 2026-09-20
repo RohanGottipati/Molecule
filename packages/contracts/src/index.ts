@@ -1211,3 +1211,5 @@ export {
   hasUncompiledContext,
   isPlanningState,
 } from "./capabilities.js";
+
+export * from "./shopify-console.js";

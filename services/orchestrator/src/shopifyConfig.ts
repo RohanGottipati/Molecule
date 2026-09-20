@@ -5,6 +5,7 @@ import {
   type ShopifyAuth,
   type ShopifyTransportOptions,
 } from "@molecule/shopify";
+import { PersistentFakeShopifyAdmin, DEMO_STORE_HANDLES } from "@molecule/shopify/fake";
 import type { Config } from "./config.js";
 
 const AuthSchema = z.union([
@@ -125,5 +126,60 @@ function resolveLiveShopifyConfiguration(config: Config) {
     centralStore: { domain: centralDomain, auth: centralAuth },
     supplierStores,
     snapshotStores,
+  };
+}
+
+/**
+ * Local synthetic stores served by an in-process fake Admin API.
+ *
+ * Returns the SAME shape as `liveShopifyConfiguration`, so every downstream consumer
+ * (`RealShopifyClient`, `ShopifyTransport`, `syncCatalogInventory`) is identical in fake and
+ * live mode — the only difference is the injected `fetch`. That is what makes fake mode a
+ * real test of the live code path rather than a parallel one.
+ *
+ * No credentials are read or required. The placeholder token never leaves this process.
+ */
+export function fakeShopifyConfiguration(config: Config): {
+  centralStore: ShopifyTransportOptions;
+  supplierStores: Record<string, ShopifyTransportOptions>;
+  snapshotStores: string[];
+  admin: PersistentFakeShopifyAdmin;
+} {
+  const configured = configuredShopifyDomains(config.SHOPIFY_STORES);
+  const domains = configured.length
+    ? configured
+    : DEMO_STORE_HANDLES.map((handle) => domain(handle));
+
+  const admin = new PersistentFakeShopifyAdmin({ stores: domains });
+  const auth: ShopifyAuth = { accessToken: "shpat_fake_local" };
+  const store = (value: string): ShopifyTransportOptions => ({
+    domain: value,
+    auth,
+    fetch: admin.fetch,
+  });
+
+  const storefront =
+    config.SHOPIFY_STOREFRONT_DOMAIN ?? config.MOLECULE_STOREFRONT_DOMAIN;
+  const centralDomain = domain(
+    storefront ??
+      domains.find((value) => merchantIdForShopifyStore(value) === "molecule") ??
+      domains[0]!,
+  );
+
+  const supplierStores: Record<string, ShopifyTransportOptions> = {};
+  for (const value of domains) {
+    if (value === centralDomain) continue;
+    const merchantId = merchantIdForShopifyStore(value);
+    // Unknown merchants remain unmapped here exactly as they do in live mode; the fake never
+    // invents an operational identity that the real configuration would refuse.
+    if (!merchantId || supplierStores[merchantId]) continue;
+    supplierStores[merchantId] = store(value);
+  }
+
+  return {
+    centralStore: store(centralDomain),
+    supplierStores,
+    snapshotStores: domains,
+    admin,
   };
 }

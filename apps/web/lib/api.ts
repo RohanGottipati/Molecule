@@ -18,6 +18,11 @@ import {
   ProjectListQuerySchema,
   ProjectListSchema,
   RealtimeSessionSchema,
+  StoreAnalyticsSchema,
+  StoreCatalogSchema,
+  StoreCustomersSchema,
+  StoreListSchema,
+  StoreOrdersSchema,
   type ActionStatusQuery,
   type AssetRef,
   type BriefClarificationResult,
@@ -255,6 +260,43 @@ export async function getCapabilities(orderId: string, signal?: AbortSignal) {
     );
   return result;
 }
+
+/**
+ * Store console readers. Each one parses the response, so a read-model change surfaces as a
+ * clear error instead of a half-rendered page.
+ */
+async function parsed<T>(
+  path: string,
+  schema: { safeParse: (value: unknown) => { success: boolean; data?: T } },
+  signal?: AbortSignal,
+): Promise<T> {
+  const result = schema.safeParse(await request(path, { signal }));
+  if (!result.success || result.data === undefined)
+    throw new RequestError(
+      "Store data is incompatible. Ask the operator to check the read model.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return result.data;
+}
+
+const storePath = (domain: string, suffix: string) =>
+  `/api/stores/${encodeURIComponent(domain)}/${suffix}`;
+
+export const getStores = (signal?: AbortSignal) =>
+  parsed("/api/stores", StoreListSchema, signal);
+
+export const getStoreCatalog = (domain: string, signal?: AbortSignal) =>
+  parsed(storePath(domain, "catalog"), StoreCatalogSchema, signal);
+
+export const getStoreOrders = (domain: string, signal?: AbortSignal) =>
+  parsed(storePath(domain, "orders"), StoreOrdersSchema, signal);
+
+export const getStoreCustomers = (domain: string, signal?: AbortSignal) =>
+  parsed(storePath(domain, "customers"), StoreCustomersSchema, signal);
+
+export const getStoreAnalytics = (domain: string, signal?: AbortSignal) =>
+  parsed(storePath(domain, "analytics"), StoreAnalyticsSchema, signal);
 
 export async function getMarketplace(signal?: AbortSignal) {
   try {

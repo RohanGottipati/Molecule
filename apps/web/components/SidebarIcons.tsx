@@ -6,7 +6,8 @@ export type SidebarIconName =
   | "sources"
   | "activity"
   | "plan"
-  | "recipes";
+  | "recipes"
+  | "stores";
 
 const paths: Record<SidebarIconName, string> = {
   home: "m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10",
@@ -21,6 +22,8 @@ const paths: Record<SidebarIconName, string> = {
   plan: "M9 11.5l2 2 4-4M5 5h14v15H5V5ZM8 3h8v3H8V3Z",
   recipes:
     "M12 6.5C10.5 5 8 4 4 4v14c4 0 6.5 1 8 2.5M12 6.5C13.5 5 16 4 20 4v14c-4 0-6.5 1-8 2.5M12 6.5v12.5",
+  stores:
+    "M4 9h16l-1.2-4.2A1 1 0 0 0 17.8 4H6.2a1 1 0 0 0-1 .8L4 9Zm0 0v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9M9 13h6",
 };
 
 export function SidebarIcon({ name }: { name: SidebarIconName }) {
