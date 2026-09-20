@@ -1,0 +1,236 @@
+{
+  "createdAt": "2026-09-20T00:57:08.276Z",
+  "revision": "a297d00348f0b6ab194047a71c78fd7abd3ad919",
+  "sourceHashes": {
+    "evaluate.mjs": "2ee3848e565b9d9cbc3874ab0fdd2f37ed760b0fe62795e8e3abe8932232d3f0",
+    "normalize.mjs": "ccf5ff7460ad51fe6b69a266ff919d29d00222acf5611dbdbf5ca7d48a22b910",
+    "db.mjs": "6539aca13b9a0ed73d1239c5edf73f95be74c39207acdde35bfdb7a8f0afe435",
+    "config.mjs": "71b0cb7310862c96aa18c2ecd0dfe09f8f9a7a41e1268138e2889f30aa105df9",
+    "score.mjs": "9e27aeeac5025048db67696896e41251ff475ce5fd6b5f2d7c3da590c2315d3b"
+  },
+  "snapshotHash": "e6e1b9043529802ba33e0af56372a35813597a8271acbb78d20e9915d66c2199",
+  "result": {
+    "version": "rox-evaluation-v2",
+    "counts": {
+      "extraction": {
+        "correct": 592,
+        "wrong": 19,
+        "missing": 16,
+        "extra": 77
+      },
+      "attribution": {
+        "correct": 356,
+        "total": 627
+      },
+      "normalization": {
+        "correct": 356,
+        "total": 627,
+        "unsupported_truth": 0
+      },
+      "quarantine": {
+        "correct": 11,
+        "total": 21
+      },
+      "ambiguity": {
+        "held": 21,
+        "total": 27
+      },
+      "injection": {
+        "blocked": 16,
+        "total": 16
+      },
+      "evidence": {
+        "claimed": 474,
+        "unsupported": 0
+      },
+      "population": {
+        "selected": 1226,
+        "completed": 1144,
+        "without_extractions": 866
+      }
+    },
+    "metrics": {
+      "extraction_precision_pct": 86,
+      "extraction_recall_pct": 94.4,
+      "attribution_accuracy_pct": 56.8,
+      "normalization_accuracy_pct": 56.8,
+      "quarantine_recall_pct": 52.4,
+      "ambiguity_held_pct": 77.8,
+      "injection_defense_pct": 100,
+      "claimed_evidence_missing_pct": 0,
+      "outlier_containment_pct": null,
+      "artifacts_scored": 1226,
+      "truth_rows_scored": 691
+    },
+    "failures": [
+      {
+        "truthId": "0505a05d6910",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "05e5514f2bc2",
+        "extractionId": "b94021841f4e5d1322ffa40f",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "05ed20660589",
+        "extractionId": "e3bedce6047c9c197ef26587",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "0f2e16c4ae10",
+        "extractionId": "da68fe7b8f2524213d706d1c",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "22b9309e36d9",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "2403d241759a",
+        "extractionId": "0797abddd386b2ac9f68ecda",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "30fb796ff1ca",
+        "extractionId": "e5948183a3e35b2f8cd2b827",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "33dcff432a02",
+        "extractionId": "289e4a89b7e8f31b7838d9d2",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "41c2612c7173",
+        "extractionId": "6c20fbc8ba12e2defccbc570",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "4e92fefd1751",
+        "extractionId": "d20929ee3f3a55b1312dba9b",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "58c15d9ac078",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "58e351334e20",
+        "extractionId": "0b07cd8e46e98852faa34d2c",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "62336949c9a1",
+        "extractionId": "c5055a8186e12b76c2b744a2",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "67fc6eb40d60",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "6df5bcdf1187",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "764517488aa7",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "85239a7e5bd2",
+        "extractionId": "cf0f2627b4e29368cad2ee3e",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "979b0c225271",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "9862347179cd",
+        "extractionId": "893753a09cbdecf3e9c681c0",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "9e2cb489f5c1",
+        "extractionId": "fb1f0d1b6603ed7aa224cafd",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "a26b0179673f",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "a2b90c68f3fa",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "ab1b28b2c8ad",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "ac8935f6f40e",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "b5ac18f5e7e1",
+        "extractionId": "cd12d11155234f3d2d4aa75f",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "c2f6bcea0007",
+        "extractionId": "a01c7d651e0f0b2fb48c74b0",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "d19af4dd5111",
+        "extractionId": "e6a9a5ef8713c1b122fc5c20",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "d807c68777ff",
+        "extractionId": "e06a68e7d86968b0be0ed289",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "d9e0d11c0047",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "dc6e36017aaf",
+        "extractionId": "32fcb3fb092da4cd1c76beb7",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "e661bb01947d",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "e680afdab120",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "e6d3d2d8df12",
+        "extractionId": "58a21ca07c86961e94ea4243",
+        "reason": "wrong_value"
+      },
+      {
+        "truthId": "ef1cec7b6b2c",
+        "reason": "missing_extraction"
+      },
+      {
+        "truthId": "f21e0fd7082b",
+        "reason": "missing_extraction"
+      }
+    ],
+    "limitations": [
+      "Historical selected/failed artifact identities are unavailable; this full-batch denominator includes potentially unattempted inputs. Do not compare with selected-run scores.",
+      "Evidence presence does not prove the cited text supports the value.",
+      "Normalization measures stated values under frozen demo FX/business-day conventions, not real operational truth.",
+      "Outlier containment is unavailable without a run-specific resolution snapshot; current global resolutions are never used.",
+      "One-to-one extraction matching uses source path, field kind and numerical value; attribution is evaluated separately."
+    ]
+  },
+  "scope": "legacy_full_batch_diagnostic",
+  "runId": "rox-20260919210029-d119c8a7"
+}

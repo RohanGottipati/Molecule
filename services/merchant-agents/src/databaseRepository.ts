@@ -25,6 +25,33 @@ export class DatabaseMerchantAgentRepository implements MerchantAgentRepository 
     return result.rows[0]?.record;
   }
 
+  async listAssistantsForMerchants(
+    merchantIds: string[],
+  ): Promise<Map<string, MerchantAssistant>> {
+    if (!merchantIds.length) return new Map();
+    const result = await this.db.query<{
+      merchant_id: string;
+      record: MerchantAssistant;
+    }>(
+      `select merchant_id,record from merchant_twin_assistants
+       where merchant_id=any($1::text[]) and mode=$2`,
+      [merchantIds, this.mode],
+    );
+    return new Map(result.rows.map((row) => [row.merchant_id, row.record]));
+  }
+
+  async syncMerchantAssistantIds(merchantIds: string[]): Promise<void> {
+    if (!merchantIds.length) return;
+    await this.db.query(
+      `update merchants m set backboard_assistant_id=a.record->>'assistantId'
+       from merchant_twin_assistants a
+       where m.merchant_id=a.merchant_id and a.mode=$2
+         and m.merchant_id=any($1::text[])
+         and m.backboard_assistant_id is distinct from a.record->>'assistantId'`,
+      [merchantIds, this.mode],
+    );
+  }
+
   async saveAssistant(record: MerchantAssistant): Promise<void> {
     await this.db.query(
       `insert into merchant_twin_assistants (merchant_id, mode, record)
@@ -53,11 +80,31 @@ export class DatabaseMerchantAgentRepository implements MerchantAgentRepository 
   }
 
   async listDocuments(merchantId: string): Promise<MerchantDocument[]> {
-    const result = await this.db.query<{ record: MerchantDocument }>(
-      "select record from merchant_twin_documents where merchant_id=$1 and mode=$2 order by category,version",
-      [merchantId, this.mode],
+    return (
+      (await this.listDocumentsForMerchants([merchantId])).get(merchantId) ?? []
     );
-    return result.rows.map((row) => row.record);
+  }
+
+  async listDocumentsForMerchants(
+    merchantIds: string[],
+  ): Promise<Map<string, MerchantDocument[]>> {
+    if (!merchantIds.length) return new Map();
+    const result = await this.db.query<{
+      merchant_id: string;
+      record: MerchantDocument;
+    }>(
+      `select merchant_id,record from merchant_twin_documents
+       where merchant_id=any($1::text[]) and mode=$2
+       order by merchant_id,category,version`,
+      [merchantIds, this.mode],
+    );
+    const documents = new Map<string, MerchantDocument[]>();
+    for (const row of result.rows) {
+      const entries = documents.get(row.merchant_id) ?? [];
+      entries.push(row.record);
+      documents.set(row.merchant_id, entries);
+    }
+    return documents;
   }
 
   async saveDocument(
@@ -92,11 +139,31 @@ export class DatabaseMerchantAgentRepository implements MerchantAgentRepository 
   }
 
   async listMemory(merchantId: string): Promise<MerchantMemoryEntry[]> {
-    const result = await this.db.query<{ record: MerchantMemoryEntry }>(
-      "select record from merchant_twin_memories where merchant_id=$1 and mode=$2 order by record->>'recordedAt'",
-      [merchantId, this.mode],
+    return (
+      (await this.listMemoryForMerchants([merchantId])).get(merchantId) ?? []
     );
-    return result.rows.map((row) => row.record);
+  }
+
+  async listMemoryForMerchants(
+    merchantIds: string[],
+  ): Promise<Map<string, MerchantMemoryEntry[]>> {
+    if (!merchantIds.length) return new Map();
+    const result = await this.db.query<{
+      merchant_id: string;
+      record: MerchantMemoryEntry;
+    }>(
+      `select merchant_id,record from merchant_twin_memories
+       where merchant_id=any($1::text[]) and mode=$2
+       order by merchant_id,record->>'recordedAt'`,
+      [merchantIds, this.mode],
+    );
+    const memories = new Map<string, MerchantMemoryEntry[]>();
+    for (const row of result.rows) {
+      const entries = memories.get(row.merchant_id) ?? [];
+      entries.push(row.record);
+      memories.set(row.merchant_id, entries);
+    }
+    return memories;
   }
 
   async saveMemory(record: MerchantMemoryEntry): Promise<void> {

@@ -45,7 +45,7 @@ export function mockBridge(): DesktopBridge {
     bootstrap: async () => ({
       apiUrl: "http://localhost:3001",
       settings,
-      shortcut: "Alt+Space",
+      shortcut: settings.shortcut,
     }),
     ready: async () => undefined,
     hideOverlay: async () => undefined,
@@ -57,7 +57,7 @@ export function mockBridge(): DesktopBridge {
       return {
         apiUrl: "http://localhost:3001",
         settings,
-        shortcut: "Alt+Space",
+        shortcut: settings.shortcut,
       };
     },
     getPermissionStatus: async () => ({

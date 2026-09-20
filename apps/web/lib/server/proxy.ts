@@ -18,6 +18,7 @@ const writePaths = [
   /^orders\/[^/]+\/(?:messages|approve)$/,
   /^projects\/[^/]+\/(?:context|actions)$/,
   /^chaos$/,
+  /^demo\/reset$/,
 ];
 
 function failure(status: number, message: string) {

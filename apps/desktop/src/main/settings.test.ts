@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { DEFAULT_SHORTCUT, LEGACY_DEFAULT_SHORTCUT } from "../shared/bridge.js";
 import { SettingsStore } from "./settings.js";
 
 const directories: string[] = [];
@@ -72,4 +73,28 @@ it("merges concurrent preference, position and resume writes without losing fiel
     position: { x: 120, y: 240 },
     lastProjectId: projectId,
   });
+});
+
+it("migrates the previous default shortcut without replacing custom shortcuts", async () => {
+  const legacyPath = await directory();
+  await writeFile(
+    join(legacyPath, "settings.json"),
+    JSON.stringify({ shortcut: LEGACY_DEFAULT_SHORTCUT }),
+  );
+  expect((await new SettingsStore(legacyPath).load()).shortcut).toBe(
+    DEFAULT_SHORTCUT,
+  );
+  expect(
+    JSON.parse(await readFile(join(legacyPath, "settings.json"), "utf8"))
+      .shortcut,
+  ).toBe(DEFAULT_SHORTCUT);
+
+  const customPath = await directory();
+  await writeFile(
+    join(customPath, "settings.json"),
+    JSON.stringify({ shortcut: "CommandOrControl+K" }),
+  );
+  expect((await new SettingsStore(customPath).load()).shortcut).toBe(
+    "CommandOrControl+K",
+  );
 });

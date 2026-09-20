@@ -374,6 +374,20 @@ export async function triggerChaos(
   );
 }
 
+export async function resetDemoMarketplace(): Promise<void> {
+  try {
+    await request("/api/demo/reset", { method: "POST", body: "{}" });
+  } catch (error) {
+    if (error instanceof RequestError && error.status === 404)
+      throw new RequestError(
+        "Demo reset is only available when the server runs in demo mode with PostgreSQL storage.",
+        404,
+        "NOT_FOUND",
+      );
+    throw error;
+  }
+}
+
 export function fileMetadata(file: File, actionId: string) {
   const mimeType =
     file.type ||

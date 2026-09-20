@@ -239,8 +239,10 @@ export function PlanReview({
               !workspace.configLoading &&
               !workspace.configError
             }
+            resetting={workspace.operation === "reset"}
             onApprove={() => void workspace.approve()}
             onOffline={(id) => void workspace.offline(id)}
+            onReset={() => void workspace.resetDemo()}
             events={events}
           />
         </>

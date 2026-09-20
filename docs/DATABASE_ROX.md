@@ -1,8 +1,11 @@
 # Database and ROX: current assessment and next steps
 
-Updated 2026-09-19 America/Toronto (2026-09-20 UTC). Start here for database,
-Reality, bulk data and ROX status. This is the current assessment; older release
-reports remain historical evidence, not current completion checklists.
+> Order 1 audit and scorer repair are now documented in [DATABASE_ORDER1.md](DATABASE_ORDER1.md).
+> That report supersedes the historical health, migration uncertainty and scoring behavior below;
+> the old numerical scorecard is retained as historical evidence.
+> Updated 2026-09-19 America/Toronto (2026-09-20 UTC). Start here for database,
+> Reality, bulk data and ROX status. This is the current assessment; older release
+> reports remain historical evidence, not current completion checklists.
 
 ## What is verified
 
@@ -139,14 +142,14 @@ another workstream's session or rerun old maintenance SQL without diagnosis.
 
 ## Prioritized work: one problem at a time
 
-| Order | Task                                                                                     | Completion evidence                                                                                                              |
-| ----- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Audit data provenance, accidental duplicates, migration state and health; repair scoring | Reproducible inventory and scorer that includes every attempted artifact, including empty/error results                          |
-| 2     | Choose one practical scenario; apparel supplier availability is recommended              | Defined inputs, uncertainty policy and useful downstream action                                                                  |
-| 3     | Collect authorized real examples; independently label answers                            | Versioned held-out dataset, human review, clear synthetic versus real reporting                                                  |
-| 4     | Fix attribution and normalization; consolidate shared contracts/resolution               | Focused tests plus stage and end-to-end results against the corrected benchmark                                                  |
-| 5     | Close the action loop                                                                    | Evidence -> resolution -> approved write-back -> solver-certified replan -> durable receipt; retries create no duplicate effects |
-| 6     | Measure Tiger's contribution and expose provenance in the UI                             | Reproducible query timings, matching quality, storage/aggregate benefit and restart/replay evidence                              |
+| Order | Task                                                                                           | Completion evidence                                                                                                              |
+| ----- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Audit data provenance, accidental duplicates, migration state and health; repair scoring       | Reproducible inventory and scorer that includes every attempted artifact, including empty/error results                          |
+| 2     | Choose one practical scenario; [StitchWorks apparel availability selected](DATABASE_ORDER2.md) | Defined inputs, uncertainty policy and useful downstream action                                                                  |
+| 3     | [Collect authorized real examples; independently label answers](DATABASE_ORDER3.md)            | Versioned held-out dataset, human review, clear synthetic versus real reporting                                                  |
+| 4     | Fix attribution and normalization; consolidate shared contracts/resolution                     | Focused tests plus stage and end-to-end results against the corrected benchmark                                                  |
+| 5     | Close the action loop                                                                          | Evidence -> resolution -> approved write-back -> solver-certified replan -> durable receipt; retries create no duplicate effects |
+| 6     | Measure Tiger's contribution and expose provenance in the UI                                   | Reproducible query timings, matching quality, storage/aggregate benefit and restart/replay evidence                              |
 
 Do not expand replay volume, store count or vision scope before these gates.
 Retain synthetic stress tests separately from real-data evaluation. Do not invent
@@ -174,6 +177,7 @@ lexical candidate search and ROX vector entity matching are different paths.
 - [Bulk dataset sources and scripts](TASKS/BULK_DATA_LOOP.md)
 - [Shopify sync/write-back design](TASKS/SHOPIFY_DATA_PIPELINE.md)
 - [Shopify ingestion implementation plan](TASKS/SHOPIFY_TIGER_INGESTION.md)
+- [Pipeline repair plan for the gaps above](TASKS/ROX_PIPELINE_FIX.md)
 - [Catalog staging](CATALOG_HANDOFF.md) and [delivery acceptance](CATALOG_DELIVERY_REVIEW.md)
 - [Original ROX design](../rox_data/PLAN.md) and [commands](../rox_data/README.md)
 

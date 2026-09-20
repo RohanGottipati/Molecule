@@ -6,11 +6,18 @@
 // The weights mirror services/reality/src/resolution.ts so the Rox pipeline and
 // the Reality service cannot disagree about what is true.
 
-import { RESOLUTION_WEIGHTS, CONFLICT_MARGIN, RECENCY_HALF_LIFE_DAYS } from "./config.mjs";
+import {
+  RESOLUTION_WEIGHTS,
+  CONFLICT_MARGIN,
+  RECENCY_HALF_LIFE_DAYS,
+} from "./config.mjs";
 import { shortId, stableJson, bumpStage, emitEvent } from "./db.mjs";
 
 export function recencyScore(observedAt, now) {
-  const ageDays = Math.max(0, (now.getTime() - new Date(observedAt).getTime()) / 86400000);
+  const ageDays = Math.max(
+    0,
+    (now.getTime() - new Date(observedAt).getTime()) / 86400000,
+  );
   return Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
 }
 
@@ -18,8 +25,12 @@ export function recencyScore(observedAt, now) {
 export function corroboration(claim, all) {
   const agreeing = new Set(
     all
-      .filter((o) => o.claim_id !== claim.claim_id && o.source_reference !== claim.source_reference &&
-                     stableJson(o.normalized_value) === stableJson(claim.normalized_value))
+      .filter(
+        (o) =>
+          o.claim_id !== claim.claim_id &&
+          o.source_reference !== claim.source_reference &&
+          stableJson(o.normalized_value) === stableJson(claim.normalized_value),
+      )
       .map((o) => o.source_reference),
   ).size;
   return agreeing === 0 ? 0 : 1 - 1 / (agreeing + 1);
@@ -36,13 +47,21 @@ export function scoreClaims(claims, now = new Date()) {
         RESOLUTION_WEIGHTS.corroboration * corroboration(c, claims);
       return { claim: c, score, recency };
     })
-    .sort((a, b) => b.score - a.score || String(a.claim.claim_id).localeCompare(String(b.claim.claim_id)));
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        String(a.claim.claim_id).localeCompare(String(b.claim.claim_id)),
+    );
 }
 
 export function decide(scored) {
   if (!scored.length) return { status: "unknown" };
   const top = scored[0];
-  const runnerUp = scored.find((s) => stableJson(s.claim.normalized_value) !== stableJson(top.claim.normalized_value));
+  const runnerUp = scored.find(
+    (s) =>
+      stableJson(s.claim.normalized_value) !==
+      stableJson(top.claim.normalized_value),
+  );
   if (!runnerUp || top.score - runnerUp.score >= CONFLICT_MARGIN) {
     return { status: "resolved", winner: top, runnerUp };
   }
@@ -50,10 +69,14 @@ export function decide(scored) {
 }
 
 export function explain(decision, scored) {
-  if (decision.status === "unknown") return "No active claims for this field. Status: unknown.";
+  if (decision.status === "unknown")
+    return "No active claims for this field. Status: unknown.";
   if (decision.status === "conflicted") {
     const list = decision.contenders
-      .map((c) => `${JSON.stringify(c.claim.normalized_value)} ${c.claim.normalized_unit ?? ""} from ${c.claim.source_kind} (${c.claim.source_reference}, score ${c.score.toFixed(3)})`)
+      .map(
+        (c) =>
+          `${JSON.stringify(c.claim.normalized_value)} ${c.claim.normalized_unit ?? ""} from ${c.claim.source_kind} (${c.claim.source_reference}, score ${c.score.toFixed(3)})`,
+      )
       .join(" vs ");
     return `Conflicted: no value cleared the ${CONFLICT_MARGIN} margin. ${list}. ${scored.length} active claims.`;
   }
@@ -63,12 +86,20 @@ export function explain(decision, scored) {
     `${RESOLUTION_WEIGHTS.recency}*recency(${w.recency.toFixed(2)})`,
     `${RESOLUTION_WEIGHTS.confidence}*confidence(${Number(w.claim.extraction_confidence).toFixed(2)})`,
   ].join(" + ");
-  const margin = decision.runnerUp ? ` Beat ${JSON.stringify(decision.runnerUp.claim.normalized_value)} by ${(w.score - decision.runnerUp.score).toFixed(3)}.` : " No competing value.";
+  const margin = decision.runnerUp
+    ? ` Beat ${JSON.stringify(decision.runnerUp.claim.normalized_value)} by ${(w.score - decision.runnerUp.score).toFixed(3)}.`
+    : " No competing value.";
   return `Resolved to ${JSON.stringify(w.claim.normalized_value)} ${w.claim.normalized_unit ?? ""} from ${w.claim.source_kind} (${w.claim.source_reference}), score ${w.score.toFixed(3)} = ${parts}.${margin}`;
 }
 
 export async function resolve(db, { runId, traceId, all = false }) {
-  const counts = { fields: 0, resolved: 0, conflicted: 0, unknown: 0, changed: 0 };
+  const counts = {
+    fields: 0,
+    resolved: 0,
+    conflicted: 0,
+    unknown: 0,
+    changed: 0,
+  };
   const now = new Date();
 
   // Fields this run touched, unless asked for a full re-resolution.
@@ -92,8 +123,12 @@ export async function resolve(db, { runId, traceId, all = false }) {
     const scored = scoreClaims(claims, now);
     const decision = decide(scored);
     const explanation = explain(decision, scored);
-    const value = decision.status === "resolved" ? decision.winner.claim.normalized_value : null;
-    const winner = decision.status === "resolved" ? decision.winner.claim.claim_id : null;
+    const value =
+      decision.status === "resolved"
+        ? decision.winner.claim.normalized_value
+        : null;
+    const winner =
+      decision.status === "resolved" ? decision.winner.claim.claim_id : null;
 
     const { rows: before } = await db.query(
       `select status, value from canonical_resolutions where merchant_id = $1 and field = $2`,
@@ -105,16 +140,35 @@ export async function resolve(db, { runId, traceId, all = false }) {
        on conflict (merchant_id, field) do update
          set status = excluded.status, winning_claim_id = excluded.winning_claim_id, value = excluded.value,
              explanation = excluded.explanation, scores = excluded.scores, updated_at = now()`,
-      [merchant_id, field, decision.status, winner, value === null ? null : JSON.stringify(value), explanation,
-       JSON.stringify(scored.map((s) => ({
-         claimId: s.claim.claim_id, value: s.claim.normalized_value, unit: s.claim.normalized_unit,
-         source: s.claim.source_kind, reference: s.claim.source_reference,
-         authority: Number(s.claim.source_authority), confidence: Number(s.claim.extraction_confidence),
-         recency: Number(s.recency.toFixed(4)), score: Number(s.score.toFixed(4)),
-       })))],
+      [
+        merchant_id,
+        field,
+        decision.status,
+        winner,
+        value === null ? null : JSON.stringify(value),
+        explanation,
+        JSON.stringify(
+          scored.map((s) => ({
+            claimId: s.claim.claim_id,
+            value: s.claim.normalized_value,
+            unit: s.claim.normalized_unit,
+            source: s.claim.source_kind,
+            reference: s.claim.source_reference,
+            authority: Number(s.claim.source_authority),
+            confidence: Number(s.claim.extraction_confidence),
+            recency: Number(s.recency.toFixed(4)),
+            score: Number(s.score.toFixed(4)),
+          })),
+        ),
+      ],
     );
 
-    if (!before[0] || before[0].status !== decision.status || stableJson(before[0].value) !== stableJson(value)) counts.changed += 1;
+    if (
+      !before[0] ||
+      before[0].status !== decision.status ||
+      stableJson(before[0].value) !== stableJson(value)
+    )
+      counts.changed += 1;
     counts[decision.status] += 1;
 
     if (decision.status === "conflicted") {
@@ -128,11 +182,22 @@ export async function resolve(db, { runId, traceId, all = false }) {
         `insert into claim_conflicts (conflict_id, merchant_id, field, claim_ids, status)
          values ($1,$2,$3,$4,'conflicted')
          on conflict (conflict_id) do update set claim_ids = excluded.claim_ids, status = 'conflicted'`,
-        [shortId("conflict", merchant_id, field), merchant_id, field, scored.map((s) => s.claim.claim_id)],
+        [
+          shortId("conflict", merchant_id, field),
+          merchant_id,
+          field,
+          scored.map((s) => s.claim.claim_id),
+        ],
       );
       await emitEvent(db, {
-        traceId, type: "reality.claim.conflicted", severity: "WARN", merchantId: merchant_id,
-        payload: { field, values: decision.contenders.map((c) => c.claim.normalized_value) },
+        traceId,
+        type: "reality.claim.conflicted",
+        severity: "WARN",
+        merchantId: merchant_id,
+        payload: {
+          field,
+          values: decision.contenders.map((c) => c.claim.normalized_value),
+        },
       });
     } else if (decision.status === "resolved") {
       await db.query(
@@ -141,13 +206,19 @@ export async function resolve(db, { runId, traceId, all = false }) {
         [merchant_id, field, winner],
       );
       await emitEvent(db, {
-        traceId, type: "reality.claim.resolved", merchantId: merchant_id,
+        traceId,
+        type: "reality.claim.resolved",
+        merchantId: merchant_id,
         payload: { field, value, claimId: winner },
       });
     }
   }
 
   await bumpStage(db, runId, "resolve", counts);
-  await emitEvent(db, { traceId, type: "rox.resolve.completed", payload: counts });
+  await emitEvent(db, {
+    traceId,
+    type: "rox.resolve.completed",
+    payload: counts,
+  });
   return counts;
 }

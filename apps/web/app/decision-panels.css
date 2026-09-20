@@ -219,6 +219,19 @@
 .decision-job-preview li + li {
   border-top: 1px solid var(--line);
 }
+.decision-recovery-reset {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+}
+.decision-recovery-reset .decision-recovery-choice {
+  align-items: flex-start;
+}
+.decision-recovery-reset .decision-recovery-choice p {
+  margin: 4px 0 0;
+}
+.decision-recovery-reset button {
+  flex-shrink: 0;
+}
 .decision-status {
   padding: 12px 0;
   font-weight: 500;

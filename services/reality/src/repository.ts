@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { CanonicalClaim } from "@molecule/contracts";
 
 import {
   effectId,
@@ -34,6 +35,66 @@ export class ClaimIngestionError extends Error {
   }
 }
 
+export function resolveMerchantClaims(
+  claims: CanonicalClaim[],
+  now: Date,
+): {
+  field: string;
+  fieldClaims: CanonicalClaim[];
+  result: ReturnType<typeof resolveClaims>;
+  explanation: string;
+  winner: CanonicalClaim | undefined;
+  fact: ResolvedFact;
+}[] {
+  const claimsByField = new Map<string, CanonicalClaim[]>();
+  for (const claim of claims) {
+    const entries = claimsByField.get(claim.field) ?? [];
+    entries.push(claim);
+    claimsByField.set(claim.field, entries);
+  }
+  return [...claimsByField]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([field, fieldClaims]) => {
+      const result = resolveClaims(
+        fieldClaims.map((claim) => ({
+          ...claim,
+          // Resolution may reconsider losing sources, but cannot revive an old
+          // observation after a newer value from the same source stream arrived.
+          resolutionStatus: fieldClaims.some(
+            (other) =>
+              other.source.kind === claim.source.kind &&
+              other.source.reference === claim.source.reference &&
+              !["quarantined", "unknown"].includes(other.resolutionStatus) &&
+              Date.parse(other.observedAt ?? other.ingestedAt) >
+                Date.parse(claim.observedAt ?? claim.ingestedAt),
+          )
+            ? "superseded"
+            : claim.resolutionStatus === "superseded"
+              ? "active"
+              : claim.resolutionStatus,
+        })),
+        now,
+      );
+      const explanation = explainResolution(result);
+      const winner =
+        result.status === "resolved" ? result.winner.claim : undefined;
+      return {
+        field,
+        fieldClaims,
+        result,
+        explanation,
+        winner,
+        fact: {
+          field,
+          status: result.status,
+          value: winner?.normalizedValue,
+          winningClaimId: winner?.claimId,
+          explanation,
+        },
+      };
+    });
+}
+
 export async function resolveMerchant(
   merchantId: string,
   traceId: string,
@@ -46,38 +107,14 @@ export async function resolveMerchant(
   );
   const claims = await listMerchantClaims(merchantId, client);
   const facts: ResolvedFact[] = [];
-  for (const field of [...new Set(claims.map((claim) => claim.field))].sort()) {
-    const fieldClaims = claims.filter((claim) => claim.field === field);
-    const result = resolveClaims(
-      fieldClaims.map((claim) => ({
-        ...claim,
-        // Resolution may reconsider losing sources, but cannot revive an old
-        // observation after a newer value from the same source stream arrived.
-        resolutionStatus: fieldClaims.some(
-          (other) =>
-            other.source.kind === claim.source.kind &&
-            other.source.reference === claim.source.reference &&
-            !["quarantined", "unknown"].includes(other.resolutionStatus) &&
-            Date.parse(other.observedAt ?? other.ingestedAt) >
-              Date.parse(claim.observedAt ?? claim.ingestedAt),
-        )
-          ? "superseded"
-          : claim.resolutionStatus === "superseded"
-            ? "active"
-            : claim.resolutionStatus,
-      })),
-      now,
-    );
-    const explanation = explainResolution(result);
-    const winner =
-      result.status === "resolved" ? result.winner.claim : undefined;
-    const fact: ResolvedFact = {
-      field,
-      status: result.status,
-      value: winner?.normalizedValue,
-      winningClaimId: winner?.claimId,
-      explanation,
-    };
+  for (const {
+    field,
+    fieldClaims,
+    result,
+    explanation,
+    winner,
+    fact,
+  } of resolveMerchantClaims(claims, now)) {
     facts.push(fact);
     const signature = stableJson({
       status: result.status,

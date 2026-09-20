@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const DEFAULT_SHORTCUT = "Shift+Escape";
+export const LEGACY_DEFAULT_SHORTCUT = "Alt+Space";
+
 export const OverlayModeSchema = z.enum([
   "hidden",
   "compact",
@@ -25,7 +28,7 @@ export const DashboardRequestSchema = z
   .strict();
 
 export const SettingsSchema = z.object({
-  shortcut: z.string().min(1).max(80).default("Alt+Space"),
+  shortcut: z.string().min(1).max(80).default(DEFAULT_SHORTCUT),
   microphoneDevice: z.string().max(300).default(""),
   voiceEnabled: z.boolean().default(true),
   notificationsEnabled: z.boolean().default(false),

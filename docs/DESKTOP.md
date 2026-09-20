@@ -24,7 +24,7 @@ DEMO_MODE=true pnpm --filter @molecule/orchestrator dev
 pnpm --filter @molecule/desktop dev
 ```
 
-The desktop launches hidden. Press **Option+Space**; the fallback is **Command+Shift+M**. The web app is optional until opening Command Center:
+The desktop launches hidden. Press **Shift+Escape**; the fallback is **Command+Shift+M**. The web app is optional until opening Command Center:
 
 ```bash
 pnpm --filter @molecule/web dev
@@ -255,7 +255,7 @@ Mock parsing is deliberately limited. The tested deterministic request was:
 
 The mock needs a supported quantity prefix, digits after `under`, explicit currency and an ISO deadline. For example, `200 premium onboarding kits under CAD 7000 ... December 31, 2026` produced clarification rather than a plan. Tote/mug interpretation and visual logo understanding were not certified by this mock run; natural-language voice acceptance requires the real compiler and Realtime.
 
-For macOS mock testing, use `DEMO_MODE=true USE_MOCK_OPENAI=true` and an isolated writable `DATA_DIR` for the orchestrator, and `NEXT_PUBLIC_DEMO_MODE=true` for the web app. If `uv` was installed with the system Python's user pip, add its reported user-bin directory to `PATH`; on the test host it was `$HOME/Library/Python/3.9/bin`. The solver uses the separate Python 3.12 virtual environment.
+For macOS mock testing, use `DEMO_MODE=true USE_MOCK_OPENAI=true` and an isolated writable `DATA_DIR` for the orchestrator. If `uv` was installed with the system Python's user pip, add its reported user-bin directory to `PATH`; on the test host it was `$HOME/Library/Python/3.9/bin`. The solver uses the separate Python 3.12 virtual environment.
 
 The notification follow-up used the same `a2dda05` source in a separately signed copy. Strict deep signature verification passed; native logs confirmed matching bundle identifiers and successful delivery. The automatic authorization callback initially failed; delivery/click passed after the normal app-specific Settings toggle. A transient desktop banner was not separately certified. That follow-up also exposed the solver's null-versus-omitted completion mismatch when both suppliers were exhausted; the HTTP serialization and real-solver regression now cover that case.
 
@@ -290,7 +290,7 @@ This verifies live voice transport, authoritative mutations and lifecycle cleanu
 
 On a Mac with account-supported OpenAI models and the missing real provider integrations connected:
 
-1. Start solver/backend and desktop with no dashboard open. Press Option+Space.
+1. Start solver/backend and desktop with no dashboard open. Press Shift+Escape.
 2. Enable notifications in Settings. Start voice and grant microphone permission.
 3. Say the 200-kit request, explicitly supplying currency and a reachable deadline if asked. Verify transcript, project, and intentional backend events.
 4. Drop a real logo. Confirm its chip; say “Put this on the hoodie.”

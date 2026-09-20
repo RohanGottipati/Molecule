@@ -8,10 +8,10 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
-    field_validator,
-    model_validator,
-    model_serializer,
     SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
 )
 
 
@@ -224,9 +224,9 @@ class ResourceInterval(ContractModel):
     def ordered(self) -> ResourceInterval:
         timestamp(self.starts_at)
         timestamp(self.completes_at)
-        if datetime.fromisoformat(
-            self.completes_at.replace("Z", "+00:00")
-        ) <= datetime.fromisoformat(self.starts_at.replace("Z", "+00:00")):
+        starts = datetime.fromisoformat(self.starts_at.replace("Z", "+00:00"))
+        completes = datetime.fromisoformat(self.completes_at.replace("Z", "+00:00"))
+        if completes <= starts:
             raise ValueError("Resource intervals must have positive duration")
         return self
 

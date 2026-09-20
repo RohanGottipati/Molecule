@@ -10,12 +10,21 @@ describe("durable mock execution", () => {
     const value = plan();
     const node = value.nodes[0]!;
     node.catalogVersion = "catalog-v1";
-    node.selectedItem = { bindingId: "binding", productId: "product", variantId: "variant", sku: "COTTON", itemKind: "physical", variantGid: "gid://shopify/ProductVariant/123" };
+    node.selectedItem = {
+      bindingId: "binding",
+      productId: "product",
+      variantId: "variant",
+      sku: "COTTON",
+      itemKind: "physical",
+      variantGid: "gid://shopify/ProductVariant/123",
+    };
     node.customizationAssets = [{ assetId: "logo", checksum: "logo-checksum" }];
     const client = new MockShopifyClient({ repository });
     await client.commit(value, "trace");
     const state = (await repository.inspect(value.orderId))!;
-    const effect = Object.values(state.actions).find(action => action.effect.nodeId === node.nodeId)!.effect;
+    const effect = Object.values(state.actions).find(
+      (action) => action.effect.nodeId === node.nodeId,
+    )!.effect;
     expect(effect.variantId).toBe("gid://shopify/ProductVariant/123");
     expect(effect.quantity).toBe(node.quantity);
     expect(effect.attributes.molecule_sku).toBe("COTTON");

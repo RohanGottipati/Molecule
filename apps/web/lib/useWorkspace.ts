@@ -13,6 +13,7 @@ import {
   fileMetadata,
   getActionStatus,
   getMarketplace,
+  resetDemoMarketplace,
   submitMessagePayload,
   triggerChaos,
   uploadContext,
@@ -42,7 +43,7 @@ import { mergeSnapshot, type WorkspaceView } from "./workspace";
 export type { ConversationEntry } from "./synchronization";
 export type { Connection } from "./useProjectSync";
 export type WorkspaceOperation =
-  "brief" | "approval" | "recovery" | "upload" | "cancel" | null;
+  "brief" | "approval" | "recovery" | "upload" | "cancel" | "reset" | null;
 
 function message(cause: unknown) {
   return cause instanceof Error
@@ -503,6 +504,25 @@ export function useWorkspace(initialOrderId?: string) {
       finish(started);
     }
   }
+  async function resetDemo() {
+    if (!demoEnabled.current || operationRef.current) {
+      setError("Demo reset is unavailable right now. Refresh and try again.");
+      return;
+    }
+    if (!begin("reset")) return;
+    const started = generation.current;
+    try {
+      await resetDemoMarketplace();
+      if (generation.current === started) {
+        setError(null);
+        refreshGlobals();
+      }
+    } catch (cause) {
+      if (generation.current === started) setError(message(cause));
+    } finally {
+      finish(started);
+    }
+  }
   async function upload(file: File) {
     const current = orderRef.current;
     if (
@@ -613,6 +633,7 @@ export function useWorkspace(initialOrderId?: string) {
     approve: () => act("approval"),
     cancelPlanning: () => act("cancel"),
     offline: (merchantId: string) => act("recovery", merchantId),
+    resetDemo,
   };
 }
 
