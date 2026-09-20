@@ -13,18 +13,29 @@
 
 ## Service endpoints
 
-| Route                                   | Contract                                | Rule                                             |
-| --------------------------------------- | --------------------------------------- | ------------------------------------------------ |
-| `POST /api/intents/compile`             | `CompileIntentRequest -> ProductIntent` | Strict schema output only                        |
-| `POST /api/reality/ingest`              | source artifact -> `CanonicalClaim[]`   | Preserve source and confidence                   |
-| `POST /api/reality/resolve`             | merchant fields -> resolved fields      | Conflicted/unknown are valid outcomes            |
-| `POST /api/candidates/search`           | intent/capability need -> candidates    | Search is candidate generation only              |
-| `POST /api/merchant-agents/:id/quote`   | `QuoteRequest -> QuoteResponse`         | Live state comes from typed tools/canonical data |
-| `POST /api/merchant-agents/:id/reserve` | reservation request -> result           | Transactional and idempotent                     |
-| `POST /api/plans/solve`                 | `SolverInput -> ProductionPlan`         | Only route allowed to declare `VALID`            |
-| `POST /api/execution/commit`            | valid plan -> receipt                   | Reject plans without solver validation           |
-| `POST /api/chaos`                       | scenario -> event and receipt           | Demo-only, authenticated, reversible             |
-| `GET /api/orders/:id/events`            | SSE `MoleculeEvent` stream              | Backed by persisted rows                         |
+| Route                                   | Contract                                                | Rule                                                 |
+| --------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
+| `POST /api/intents/compile`             | `CompileIntentRequest -> ProductIntent`                 | Strict schema output only                            |
+| `POST /api/briefs/clarify`              | `BriefClarificationRequest -> BriefClarificationResult` | Preflight only; creates no project, asserts no facts |
+| `POST /api/reality/ingest`              | source artifact -> `CanonicalClaim[]`                   | Preserve source and confidence                       |
+| `POST /api/reality/resolve`             | merchant fields -> resolved fields                      | Conflicted/unknown are valid outcomes                |
+| `POST /api/candidates/search`           | intent/capability need -> candidates                    | Search is candidate generation only                  |
+| `POST /api/merchant-agents/:id/quote`   | `QuoteRequest -> QuoteResponse`                         | Live state comes from typed tools/canonical data     |
+| `POST /api/merchant-agents/:id/reserve` | reservation request -> result                           | Transactional and idempotent                         |
+| `POST /api/plans/solve`                 | `SolverInput -> ProductionPlan`                         | Only route allowed to declare `VALID`                |
+| `POST /api/execution/commit`            | valid plan -> receipt                                   | Reject plans without solver validation               |
+| `POST /api/chaos`                       | scenario -> event and receipt                           | Demo-only, authenticated, reversible                 |
+| `GET /api/orders/:id/events`            | SSE `MoleculeEvent` stream                              | Backed by persisted rows                             |
+
+### Brief clarification preflight
+
+Before the web app creates a project it posts the draft to `POST /api/briefs/clarify`. The adapter runs the same `compileIntent` pass and translates `NEEDS_CLARIFICATION` flags into `ClarificationQuestion`s with optional `ClarificationOption`s:
+
+- `CLEAR` — the brief compiles; the client proceeds with the existing `POST /api/orders` + message flow.
+- `NEEDS_INPUT` — 1–8 questions, each with 0–6 suggested options. Quantity, deadline and currency choices are generated deterministically; other options come from a second structured model pass that may only propose choices, never facts (no invented quantities, dates, budgets, prices or availability). If that pass fails the questions still return with free-text input.
+- `UNSUPPORTED` — reason only; the client must not submit.
+
+Answers are appended to the customer's brief under a `Clarifications:` heading as `- Q: … A: …` lines (`composeClarifiedBrief` / `splitClarifiedBrief` in `@molecule/contracts`). The original text is never rewritten and the re-checked brief is what is finally sent as the first project message. The endpoint never certifies feasibility; the solver remains authoritative.
 
 ## Compatibility policy
 

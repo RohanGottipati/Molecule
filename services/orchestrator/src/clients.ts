@@ -1,4 +1,6 @@
 import type {
+  BriefClarificationRequest,
+  BriefClarificationResult,
   CandidateCapability,
   CompileIntentRequest,
   CompileIntentResult,
@@ -12,6 +14,9 @@ import type {
 
 export interface OpenAIClient {
   compileIntent(input: CompileIntentRequest): Promise<CompileIntentResult>;
+  clarifyBrief(
+    input: BriefClarificationRequest,
+  ): Promise<BriefClarificationResult>;
   mintRealtimeClientSecret?(
     safetyIdentifier: string,
     profile?: "desktop",

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { dockProjectHref } from "../lib/navigation";
 import { useWorkspace } from "../lib/useWorkspace";
 import { dateLabel, type WorkspaceView } from "../lib/workspace";
+import { BriefClarificationDialog } from "./BriefClarificationDialog";
 import { BriefComposer } from "./BriefComposer";
 import { PlanReview } from "./PlanReview";
 import { ProductionConversation } from "./ProductionConversation";
@@ -193,6 +194,7 @@ export function OrderWorkspace({
             )}
           </div>
           <WorkspaceNotices workspace={workspace} />
+          <BriefClarificationDialog draft={draft} />
           {workspace.orderId && (
             <ProjectStatus
               key={workspace.orderId}

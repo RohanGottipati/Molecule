@@ -96,6 +96,31 @@ describe("same-origin proxy with a real local upstream", () => {
     }
     expect(requests).toHaveLength(count);
   });
+  it("proxies brief clarification as a same-origin write", async () => {
+    const response = await proxyRequest(
+      incoming("briefs/clarify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          origin: "https://preview.example",
+        },
+        body: JSON.stringify({ text: "Make hoodies" }),
+      }),
+      ["briefs", "clarify"],
+      backend,
+    );
+    expect(response.status).toBe(200);
+    expect(requests.at(-1)?.path).toBe("/api/briefs/clarify");
+    expect(
+      (
+        await proxyRequest(
+          incoming("briefs/clarify"),
+          ["briefs", "clarify"],
+          backend,
+        )
+      ).status,
+    ).toBe(404);
+  });
   it("forwards safe action metadata but no browser credentials or provider cookies", async () => {
     const response = await proxyRequest(
       incoming("orders", {
