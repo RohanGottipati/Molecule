@@ -1,9 +1,15 @@
 # Rox: messy-data ingestion agents
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](../docs/DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Point it at a supplier's inbox, their spreadsheets, their chat threads and their
 three disagreeing inventory systems. It lands every fact in Tiger with
 provenance, refuses to guess when sources conflict, and writes the resolved
-truth back into Shopify Admin - measured against a hidden ground truth.
+truth for a proposed Shopify Admin write-back. Successful execution remains an
+acceptance gap; the synthetic scorecard has limitations documented in the current
+assessment.
 
 Plan and scope: [`PLAN.md`](PLAN.md). Schema: [`sql/013_rox_ingest.sql`](../sql/013_rox_ingest.sql),
 [`014_rox_links.sql`](../sql/014_rox_links.sql), [`015_rox_quantities.sql`](../sql/015_rox_quantities.sql).

@@ -1,5 +1,9 @@
 # Review a catalog delivery before import
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 The offline delivery-review command uses the canonical schemas and
 `validateCatalogJsonl` from `@molecule/contracts`. It adds sample coverage and
 evidence checks without connecting to Tiger, Shopify or another provider.

@@ -1,5 +1,9 @@
 # Shopify supplier data pipeline: Shopify -> Tiger DB -> Shopify Admin
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](../DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Owner: Emaad (Shopify). Written Sat Sep 19 2026. Status tracked in section 9.
 
 Goal: pull all types of supplier data out of the 8 Shopify dev stores, land it in the Tiger Cloud database (the same tables Reality, the solver and the merchant agents already read), and write the results back into Shopify Admin so a judge can see them there. Closing the loop is the demo: edit a supplier's capacity in Admin, the sync turns it into a claim, Reality resolves it, and the plan heals.
@@ -78,9 +82,12 @@ Mapping of store handle to merchant ID uses `MERCHANT_IDS` from `packages/test-f
 - Scopes: no `write_publications`, `write_files` or `read_customers`. Products stay unpublished with no images.
 - The orchestrator's live mode expects static access tokens (`SHOPIFY_SUPPLIER_STORES` JSON). Extend its schema to accept `{clientId, clientSecret}` before flipping `SHOPIFY_MODE=live`.
 
-## 9. Status
+## 9. Original implementation checklist (historical)
 
 - [x] Tiger DB reachable, migrations 001 to 008 and demo seed applied
+      The sync/write-back scripts now exist. These old unchecked entries are not proof
+      of missing code or a current live acceptance result; consult DATABASE_ROX.md.
+
 - [ ] 009 catalog migration applied
 - [ ] shopify-sync.mjs (dry run, full run, idempotency)
 - [ ] shopify-writeback.mjs (definitions, metafields, reconcile)
