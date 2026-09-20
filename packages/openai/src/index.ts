@@ -1,5 +1,6 @@
 export * from "./errors.js";
 export * from "./extractClaims.js";
+export * from "./goldenPath.js";
 export * from "./MockOpenAIAdapter.js";
 export * from "./OpenAIAdapter.js";
 export * from "./RealOpenAIAdapter.js";

@@ -1193,6 +1193,14 @@ export type CatalogGallery = z.infer<typeof CatalogGallerySchema>;
 export { applyCapacityLimit } from "./capacity.js";
 
 export {
+  GOLDEN_PATH_CORRECTION,
+  GOLDEN_PATH_PROMPT,
+  isGoldenPathCorrection,
+  isGoldenPathPrompt,
+  normalizeBriefText,
+} from "./goldenPath.js";
+
+export {
   CLARIFICATIONS_HEADING,
   composeClarifiedBrief,
   splitClarifiedBrief,
