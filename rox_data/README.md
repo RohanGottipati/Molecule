@@ -110,4 +110,15 @@ runs without a selected-input manifest require explicit `--legacy-batch`; their
 results are full-batch diagnostics. Replay with `--snapshot=<report>` needs no
 network. Source text is included in the private report; do not commit real inputs.
 
+The first real-document benchmark is scoped in
+[Order 2](../docs/DATABASE_ORDER2.md): one embroidery supplier, one capability
+and one order-sized availability decision. Its missing-period and effective-window
+rules supersede the synthetic normalizer's permissive defaults for benchmark
+acceptance; the implementation has not yet been changed to meet them.
+
+The private two-reviewer manifest and label validator for this scenario is in
+[`benchmark/`](benchmark/README.md). It contains no real supplier documents;
+Order 3 remains incomplete until the authorized private bundle is supplied,
+independently labelled and adjudicated.
+
 Run regression and mocked pipeline checks with `node --test tests/*.test.mjs`.
