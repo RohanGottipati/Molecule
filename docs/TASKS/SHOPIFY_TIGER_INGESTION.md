@@ -1,5 +1,9 @@
 # Shopify → Tiger ingestion: implementation plan
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](../DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Written 2026-09-19 for an agent picking this up cold. Scope: the missing middle leg of
 Shopify API → Tiger (Reality) → Shopify Admin. The write-back leg (Tiger/solver plan →
 Shopify Admin via `@molecule/shopify`'s `ShopifyClient.commit()`) already exists and is
@@ -159,7 +163,8 @@ test build`, and for anything touching Postgres, the `TEST_DATABASE_URL` /
       `printpress`). Accept: unit test asserts `printpress-*` → `undefined`,
       `stitchworks-*` → `"stitch-works"`.
 - [~] **G3. Batch ingestion wired into the orchestrator.** Implemented with a
-  database-gated integration test; awaiting execution against `TEST_DATABASE_URL`.
+  database-gated integration test. The later delivery review records a passing
+  batch-ingestion case; acceptance on this restored checkout has not been rerun.
   In
   `services/orchestrator/src/durableRuntime.ts`, near line 95: for each configured
   store with a mapped merchant, get a snapshot (mock or real, mirroring how `commerce`
@@ -180,8 +185,8 @@ headers })`. Map its result/thrown `ShopifyError` codes to HTTP status per
   integration test posts a signed `inventory_levels/update` payload to the running
   route and asserts 200 + the event lands in `molecule_shopify_events`.
 - [~] **G5. Reactive re-ingestion.** Implemented with source-observation ordering
-  and a database-gated end-to-end test; awaiting execution against
-  `TEST_DATABASE_URL`. After G4's route accepts a webhook (status
+  and a database-gated end-to-end test. The later delivery review exposed a
+  source-identity conflict; local changes require retesting before closure. After G4's route accepts a webhook (status
   `"accepted"` or `"duplicate"` both fine — duplicate just means checksum will no-op),
   extract the affected item from the webhook payload
   (`inventory_item_id`/`available`/`location_id` — already parsed and persisted, see
