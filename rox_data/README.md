@@ -7,7 +7,7 @@
 Point it at a supplier's inbox, their spreadsheets, their chat threads and their
 three disagreeing inventory systems. It lands every fact in Tiger with
 provenance, refuses to guess when sources conflict, and writes the resolved
-truth for a proposed Shopify Admin write-back. Successful execution remains an
+fact for a proposed Shopify Admin write-back. Successful execution remains an
 acceptance gap; the synthetic scorecard has limitations documented in the current
 assessment.
 
