@@ -8,6 +8,8 @@
 import { shortId, bumpStage, emitEvent } from "./db.mjs";
 import { detectInjection, evidencePresent } from "./extract.mjs";
 
+export const BASELINE_PROMPT_VERSION = "regex-baseline-v1";
+
 const PATTERNS = [
   {
     field: "capacity",
@@ -163,13 +165,15 @@ export async function baseline(db, { runId, batchId, traceId, limit = null }) {
       }
     }
     await db.query(
-      `insert into rox_artifact_attempts (run_id,artifact_id,candidates,injection)
-       values ($1,$2,$3,$4) on conflict (run_id,artifact_id) do nothing`,
+      `insert into rox_artifact_attempts
+         (run_id,artifact_id,candidates,injection,prompt_version)
+       values ($1,$2,$3,$4,$5) on conflict (run_id,artifact_id) do nothing`,
       [
         runId,
         artifact.artifact_id,
         counts.candidates - beforeCandidates,
         guard.detected,
+        BASELINE_PROMPT_VERSION,
       ],
     );
   }

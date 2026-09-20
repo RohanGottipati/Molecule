@@ -180,9 +180,14 @@ through `canonical_claims`, which is the authoritative source.
   population. The complete aggregate comparison and limitations are in
   `docs/evidence/rox-p0-c1-c3-2026-09-20.md`.
 - **C2 remains a deployment operation.** The configured shared Tiger database
-  still has 724 `rox-extract-v3` rows and no v4 rows. It was inspected read-only;
-  migrations and a paid extraction rerun were not applied without explicit
-  authorization to mutate that shared environment.
+  still has 724 `rox-extract-v3` rows across 360 artifacts and no v4 rows. The
+  runner now supports a resumable `--reextract-prompt=rox-extract-v3` migration;
+  migration 024 records prompt-version completion even for correct empty model
+  responses, preventing repeat charges. The database was inspected read-only;
+  migrations and the paid extraction rerun were not applied without explicit
+  authorization to mutate that shared environment. Exact staged commands and
+  pre-deployment counts are in
+  `docs/evidence/rox-p0-c2-runbook-2026-09-20.md`.
 
 ## 2. Rules
 

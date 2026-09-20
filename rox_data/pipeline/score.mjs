@@ -102,7 +102,7 @@ if (args.snapshot) {
     ).rows;
     const attempts = (
       await db.query(
-        "select artifact_id,candidates,injection from rox_artifact_attempts where run_id=$1 order by artifact_id",
+        "select artifact_id,candidates,injection,prompt_version from rox_artifact_attempts where run_id=$1 order by artifact_id",
         [args.run],
       )
     ).rows;
