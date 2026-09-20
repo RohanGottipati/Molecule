@@ -22,6 +22,7 @@ export function BriefComposer({
     !workspace.orderId && Boolean(workspace.pendingAction?.orderId);
   const canSend =
     draft.ready &&
+    !draft.checking &&
     !submittedProject &&
     workspace.canSubmitMessage &&
     Boolean(draft.text.trim());
@@ -71,7 +72,7 @@ export function BriefComposer({
                 "Keep your draft here while Molecule finishes the current task.")
               : workspace.order?.intent
                 ? "Updates replace the current plan and recheck feasibility."
-                : "Get a supplier plan to review. Sending does not approve execution."}
+                : "Molecule checks for missing details, then gets a supplier plan to review. Sending does not approve execution."}
       </p>
       {draft.storageWarning && (
         <p className="inline-warning" role="status">
@@ -145,11 +146,13 @@ export function BriefComposer({
           </button>
         </div>
         <button className="primary" type="submit" disabled={!canSend}>
-          {workspace.operation === "brief"
-            ? "Sending…"
-            : workspace.order?.intent
-              ? "Send update"
-              : "Create production project"}
+          {draft.checking
+            ? "Checking brief…"
+            : workspace.operation === "brief"
+              ? "Sending…"
+              : workspace.order?.intent
+                ? "Send update"
+                : "Create production project"}
         </button>
       </div>
       <details className="composer-options">

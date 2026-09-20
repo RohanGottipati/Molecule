@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { dockProjectHref } from "../lib/navigation";
 import { useWorkspace } from "../lib/useWorkspace";
 import { dateLabel } from "../lib/workspace";
+import { BriefClarificationDialog } from "./BriefClarificationDialog";
 import { BriefComposer } from "./BriefComposer";
 import { HomePage } from "./HomePage";
 import { TestingPlan } from "./TestingPlan";
@@ -193,6 +194,7 @@ export function OrderWorkspace({
           </header>
         )}
         <main id="main-content" className="main-content" tabIndex={-1}>
+          <BriefClarificationDialog draft={draft} />
           {!canvasView && (
             <div className="page-heading">
               <div>

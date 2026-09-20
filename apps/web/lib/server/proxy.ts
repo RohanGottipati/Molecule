@@ -14,6 +14,7 @@ const readPaths = [
   /^projects\/[^/]+$/,
 ];
 const writePaths = [
+  /^briefs\/clarify$/,
   /^orders$/,
   /^orders\/[^/]+\/(?:messages|approve)$/,
   /^projects\/[^/]+\/(?:context|actions)$/,

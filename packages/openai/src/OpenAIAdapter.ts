@@ -1,4 +1,6 @@
 import type {
+  BriefClarificationRequest,
+  BriefClarificationResult,
   ClaimExtractionRequest,
   ClaimExtractionResult,
   CompileIntentRequest,
@@ -12,6 +14,9 @@ export interface RealtimeClientSecret {
 
 export interface OpenAIAdapter {
   compileIntent(input: CompileIntentRequest): Promise<CompileIntentResult>;
+  clarifyBrief(
+    input: BriefClarificationRequest,
+  ): Promise<BriefClarificationResult>;
   extractClaims?(input: ClaimExtractionRequest): Promise<ClaimExtractionResult>;
   mintRealtimeClientSecret?(
     safetyIdentifier: string,

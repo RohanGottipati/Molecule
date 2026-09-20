@@ -1,19 +1,29 @@
 import { createHash } from "node:crypto";
 
 import {
+  BriefClarificationRequestSchema,
   ClaimExtractionRequestSchema,
   ClaimExtractionResultSchema,
   CompileIntentRequestSchema,
+  type BriefClarificationRequest,
+  type BriefClarificationResult,
   type ClaimExtractionRequest,
   type ClaimExtractionResult,
   type CompileIntentRequest,
   type CompileIntentResult,
+  type ProductIntentDraft,
 } from "@molecule/contracts";
 import OpenAI, { toFile } from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { ResponseInputContent } from "openai/resources/responses/responses";
 import { ZodError } from "zod";
 
+import {
+  clarificationCompileRequest,
+  clarificationFromCompile,
+  withSuggestedOptions,
+  type SuggestedOptions,
+} from "./clarifyBrief.js";
 import { MoleculeOpenAIError } from "./errors.js";
 import { mapExtractionToResult } from "./mapExtraction.js";
 import type { OpenAIAdapter, RealtimeClientSecret } from "./OpenAIAdapter.js";
@@ -21,8 +31,13 @@ import {
   INTENT_COMPILER_INSTRUCTIONS,
   INTENT_PROMPT_VERSION,
 } from "./prompts/intentCompiler.js";
+import {
+  CLARIFICATION_PROMPT_VERSION,
+  CLARIFICATION_SUGGESTER_INSTRUCTIONS,
+} from "./prompts/clarificationSuggester.js";
 import { IntentExtractionSchema } from "./schema/intentExtraction.js";
 import { ClaimExtractionOutputSchema } from "./schema/claimExtraction.js";
+import { ClarificationSuggestionSchema } from "./schema/clarificationSuggestion.js";
 import {
   DESKTOP_VOICE_INSTRUCTIONS,
   DESKTOP_VOICE_TOOLS,
@@ -296,6 +311,127 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
           message: safeProviderMessage(error),
         },
       );
+    }
+  }
+
+  async clarifyBrief(
+    input: BriefClarificationRequest,
+  ): Promise<BriefClarificationResult> {
+    const parsed = BriefClarificationRequestSchema.parse(input);
+    const compileRequest = clarificationCompileRequest(parsed);
+    const compiled = await this.compileIntent(compileRequest);
+    const base = clarificationFromCompile(compiled, parsed);
+    if (
+      base.status !== "NEEDS_INPUT" ||
+      compiled.status !== "NEEDS_CLARIFICATION"
+    )
+      return base;
+    const pending = base.questions.filter(
+      (question) => question.options.length === 0,
+    );
+    if (pending.length === 0) return base;
+    const suggestions = await this.suggestOptions(
+      compileRequest,
+      pending.map(({ question, field, reason }) => ({
+        question,
+        field,
+        reason: reason ?? null,
+      })),
+      compiled.draft,
+    );
+    return withSuggestedOptions(base, suggestions);
+  }
+
+  /** Second structured pass: propose answer choices. Failures degrade to free-text questions. */
+  private async suggestOptions(
+    request: CompileIntentRequest,
+    questions: { question: string; field: string; reason: string | null }[],
+    draft: ProductIntentDraft,
+  ): Promise<SuggestedOptions> {
+    const context = {
+      customerText: request.text,
+      locale: request.locale,
+      partialIntent: {
+        desiredOutputs: draft.desiredOutputs.map((output) => ({
+          name: output.name,
+          attributes: output.attributes,
+        })),
+        transformations: draft.transformations.map((step) => ({
+          kind: step.kind,
+          description: step.description,
+        })),
+        hardConstraints: draft.hardConstraints.map((rule) => ({
+          field: rule.field,
+          operator: rule.operator,
+          value: rule.value,
+        })),
+      },
+      questions,
+    };
+    try {
+      const response = await this.client.responses.parse(
+        {
+          model: this.compilerModel,
+          instructions: CLARIFICATION_SUGGESTER_INSTRUCTIONS,
+          input: [
+            {
+              role: "user",
+              content: [{ type: "input_text", text: JSON.stringify(context) }],
+            },
+          ],
+          text: {
+            format: zodTextFormat(
+              ClarificationSuggestionSchema,
+              "clarification_options",
+            ),
+          },
+          store: false,
+          max_output_tokens: 2500,
+          safety_identifier: createHash("sha256")
+            .update(request.orderId)
+            .digest("hex"),
+          metadata: {
+            trace_id: request.traceId,
+            prompt_version: CLARIFICATION_PROMPT_VERSION,
+          },
+        },
+        {
+          timeout: this.options.timeoutMs ?? 25_000,
+          headers: {
+            "Idempotency-Key": createHash("sha256")
+              .update(`${request.traceId}:clarify:${JSON.stringify(context)}`)
+              .digest("hex"),
+          },
+        },
+      );
+      if (response.status !== "completed" || !response.output_parsed) return [];
+      const suggestion = ClarificationSuggestionSchema.safeParse(
+        response.output_parsed,
+      );
+      if (!suggestion.success) return [];
+      return suggestion.data.questions.map((item) => ({
+        question: item.question,
+        options: item.options
+          .filter((option) => option.label.trim() && option.value.trim())
+          .map((option) => ({
+            label: option.label.trim(),
+            value: option.value.trim(),
+            ...(option.hint?.trim() ? { hint: option.hint.trim() } : {}),
+          })),
+        ...(item.inputHint?.trim() ? { inputHint: item.inputHint.trim() } : {}),
+      }));
+    } catch (error) {
+      if (
+        error instanceof OpenAI.AuthenticationError ||
+        (error instanceof OpenAI.APIError &&
+          (error.status === 401 || error.status === 403))
+      )
+        throw new MoleculeOpenAIError(
+          "AUTH",
+          "OpenAI authentication failed",
+          false,
+        );
+      return [];
     }
   }
 

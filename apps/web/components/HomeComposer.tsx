@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { RefObject } from "react";
 import type { Workspace } from "../lib/useWorkspace";
 import type { useBriefDraft } from "./useBriefDraft";
+import { BriefClarificationDialog } from "./BriefClarificationDialog";
 import { VoiceOrb } from "./VoiceOrb";
 import { productionExample } from "./workspacePresentation";
 
@@ -61,6 +62,7 @@ export function HomeComposer({
     !workspace.orderId && Boolean(workspace.pendingAction?.orderId);
   const canSend =
     draft.ready &&
+    !draft.checking &&
     !submittedProject &&
     workspace.canSubmitMessage &&
     Boolean(draft.text.trim());
@@ -72,6 +74,7 @@ export function HomeComposer({
   return (
     <section className="home-hero" aria-labelledby="home-hero-title">
       <h1 id="home-hero-title">What should we build?</h1>
+      <BriefClarificationDialog draft={draft} />
       <div className="home-card">
         <form
           className="home-composer"
@@ -141,8 +144,13 @@ export function HomeComposer({
               <button
                 type="submit"
                 className="home-icon-button home-send"
-                aria-label="Send"
-                title="Send (Ctrl/Cmd + Enter)"
+                aria-label={draft.checking ? "Checking brief" : "Send"}
+                aria-busy={draft.checking || undefined}
+                title={
+                  draft.checking
+                    ? "Checking your brief for missing details"
+                    : "Send (Ctrl/Cmd + Enter)"
+                }
                 disabled={!canSend}
               >
                 <SendIcon />
@@ -151,6 +159,11 @@ export function HomeComposer({
           </div>
         </form>
       </div>
+      {draft.checking && (
+        <p className="composer-feedback" role="status">
+          Checking your brief for missing details…
+        </p>
+      )}
       {draft.storageWarning && (
         <p className="inline-warning" role="status">
           This browser could not save your draft. Keep a copy before leaving or

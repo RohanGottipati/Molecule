@@ -1,5 +1,9 @@
 import {
+  BriefClarificationRequestSchema,
   CompileIntentRequestSchema,
+  splitClarifiedBrief,
+  type BriefClarificationRequest,
+  type BriefClarificationResult,
   type ClaimExtractionRequest,
   type ClaimExtractionResult,
   type CompileIntentRequest,
@@ -7,6 +11,12 @@ import {
 } from "@molecule/contracts";
 
 import type { OpenAIAdapter } from "./OpenAIAdapter.js";
+import {
+  clarificationCompileRequest,
+  clarificationFromCompile,
+  withSuggestedOptions,
+  type SuggestedOptions,
+} from "./clarifyBrief.js";
 import { mockExtractClaims } from "./extractClaims.js";
 import { mapExtractionToResult } from "./mapExtraction.js";
 import { relativeDeadline } from "./relativeDate.js";
@@ -110,17 +120,44 @@ function quantityIn(text: string): number | null {
   );
 }
 
+const QUANTITY_QUESTION = "How many units do you need?";
+const DEADLINE_QUESTION = "What is the required delivery deadline?";
+const CURRENCY_QUESTION = "Should the order be priced in CAD or USD?";
+const PRODUCT_QUESTION = "What product should be made?";
+const DEVICE_QUESTION = "Which phone model must the case fit?";
+
+/** Rephrase a clarification answer so the deterministic mock parser recognises it. */
+function answerPhrase(question: string, answer: string): string {
+  const normalized = question.trim().toLowerCase();
+  if (normalized === QUANTITY_QUESTION.toLowerCase())
+    return /^\d[\d,]*(?:\s+units?)?$/i.test(answer.trim())
+      ? `qty ${answer}`
+      : answer;
+  if (normalized === DEADLINE_QUESTION.toLowerCase()) return `by ${answer}`;
+  return answer;
+}
+
 function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const previous = input.previousIntent;
+  const { brief, answers } = splitClarifiedBrief(input.text);
+  const answerPhrases = answers.map(({ question, answer }) =>
+    answerPhrase(question, answer),
+  );
+  const answeredQuestions = new Set(
+    answers.map(({ question }) => question.trim().toLowerCase()),
+  );
   const correctionText =
     input.correction && input.correction.text.trim() !== input.text.trim()
       ? input.correction.text
       : "";
-  const text = `${input.text}\n${correctionText}`.toLowerCase();
-  const sources = [correctionText, input.text].map((source) =>
+  const authored = `${brief}\n${correctionText}`.toLowerCase();
+  const text = [brief, correctionText, ...answerPhrases]
+    .join("\n")
+    .toLowerCase();
+  const sources = [correctionText, ...answerPhrases, brief].map((source) =>
     source.toLowerCase(),
   );
-  const clauses = clausesOf(text, /\s+(?:and|with|including)\s+|,\s+/);
+  const clauses = clausesOf(authored, /\s+(?:and|with|including)\s+|,\s+/);
   const segments = clausesOf(text, /,|\band\b/);
   const consumedClauses = new Set<number>();
   const ambiguityFlags: IntentExtraction["ambiguityFlags"] = [];
@@ -330,7 +367,7 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
         ambiguityFlags.push({
           field: "phone case.deviceModel",
           reason: "Device model is required",
-          question: "Which phone model must the case fit?",
+          question: DEVICE_QUESTION,
         });
     }
     if (product === "enclosure") {
@@ -560,18 +597,10 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     });
   }
   for (const [field, missing, question] of [
-    ["quantity", quantity === null, "How many units do you need?"],
-    ["deadline", deadline === null, "What is the required delivery deadline?"],
-    [
-      "currency",
-      currency === null,
-      "Should the order be priced in CAD or USD?",
-    ],
-    [
-      "desiredOutputs",
-      desiredOutputs.length === 0,
-      "What product should be made?",
-    ],
+    ["quantity", quantity === null, QUANTITY_QUESTION],
+    ["deadline", deadline === null, DEADLINE_QUESTION],
+    ["currency", currency === null, CURRENCY_QUESTION],
+    ["desiredOutputs", desiredOutputs.length === 0, PRODUCT_QUESTION],
   ] as const) {
     if (missing) ambiguityFlags.push({ field, reason: "missing", question });
   }
@@ -629,8 +658,15 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       question: `Please specify the component or requirement in "${clause.slice(0, 80)}".`,
     });
   }
+  const openFlags = ambiguityFlags.filter(
+    (flag) =>
+      !(
+        flag.reason.includes("mock") &&
+        answeredQuestions.has(flag.question.trim().toLowerCase())
+      ),
+  );
   return {
-    outcome: ambiguityFlags.length ? "NEEDS_CLARIFICATION" : "EXTRACTED",
+    outcome: openFlags.length ? "NEEDS_CLARIFICATION" : "EXTRACTED",
     unsupportedReason: null,
     quantity,
     deadline,
@@ -640,8 +676,42 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
     transformations,
     hardConstraints,
     softPreferences,
-    ambiguityFlags,
+    ambiguityFlags: openFlags,
   };
+}
+
+const deviceOptions = ["iPhone 16 Pro", "iPhone 16", "Pixel 9", "Galaxy S25"];
+
+/** Deterministic stand-in for the model-proposed answer options. */
+function mockSuggestions(result: CompileIntentResult): SuggestedOptions {
+  if (result.status !== "NEEDS_CLARIFICATION") return [];
+  const components = result.draft.desiredOutputs.map((output) => output.name);
+  return result.questions.map((question) => {
+    if (question === PRODUCT_QUESTION)
+      return {
+        question,
+        options: products.slice(0, 4).map(([, name]) => ({
+          label: name,
+          value: name.toLowerCase(),
+        })),
+        inputHint: "Name the product you want made",
+      };
+    if (question === DEVICE_QUESTION)
+      return {
+        question,
+        options: deviceOptions.map((model) => ({ label: model, value: model })),
+        inputHint: "Exact device model, e.g. iPhone 16 Pro",
+      };
+    if (/^which component\b/i.test(question) && components.length)
+      return {
+        question,
+        options: components.slice(0, 4).map((name) => ({
+          label: name,
+          value: name,
+        })),
+      };
+    return { question, options: [] };
+  });
 }
 
 export class MockOpenAIAdapter implements OpenAIAdapter {
@@ -653,6 +723,19 @@ export class MockOpenAIAdapter implements OpenAIAdapter {
       makeExtraction(parsed),
       parsed.previousIntent,
       parsed.assets,
+    );
+  }
+
+  async clarifyBrief(
+    input: BriefClarificationRequest,
+  ): Promise<BriefClarificationResult> {
+    const parsed = BriefClarificationRequestSchema.parse(input);
+    const compiled = await this.compileIntent(
+      clarificationCompileRequest(parsed),
+    );
+    return withSuggestedOptions(
+      clarificationFromCompile(compiled, parsed),
+      mockSuggestions(compiled),
     );
   }
 

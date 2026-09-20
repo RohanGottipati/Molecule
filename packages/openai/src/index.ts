@@ -6,3 +6,6 @@ export * from "./RealOpenAIAdapter.js";
 export * from "./mapExtraction.js";
 export * from "./prompts/intentCompiler.js";
 export * from "./schema/intentExtraction.js";
+export * from "./clarifyBrief.js";
+export * from "./prompts/clarificationSuggester.js";
+export * from "./schema/clarificationSuggestion.js";

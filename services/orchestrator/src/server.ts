@@ -9,6 +9,8 @@ import {
   MessageHistoryQuerySchema,
   ProjectCapabilitiesEnvelopeSchema,
   MessageSubmissionSchema,
+  BriefClarificationRequestSchema,
+  BriefClarificationResultSchema,
   CompileIntentRequestSchema,
   SolverInputSchema,
   OrderSessionSnapshotSchema,
@@ -245,6 +247,14 @@ export async function buildServer(deps: ServerDependencies) {
 
   app.post("/api/intents/compile", async (request) =>
     deps.openai.compileIntent(CompileIntentRequestSchema.parse(request.body)),
+  );
+
+  app.post("/api/briefs/clarify", async (request) =>
+    BriefClarificationResultSchema.parse(
+      await deps.openai.clarifyBrief(
+        BriefClarificationRequestSchema.parse(request.body),
+      ),
+    ),
   );
 
   app.post("/api/orders", async (request, reply) => {
