@@ -16,7 +16,13 @@ Scope constraints to component keys: hoodie.color=black, snacks.diet=vegan. Mate
 Encode material exclusions such as "no polyester" or "no leather" with not_contains, including scoped material fields, so blends containing the material are excluded.
 Global material exclusions use the bare field material. Scope component-specific constraints only to actual component or transformation keys, or the matching operation kind; never invent supplied or transformed scopes.
 Do not use material neq for an exclusion: exact inequality admits blends. If the customer means only an exact composition inequality, request clarification.
-Represent every required operation, including embroidery, engraving, assembly/individual packaging and fulfillment.
+Support Apparel, Bags & Accessories, Tech Accessories, Desk & Office, Gaming, Home Decor, Kitchen & Dining,
+Fitness, Pets, Travel, Gifts and 3D Printing / Maker; other catalog categories remain interpretable, not certified.
+Preserve deviceModel, dimensions and material when supplied. Ask for missing model compatibility or customization assets.
+Represent explicit operations with canonical kinds: embroidery, engraving, screen_printing, digital_printing, uv_printing,
+pad_printing, sublimation, dye_sublimation, heat_transfer, 3d_printing, assembly and fulfillment.
+Preserve separate transformation stages and component quantities. Add assembly only when the customer requests combining or packaging components.
+An individual product can proceed directly from customization to fulfillment. Never turn every product into a kit.
 Each transformation consumes inputKeys and creates distinct outputKeys, e.g. hoodie -> embroidered-hoodie,
 bottle -> engraved-bottle, [embroidered-hoodie, engraved-bottle, snacks] -> packaged-kit -> delivered-kit.
 Every input must have one producer. Never reuse a supply key as a transformation output, introduce cycles, or consume a component twice.

@@ -1,3 +1,4 @@
+import { syncCatalogInventory } from "./catalogInventorySync.js";
 import { Serial } from "./serial.js";
 import { randomUUID } from "node:crypto";
 import { getPool, getOperationsMetrics, getRecentEvents } from "@molecule/db";
@@ -33,7 +34,6 @@ import { PostgresStore } from "./PostgresStore.js";
 import { DurableExecutionClient } from "./clients/DurableExecutionClient.js";
 import {
   ingestShopifyCapacityBatch,
-  ingestShopifyInventoryUpdate,
   type ShopifyInventoryUpdate,
 } from "./shopifyRealityIngestion.js";
 
@@ -191,6 +191,19 @@ export async function createDurableRuntime(config: Config) {
     },
   };
   const supplierStores = liveShopify?.supplierStores;
+  const registered = await getPool().query<{
+    merchant_id: string;
+    shopify_domain: string;
+  }>("select merchant_id,shopify_domain from merchant_stores");
+  const registeredByDomain = new Map(
+    registered.rows.map((row) => [
+      configuredShopifyDomains(row.shopify_domain)[0]!,
+      row.merchant_id,
+    ]),
+  );
+  const registeredMerchant = (shop: string) =>
+    registeredByDomain.get(configuredShopifyDomains(shop)[0]!) ??
+    merchantIdForShopifyStore(shop);
   const mockCatalog =
     config.SHOPIFY_MODE === "demo"
       ? new MockShopifyAdapter({ catalogProfile: "release" })
@@ -203,16 +216,13 @@ export async function createDurableRuntime(config: Config) {
     config.SHOPIFY_MODE === "live"
       ? {
           getSnapshot: async (shop: string) => {
-            const merchantId = merchantIdForShopifyStore(shop);
+            const merchantId = registeredMerchant(shop);
             const supplier = merchantId
               ? supplierStores?.[merchantId]
               : undefined;
             if (!supplier)
               throw new ShopifyError("SUPPLIER_STORE_NOT_CONFIGURED");
-            return new ShopifyTransport({
-              domain: supplier.domain,
-              auth: supplier.auth,
-            }).getSnapshot(shop);
+            return new ShopifyTransport(supplier).getSnapshot(shop);
           },
         }
       : mockCatalog!;
@@ -220,6 +230,7 @@ export async function createDurableRuntime(config: Config) {
     snapshotSource,
     snapshotStores,
     {
+      merchantForStore: async (shop) => registeredMerchant(shop),
       onSkippedStore: (shop) =>
         console.info({
           event: "shopify.reality_ingestion.store_skipped",
@@ -228,6 +239,21 @@ export async function createDurableRuntime(config: Config) {
         }),
     },
   );
+  if (config.SHOPIFY_MODE === "live") {
+    const inventoryTransports = new Map<string, ShopifyTransport>();
+    await syncCatalogInventory((domain) => {
+      const normalizedDomain = configuredShopifyDomains(domain)[0]!;
+      const merchantId = registeredByDomain.get(normalizedDomain);
+      const supplier = merchantId ? supplierStores?.[merchantId] : undefined;
+      if (supplier?.domain !== normalizedDomain) return undefined;
+      let transport = inventoryTransports.get(normalizedDomain);
+      if (!transport) {
+        transport = new ShopifyTransport(supplier);
+        inventoryTransports.set(normalizedDomain, transport);
+      }
+      return transport;
+    }, batch.traceId);
+  }
   const syncedAt = new Date().toISOString();
   await store.append({
     eventId: randomUUID(),

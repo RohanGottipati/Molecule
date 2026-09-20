@@ -370,6 +370,7 @@ def _solve(data: SolverInput) -> ProductionPlan:
                 ref.period_minutes,
                 ref.observed_at,
                 ref.source_reference,
+                ref.occupied_intervals,
             )
             != (
                 first.kind,
@@ -378,6 +379,7 @@ def _solve(data: SolverInput) -> ProductionPlan:
                 first.period_minutes,
                 first.observed_at,
                 first.source_reference,
+                first.occupied_intervals,
             )
             for ref in refs
         ):
@@ -612,7 +614,7 @@ def _solve(data: SolverInput) -> ProductionPlan:
         constraint_results=results,
         unsat_relaxations=[],
     )
-    fingerprint = plan.model_dump_json(exclude={"plan_id"})
+    fingerprint = plan.model_dump_json(exclude={"plan_id"}, exclude_none=True)
     return plan.model_copy(
         update={"plan_id": str(uuid5(NAMESPACE_URL, f"{data.generation}:{fingerprint}"))}
     )

@@ -28,25 +28,43 @@ const PRODUCTS = `query($c:String){
   products(first:15, after:$c){
     pageInfo{ hasNextPage endCursor }
     edges{ node{ id handle title productType vendor status tags description
-      variants(first:30){ pageInfo{ hasNextPage } edges{ node{ id sku title price inventoryQuantity
+      variants(first:100){ pageInfo{ hasNextPage endCursor } edges{ node{ id sku title price inventoryQuantity
         selectedOptions{ name value } inventoryItem{ id tracked } } } } } } } }`;
 
 async function fetchStore(handle) {
   const products = [];
   let cursor = null,
-    shop = null,
-    truncatedVariants = 0;
+    shop = null;
+  const productCursors = new Set();
   for (;;) {
     const d = await gql(handle, PRODUCTS, { c: cursor });
     shop = d.shop;
     for (const e of d.products.edges) {
-      if (e.node.variants.pageInfo.hasNextPage) truncatedVariants++;
+      const seen = new Set();
+      while (e.node.variants.pageInfo.hasNextPage) {
+        const after = e.node.variants.pageInfo.endCursor;
+        if (!after || seen.has(after))
+          throw new Error("CATALOG_PAGINATION_REQUIRED");
+        seen.add(after);
+        const next = await gql(
+          handle,
+          `query Variants($id:ID!,$after:String!){product(id:$id){variants(first:100,after:$after){
+          pageInfo{hasNextPage endCursor} edges{node{id sku title price inventoryQuantity selectedOptions{name value} inventoryItem{id tracked}}}}}}`,
+          { id: e.node.id, after },
+        );
+        if (!next.product) throw new Error("CATALOG_PRODUCT_DISAPPEARED");
+        e.node.variants.edges.push(...next.product.variants.edges);
+        e.node.variants.pageInfo = next.product.variants.pageInfo;
+      }
       products.push(e.node);
     }
     if (!d.products.pageInfo.hasNextPage) break;
     cursor = d.products.pageInfo.endCursor;
+    if (!cursor || productCursors.has(cursor))
+      throw new Error("CATALOG_PAGINATION_REQUIRED");
+    productCursors.add(cursor);
   }
-  return { handle, shop, products, truncatedVariants };
+  return { handle, shop, products };
 }
 
 async function upsertCatalog(db, s, merchantId, domain) {
@@ -264,7 +282,7 @@ async function main() {
   const fetched = await Promise.all(handles.map((h) => fetchStore(h)));
   for (const s of fetched)
     console.log(
-      `  fetched ${s.handle.padEnd(24)} ${String(s.products.length).padStart(4)} products ${String(s.products.reduce((n, p) => n + p.variants.edges.length, 0)).padStart(5)} variants ${s.shop.currencyCode}${s.truncatedVariants ? `  WARNING ${s.truncatedVariants} products have >30 variants (truncated)` : ""}`,
+      `  fetched ${s.handle.padEnd(24)} ${String(s.products.length).padStart(4)} products ${String(s.products.reduce((n, p) => n + p.variants.edges.length, 0)).padStart(5)} variants ${s.shop.currencyCode}`,
     );
   if (dry && only !== "claims") {
     console.log("dry run: catalog not written");

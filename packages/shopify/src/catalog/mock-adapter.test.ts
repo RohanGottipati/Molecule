@@ -5,7 +5,7 @@ import type { CompositeProductPlan, SupplierJobPlanNode } from "./types.js";
 const STORES = ["stitchworks-test", "molecule-test"] as const;
 
 describe("MockShopifyAdapter", () => {
-  it("opts into release capacity without changing the default broad catalog or reset profile", async () => {
+  it("opts into the release catalog without changing the broad catalog or reset profile", async () => {
     const stores = ["threadforge-test"];
     const broad = new MockShopifyAdapter({ stores });
     const release = new MockShopifyAdapter({
@@ -13,7 +13,7 @@ describe("MockShopifyAdapter", () => {
       catalogProfile: "release",
     });
     expect((await broad.getSnapshot(stores[0]!)).capacity[0]?.quantity).toBe(
-      180,
+      400,
     );
     const before = await release.getSnapshot(stores[0]!);
     expect(before.capacity[0]?.quantity).toBe(400);
@@ -28,7 +28,7 @@ describe("MockShopifyAdapter", () => {
     await release.reset();
     expect(await release.getSnapshot(stores[0]!)).toEqual(before);
     expect((await broad.getSnapshot(stores[0]!)).capacity[0]?.quantity).toBe(
-      180,
+      400,
     );
   });
 

@@ -184,7 +184,8 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     await getPool()
       .query(`update canonical_claims set normalized_value='200',normalized_unit='units/day'
       where claim_id='demo:cap-thread-embroidery:capacity'`);
-    const inserted = await getPool().query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
+    const inserted = await getPool()
+      .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
       select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
       from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'
       on conflict(merchant_id,field) do update set winning_claim_id=excluded.winning_claim_id,value=excluded.value,status='resolved'`);
@@ -215,7 +216,8 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
   it("refuses incompatible winning capacity units before creating a hold", async () => {
     await getPool().query(`update canonical_claims set normalized_unit='kg/day'
       where claim_id='demo:cap-thread-embroidery:capacity'`);
-    const inserted = await getPool().query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
+    const inserted = await getPool()
+      .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
       select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
       from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'
       on conflict(merchant_id,field) do update set winning_claim_id=excluded.winning_claim_id,value=excluded.value,status='resolved'`);
