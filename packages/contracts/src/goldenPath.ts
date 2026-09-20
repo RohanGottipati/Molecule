@@ -30,5 +30,7 @@ export function isGoldenPathPrompt(text: string): boolean {
 }
 
 export function isGoldenPathCorrection(text: string): boolean {
-  return normalizeBriefText(text) === normalizeBriefText(GOLDEN_PATH_CORRECTION);
+  return (
+    normalizeBriefText(text) === normalizeBriefText(GOLDEN_PATH_CORRECTION)
+  );
 }

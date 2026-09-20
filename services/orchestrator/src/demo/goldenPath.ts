@@ -1,7 +1,4 @@
-import type {
-  MoleculeEvent,
-  OrderSessionSnapshot,
-} from "@molecule/contracts";
+import type { MoleculeEvent, OrderSessionSnapshot } from "@molecule/contracts";
 
 /**
  * What the canonical golden-path brief must produce when it runs against the
@@ -84,7 +81,10 @@ export function goldenPathDeviations(
     );
     check(intent.quantity === expected.quantity, `quantity ${intent.quantity}`);
     check(intent.currency === expected.currency, `currency ${intent.currency}`);
-    check(intent.budgetMax === expected.budgetMax, `budget ${intent.budgetMax}`);
+    check(
+      intent.budgetMax === expected.budgetMax,
+      `budget ${intent.budgetMax}`,
+    );
     check(
       JSON.stringify(intent.desiredOutputs.map((o) => o.outputId)) ===
         JSON.stringify(expected.outputIds),
@@ -98,14 +98,14 @@ export function goldenPathDeviations(
   }
   check(snapshot.lastErrorCode === null, `error ${snapshot.lastErrorCode}`);
   check(
-    snapshot.state === (phase === "planned" ? "AWAITING_APPROVAL" : "COMPLETED"),
+    snapshot.state ===
+      (phase === "planned" ? "AWAITING_APPROVAL" : "COMPLETED"),
     `state ${snapshot.state}`,
   );
   if (options.strictPlan ?? true) {
     check(
-      JSON.stringify(
-        sorted(snapshot.candidates.map((c) => c.capabilityId)),
-      ) === JSON.stringify(sorted(expected.candidateCapabilityIds)),
+      JSON.stringify(sorted(snapshot.candidates.map((c) => c.capabilityId))) ===
+        JSON.stringify(sorted(expected.candidateCapabilityIds)),
       `candidates ${sorted(snapshot.candidates.map((c) => c.capabilityId)).join(",")}`,
     );
     check(
@@ -189,7 +189,8 @@ export function goldenPathEventDeviations(
   let cursor = -1;
   for (const expected of GOLDEN_PATH_EXPECTATION.eventOrder) {
     const index = types.indexOf(expected, cursor + 1);
-    if (index === -1) issues.push(`missing ${expected} after position ${cursor}`);
+    if (index === -1)
+      issues.push(`missing ${expected} after position ${cursor}`);
     else cursor = index;
   }
   for (const unwanted of [

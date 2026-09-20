@@ -151,7 +151,9 @@ export function goldenPathIntent(input: {
   });
 }
 
-export function goldenPathCorrectedIntent(previous: ProductIntent): ProductIntent {
+export function goldenPathCorrectedIntent(
+  previous: ProductIntent,
+): ProductIntent {
   return ProductIntentSchema.parse({
     ...previous,
     version: previous.version + 1,

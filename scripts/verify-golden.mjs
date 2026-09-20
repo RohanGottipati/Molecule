@@ -46,8 +46,7 @@ try {
   if (!baseUrl) {
     directory = await mkdtemp(join(tmpdir(), "molecule-golden-"));
     const python =
-      process.env.SOLVER_PYTHON ??
-      resolve("services/solver/.venv/bin/python");
+      process.env.SOLVER_PYTHON ?? resolve("services/solver/.venv/bin/python");
     solver = spawn(
       python,
       [
@@ -94,9 +93,7 @@ try {
       SHOPIFY_MODE: "demo",
       REAL_EXECUTION_ENABLED: "false",
     });
-    const { createApp } = await import(
-      "../services/orchestrator/src/index.ts"
-    );
+    const { createApp } = await import("../services/orchestrator/src/index.ts");
     ({ app } = await createApp());
     baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
     log("stack ready", `solver=${solverUrl} orchestrator=${baseUrl}`);
@@ -165,7 +162,10 @@ try {
     `${plan.status} ${plan.currency} ${plan.totalCost} / ${planned.intent.budgetMax}, completes ${plan.estimatedCompletion}, risk ${plan.riskScore.toFixed(3)}`,
   );
   for (const node of plan.nodes)
-    log("  node", `${node.kind.padEnd(9)} ${node.capabilityId} @ ${node.merchantId}`);
+    log(
+      "  node",
+      `${node.kind.padEnd(9)} ${node.capabilityId} @ ${node.merchantId}`,
+    );
 
   const replayed = snapshot(
     await request(
@@ -175,7 +175,11 @@ try {
       `golden-${run}-brief`,
     ),
   );
-  assert.equal(replayed.revision, planned.revision, "brief replay was not idempotent");
+  assert.equal(
+    replayed.revision,
+    planned.revision,
+    "brief replay was not idempotent",
+  );
 
   let current = planned;
   if (withCorrection) {
