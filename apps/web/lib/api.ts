@@ -249,7 +249,11 @@ export async function getMarketplace(signal?: AbortSignal) {
   return result.data;
 }
 
-export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {
+export type DemoCapabilities = { demoMode: boolean; resetAvailable: boolean };
+
+export async function getDemoCapabilities(
+  signal?: AbortSignal,
+): Promise<DemoCapabilities> {
   const config = await request("/api/desktop/config", { signal });
   if (
     typeof config !== "object" ||
@@ -262,7 +266,17 @@ export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {
       502,
       "INVALID_RESPONSE",
     );
-  return config.demoMode;
+  return {
+    demoMode: config.demoMode,
+    resetAvailable:
+      config.demoMode &&
+      "demoResetAvailable" in config &&
+      config.demoResetAvailable === true,
+  };
+}
+
+export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {
+  return (await getDemoCapabilities(signal)).demoMode;
 }
 
 export async function clarifyBrief(

@@ -209,7 +209,11 @@ function PlanActionsPanel({
             resetting={workspace.operation === "reset"}
             onApprove={() => void workspace.approve()}
             onOffline={(id) => void workspace.offline(id)}
-            onReset={() => void workspace.resetDemo()}
+            onReset={
+              workspace.demoResetAvailable
+                ? () => void workspace.resetDemo()
+                : undefined
+            }
             events={events}
           />
         </>
