@@ -67,6 +67,19 @@ function hours(capability: MerchantCapability): number {
   return capability.leadTime.max * multiplier[capability.leadTime.unit];
 }
 
+// Sustained run length at the quoted production rate; mirrors the solver's
+// duration model for periodic non-supply capacity.
+function productionHours(
+  capability: MerchantCapability,
+  quantity: number,
+): number {
+  const { available, period } = capability.capacity;
+  if (capability.kind === "SUPPLY" || period === undefined || !available)
+    return 0;
+  const periodHours = { hour: 1, day: 24, week: 168 }[period];
+  return (quantity / available) * periodHours;
+}
+
 function applyFacts(
   capability: MerchantCapability,
   facts: ResolvedFact[],
@@ -546,8 +559,11 @@ export function createRealityService(
                 cap.capacity.available < quantity) ||
               quantity < cap.quantity.min ||
               quantity > cap.quantity.max ||
-              Math.max(hours(cap), candidate.risk?.p95Hours ?? 0) >
-                remainingHours
+              Math.max(
+                hours(cap),
+                candidate.risk?.p95Hours ?? 0,
+                productionHours(cap, quantity),
+              ) > remainingHours
             )
               continue;
             candidates.push(candidate);

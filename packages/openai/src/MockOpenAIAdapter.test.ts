@@ -261,7 +261,10 @@ describe("MockOpenAIAdapter", () => {
 
   it("mints desktop-specific mock realtime secrets", async () => {
     const adapter = new MockOpenAIAdapter();
-    const secret = await adapter.mintRealtimeClientSecret("desktop-project", "desktop");
+    const secret = await adapter.mintRealtimeClientSecret(
+      "desktop-project",
+      "desktop",
+    );
     expect(secret.value).toBe("mock-secret-desktop-project");
     expect(secret.expiresAt).toBeGreaterThan(Date.now() / 1000);
   });

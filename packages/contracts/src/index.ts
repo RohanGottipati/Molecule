@@ -683,6 +683,7 @@ export const ApiErrorSchema = z.strictObject({
     "SOLVER_UNSAT",
     "INVALID_TRANSITION",
     "CHAOS_DISABLED",
+    "VOICE_UNAVAILABLE",
     "INTERNAL",
   ]),
   message: z.string(),

@@ -5,7 +5,10 @@ import {
   type ShopifyAuth,
   type ShopifyTransportOptions,
 } from "@molecule/shopify";
-import { PersistentFakeShopifyAdmin, DEMO_STORE_HANDLES } from "@molecule/shopify/fake";
+import {
+  PersistentFakeShopifyAdmin,
+  DEMO_STORE_HANDLES,
+} from "@molecule/shopify/fake";
 import type { Config } from "./config.js";
 
 const AuthSchema = z.union([
@@ -162,7 +165,9 @@ export function fakeShopifyConfiguration(config: Config): {
     config.SHOPIFY_STOREFRONT_DOMAIN ?? config.MOLECULE_STOREFRONT_DOMAIN;
   const centralDomain = domain(
     storefront ??
-      domains.find((value) => merchantIdForShopifyStore(value) === "molecule") ??
+      domains.find(
+        (value) => merchantIdForShopifyStore(value) === "molecule",
+      ) ??
       domains[0]!,
   );
 
