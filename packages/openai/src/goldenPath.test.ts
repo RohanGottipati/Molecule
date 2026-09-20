@@ -109,7 +109,11 @@ describe("golden path intent", () => {
 
 describe("GoldenPathOpenAIAdapter", () => {
   const compile = vi.fn<OpenAIAdapter["compileIntent"]>();
-  const adapter = new GoldenPathOpenAIAdapter({ compileIntent: compile });
+  const clarify = vi.fn<OpenAIAdapter["clarifyBrief"]>();
+  const adapter = new GoldenPathOpenAIAdapter({
+    compileIntent: compile,
+    clarifyBrief: clarify,
+  });
 
   it("answers the canonical brief without asking questions", async () => {
     compile.mockClear();
@@ -195,6 +199,24 @@ describe("GoldenPathOpenAIAdapter", () => {
       }),
     ).resolves.toEqual(delegated);
     expect(compile).toHaveBeenCalledTimes(3);
+  });
+
+  it("clears the canonical brief in preflight and delegates other briefs", async () => {
+    clarify.mockReset();
+    clarify.mockResolvedValue({ status: "UNSUPPORTED", reason: "delegated" });
+    const { orderId: _orderId, traceId: _traceId, ...preflight } = base;
+    await expect(
+      adapter.clarifyBrief({ ...preflight, text: GOLDEN_PATH_PROMPT }),
+    ).resolves.toEqual({ status: "CLEAR" });
+    expect(clarify).not.toHaveBeenCalled();
+    await expect(
+      adapter.clarifyBrief({ ...preflight, text: "Make some kits soon" }),
+    ).resolves.toEqual({ status: "UNSUPPORTED", reason: "delegated" });
+    expect(clarify).toHaveBeenCalledTimes(1);
+    const full = new GoldenPathOpenAIAdapter(new MockOpenAIAdapter());
+    await expect(
+      full.clarifyBrief({ ...preflight, text: "Make some kits soon" }),
+    ).resolves.toMatchObject({ status: "NEEDS_INPUT" });
   });
 
   it("only exposes optional capabilities the wrapped adapter provides", () => {

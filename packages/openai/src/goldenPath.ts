@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 
 import {
+  BriefClarificationRequestSchema,
   CompileIntentRequestSchema,
   ProductIntentSchema,
   isGoldenPathCorrection,
   isGoldenPathPrompt,
+  type BriefClarificationRequest,
+  type BriefClarificationResult,
   type CompileIntentRequest,
   type CompileIntentResult,
   type ProductIntent,
@@ -223,5 +226,14 @@ export class GoldenPathOpenAIAdapter implements OpenAIAdapter {
       };
     }
     return this.inner.compileIntent(parsed);
+  }
+
+  async clarifyBrief(
+    input: BriefClarificationRequest,
+  ): Promise<BriefClarificationResult> {
+    const parsed = BriefClarificationRequestSchema.parse(input);
+    if (!parsed.previousIntent && isGoldenPathPrompt(parsed.text))
+      return { status: "CLEAR" };
+    return this.inner.clarifyBrief(parsed);
   }
 }
