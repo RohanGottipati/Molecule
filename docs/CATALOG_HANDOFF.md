@@ -1,5 +1,9 @@
 # Broad catalog handoff in Tiger
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Migration `017_broad_catalog_handoff.sql` creates an additive staging area so the
 data and integration workstreams can inspect the same starting point. It does not
 alter existing merchants, capabilities, canonical claims or Shopify catalog rows.
@@ -42,8 +46,9 @@ Importers must persist a `MoleculeEvent` transactionally with meaningful changes
 Only validated data may later be promoted through claim resolution and catalog
 bindings. A staging status never establishes executable readiness.
 
-Next: finalize the shared manifest contract, validate the representative 20-recipe
-sample, then implement catalog bindings, version activation and solver integration.
+Subsequent work added canonical manifest validation, an immutable-version importer
+and local solver integration. See [delivery review](CATALOG_DELIVERY_REVIEW.md).
+Actual teammate delivery and shared deployment require separate verification.
 
 ## Verification and deployment status
 
@@ -53,7 +58,7 @@ migration runner handles the older bulk migration's optional TimescaleDB calls,
 so the full database suite now runs locally. Database lint/typecheck and handoff
 formatting checks passed.
 
-The shared Tiger deployment is **pending**. Both attempts rolled back on a lock
+At that verification checkpoint, shared Tiger deployment was **pending**. Both attempts rolled back on a lock
 timeout: an existing idle transaction (PID 94431 at the time of inspection) holds
 advisory lock `73481203`, also required by the existing event-cursor trigger.
 No new tables or category rows were committed. The owner of that transaction must

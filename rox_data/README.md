@@ -1,9 +1,15 @@
 # Rox: messy-data ingestion agents
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](../docs/DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Point it at a supplier's inbox, their spreadsheets, their chat threads and their
 three disagreeing inventory systems. It lands every fact in Tiger with
 provenance, refuses to guess when sources conflict, and writes the resolved
-truth back into Shopify Admin - measured against a hidden ground truth.
+truth for a proposed Shopify Admin write-back. Successful execution remains an
+acceptance gap; the synthetic scorecard has limitations documented in the current
+assessment.
 
 Plan and scope: [`PLAN.md`](PLAN.md). Schema: [`sql/013_rox_ingest.sql`](../sql/013_rox_ingest.sql),
 [`014_rox_links.sql`](../sql/014_rox_links.sql), [`015_rox_quantities.sql`](../sql/015_rox_quantities.sql).
@@ -69,14 +75,14 @@ enforced - the run aborts at the ceiling), `ROX_EXTRACT_MODEL`,
 
 ## The stages
 
-| Stage | Engine | What it does |
-|---|---|---|
-| `intake` | deterministic | Decodes bytes, repairs mojibake, detects malformed containers, dedupes on (checksum, source) and writes `raw_artifacts`. Attribution is *not* done here: every artifact lands on the `m-unresolved` sentinel. |
-| `extract` | **model** | One document at a time, structured output, evidence span mandatory, injection guard ahead of it. Writes `rox_extractions`; nothing is trusted yet. |
-| `link` | hybrid | Collapses duplicate merchant records in our own database, then resolves each candidate: capability id in the evidence → supplier name → who sent it. Escalates exact → containment → trigram → pgvector → model, and queues a human when the band is ambiguous. |
-| `normalize` | deterministic | Units, currencies, periods and business days into canonical form, showing its work. Anything unreadable is quarantined with a reason. Writes `canonical_claims`. |
-| `resolve` | deterministic | Scores claims `0.35*authority + 0.30*recency + 0.25*confidence + 0.10*corroboration`; below a 0.08 margin the field stays conflicted. Mirrors `services/reality/src/resolution.ts`. |
-| `act` | model drafts, human approves | Drafts the supplier follow-up for every conflicted field, proposes Shopify metafield write-backs, and queues both. Drafting is not sending. |
+| Stage       | Engine                       | What it does                                                                                                                                                                                                                                                    |
+| ----------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `intake`    | deterministic                | Decodes bytes, repairs mojibake, detects malformed containers, dedupes on (checksum, source) and writes `raw_artifacts`. Attribution is _not_ done here: every artifact lands on the `m-unresolved` sentinel.                                                   |
+| `extract`   | **model**                    | One document at a time, structured output, evidence span mandatory, injection guard ahead of it. Writes `rox_extractions`; nothing is trusted yet.                                                                                                              |
+| `link`      | hybrid                       | Collapses duplicate merchant records in our own database, then resolves each candidate: capability id in the evidence → supplier name → who sent it. Escalates exact → containment → trigram → pgvector → model, and queues a human when the band is ambiguous. |
+| `normalize` | deterministic                | Units, currencies, periods and business days into canonical form, showing its work. Anything unreadable is quarantined with a reason. Writes `canonical_claims`.                                                                                                |
+| `resolve`   | deterministic                | Scores claims `0.35*authority + 0.30*recency + 0.25*confidence + 0.10*corroboration`; below a 0.08 margin the field stays conflicted. Mirrors `services/reality/src/resolution.ts`.                                                                             |
+| `act`       | model drafts, human approves | Drafts the supplier follow-up for every conflicted field, proposes Shopify metafield write-backs, and queues both. Drafting is not sending.                                                                                                                     |
 
 `pipeline/rules.mjs` is separate: the rule compiler that mines regex rules for
 the 61k free-text quantities on the real Open Food Facts rows, scores them
@@ -90,7 +96,7 @@ attribution accuracy, normalization accuracy, ambiguity held, quarantine recall,
 **injection defense**, **outlier containment** (a wrong number in one document
 must not become the answer), hallucination rate and cost. Two questions are
 scored separately because they fail differently: did we capture what the
-document *said*, and after reconciliation is the value *true*.
+document _said_, and after reconciliation is the value _true_.
 
 The corpus is emulated but the mess is not decorative - see `corpus/chaos.mjs`
 for the seventeen dimensions and `manifest.json` for their coverage in a batch.

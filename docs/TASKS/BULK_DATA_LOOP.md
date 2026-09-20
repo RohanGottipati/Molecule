@@ -1,5 +1,9 @@
 # Bulk data loop: real datasets at scale (Tiger + Shopify)
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](../DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Owner: Emaad (Shopify). Written Sat Sep 19 2026.
 
 Goal: more data means harder queries and a better demo. Millions of rows go into Tiger (TimescaleDB), where joins, window functions and rollups run fast. A smaller real-product catalog goes into the Shopify dev stores, so Admin looks full without slowing the sync or the UI.

@@ -52,3 +52,8 @@ Web -> Orchestrator -> OpenAI compiler -> ProductIntent
 | Tiger/Reality/contracts     | `packages/contracts`, `packages/db`, `packages/events`, `services/reality`, `sql` |
 
 Cross-owner contract changes should land independently before provider implementations consume them.
+
+## Database onboarding
+
+See [Database and ROX assessment](DATABASE_ROX.md) for the schema walkthrough,
+source versus synthetic data, evaluation limitations and current work order.

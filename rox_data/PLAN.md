@@ -1,5 +1,9 @@
 # Rox Track: messy-data ingestion agents → Tiger
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](../docs/DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 Owner: Emaad. Drafted Sat Sep 19 2026. Status in §11.
 
 Target: Rox Track ("agents that operate on real-world messy data and take meaningful actions").
@@ -163,11 +167,11 @@ Built and running against Tiger (`db-37507`):
 - [x] `report` - self-contained HTML report
 - [x] `reset-batch` - re-runnable demo
 - [ ] Full-corpus scored run and baseline comparison (in progress)
-- [ ] Rule compiler executed end to end
+- [x] Stored rule execution verified: four accepted rules and 59,383 rule-derived quantity rows; independent accuracy validation remains open
 - [ ] Shopify write-back applied (`--apply`) and the self-heal loop demonstrated
 - [ ] Judge surface ported into `apps/web`
 
-### Blocked: the Tiger service is read-only (Sat Sep 19 2026, 20:25 UTC)
+### Historical incident: the Tiger service was read-only (Sat Sep 19 2026, 20:25 UTC)
 
 The full scored run stopped part-way through extraction. The cause is not the
 pipeline: Tiger set `default_transaction_read_only = on` at the database level,
@@ -176,13 +180,13 @@ override it in-session.
 
 Where the space went (`timescaledb_information.chunks`, total 2,826 MB):
 
-| Table | Size | Rows | Note |
-|---|---|---|---|
-| `fulfillment_samples` | **2,009 MB** | 4,004,900 | uncompressed, ~500 B/row for a six-column table - mostly bloat |
-| `network_events` | 209 MB | 302,114 | uncompressed |
-| `market_metrics` | 144 MB | - | uncompressed |
-| `_materialized_hypertable_9` | 62 MB | - | continuous aggregate |
-| `bulk_order_lines` | 47 MB | 3,059,709 | 122 of 125 chunks compressed - this one is fine |
+| Table                        | Size         | Rows      | Note                                                           |
+| ---------------------------- | ------------ | --------- | -------------------------------------------------------------- |
+| `fulfillment_samples`        | **2,009 MB** | 4,004,900 | uncompressed, ~500 B/row for a six-column table - mostly bloat |
+| `network_events`             | 209 MB       | 302,114   | uncompressed                                                   |
+| `market_metrics`             | 144 MB       | -         | uncompressed                                                   |
+| `_materialized_hypertable_9` | 62 MB        | -         | continuous aggregate                                           |
+| `bulk_order_lines`           | 47 MB        | 3,059,709 | 122 of 125 chunks compressed - this one is fine                |
 
 The Rox tables are a rounding error next to these. `bulk_order_lines` shows what
 compression does: 3M rows in 47 MB.
@@ -201,7 +205,8 @@ select compress_chunk(c) from show_chunks('fulfillment_samples', older_than => i
 
 `pipeline/run.mjs` now refuses to start against a read-only database instead of
 discovering it mid-run, and `migration 016_rox_attempts.sql` is written but
-**not yet applied** for the same reason.
+**not yet applied at that checkpoint** for the same reason. The later audit found
+`rox_artifact_attempts`; verify the ledger before asserting current migration state.
 
 ### Honest gaps
 

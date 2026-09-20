@@ -1,5 +1,9 @@
 # Tiger/Rox release integration
 
+> Status reconciled 2026-09-19: [current database/ROX assessment](DATABASE_ROX.md) is the
+> source for current counts, evaluation caveats and priorities. Historical test
+> results and incidents below apply only to their recorded revision/environment.
+
 ## Entry points
 
 `@molecule/service-reality` exports the database-backed factory. Importing the
@@ -98,10 +102,12 @@ releases demo holds, and reverts demo chaos. It preserves other merchants and
 retains the event/raw-artifact audit trail. Reset emits an event rather than
 deleting historical metrics.
 
-The current migration set requires TimescaleDB and pgvector: bulk-commerce and
+The release-time migration set required TimescaleDB and pgvector: bulk-commerce and
 Rox-ingestion migrations use their functions/types directly. Use the CI image
 `timescale/timescaledb:2.22.0-pg16` for local acceptance. The older core migrations
 have plain PostgreSQL fallbacks, but those do not cover the later bulk/Rox schema.
+Later migration-runner changes add optional-Timescale handling for the older bulk
+migration; this does not establish that every ROX migration works without pgvector.
 Extension availability and errors are queryable through `getDatabaseFeatures`.
 Candidate search is currently **lexical** on both paths, including when pgvector
 is installed. No embedding provider is called.
@@ -271,7 +277,11 @@ formatted; package lint/typecheck/build run through the existing scripts.
 Backboard, merchant-agent, orchestrator and OpenAI mock suites and the existing
 Python solver suite were also run.
 
-### Parent integration work still required
+### Historical parent integration handoff (superseded)
+
+The merge verification later recorded integrated adapters, lockfile regeneration
+and a passing synthetic full-kit flow. The original handoff below is retained as
+history, not current work. Newer acceptance limitations are in DATABASE_ROX.md.
 
 - Regenerate the shared lockfile: Reality adds the workspace fixture dependency.
   This branch intentionally does not edit root configuration, contracts,
