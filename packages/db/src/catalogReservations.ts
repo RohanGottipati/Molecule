@@ -1,4 +1,4 @@
-import { ProductionPlanSchema, type ProductionPlan } from "@molecule/contracts";
+import { CatalogRecordSchema, ProductionPlanSchema, type ProductionPlan } from "@molecule/contracts";
 import { transaction } from "./client.js";
 import { effectId, persistEvent } from "./operations.js";
 
@@ -12,6 +12,23 @@ export async function reserveCatalogPlan(input: ProductionPlan, traceId: string,
     for (const node of [...plan.nodes].sort((a,b) => a.nodeId.localeCompare(b.nodeId))) {
       if (!node.catalogVersion || !node.selectedItem || !node.resourceRefs?.length) throw new Error("MISSING_CATALOG_REFERENCES");
       if (node.catalogVersion !== active.rows[0]?.catalog_version) throw new Error("STALE_CATALOG_VERSION");
+      const selected = await client.query<{ record_json: unknown }>(`select record_json from catalog_records
+        where catalog_version=$1 and record_id in ($2,$3,$4,
+          (select record_json->>'familyId' from catalog_records where catalog_version=$1 and record_id=$2))`,
+        [node.catalogVersion, node.selectedItem.bindingId, node.selectedItem.variantId, node.selectedItem.productId]);
+      const records = selected.rows.map(row => CatalogRecordSchema.parse(row.record_json));
+      const binding = records.find(r => r.id === node.selectedItem!.bindingId && r.recordType === "binding");
+      const variant = records.find(r => r.id === node.selectedItem!.variantId && r.recordType === "variant");
+      const product = records.find(r => r.id === node.selectedItem!.productId && r.recordType === "product");
+      const family = binding?.recordType === "binding" ? records.find(r => r.id === binding.familyId && r.recordType === "family") : undefined;
+      if (binding?.recordType !== "binding" || variant?.recordType !== "variant" || product?.recordType !== "product" || family?.recordType !== "family" ||
+          binding.merchantId !== node.merchantId || binding.variantId !== variant.id || variant.productId !== product.id ||
+          variant.sku !== node.selectedItem.sku || product.itemKind !== node.selectedItem.itemKind ||
+          variant.shopify?.variantGid !== node.selectedItem.variantGid || family.kind !== node.kind ||
+          node.capabilityId !== `bound:${node.catalogVersion}:${binding.id}` ||
+          family.requiredAssetIds.some(id => !node.customizationAssets?.some(asset => asset.assetId === id))) throw new Error("INVALID_CATALOG_SELECTION");
+      if (binding.resources.length !== node.resourceRefs.length || new Set(node.resourceRefs.map(ref => ref.resourceId)).size !== node.resourceRefs.length ||
+          binding.resources.some(required => !node.resourceRefs!.some(ref => ref.resourceId === required.resourceId && ref.unitsPerItem === required.unitsPerItem))) throw new Error("INVALID_RESOURCE_REFERENCES");
       for (const ref of [...node.resourceRefs].sort((a,b) => a.resourceId.localeCompare(b.resourceId))) {
         const key = `${actionKey}:${node.nodeId}:${ref.resourceId}`;
         const quantity = Math.ceil(node.quantity * ref.unitsPerItem * 1000) / 1000;

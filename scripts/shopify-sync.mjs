@@ -28,7 +28,7 @@ const PRODUCTS = `query($c:String){
   products(first:15, after:$c){
     pageInfo{ hasNextPage endCursor }
     edges{ node{ id handle title productType vendor status tags description
-      variants(first:30){ pageInfo{ hasNextPage } edges{ node{ id sku title price inventoryQuantity
+      variants(first:100){ pageInfo{ hasNextPage endCursor } edges{ node{ id sku title price inventoryQuantity
         selectedOptions{ name value } inventoryItem{ id tracked } } } } } } } }`;
 
 async function fetchStore(handle) {
@@ -36,15 +36,28 @@ async function fetchStore(handle) {
   let cursor = null,
     shop = null,
     truncatedVariants = 0;
+  const productCursors = new Set();
   for (;;) {
     const d = await gql(handle, PRODUCTS, { c: cursor });
     shop = d.shop;
     for (const e of d.products.edges) {
-      if (e.node.variants.pageInfo.hasNextPage) truncatedVariants++;
+      const seen = new Set();
+      while (e.node.variants.pageInfo.hasNextPage) {
+        const after = e.node.variants.pageInfo.endCursor;
+        if (!after || seen.has(after)) throw new Error("CATALOG_PAGINATION_REQUIRED");
+        seen.add(after);
+        const next = await gql(handle, `query Variants($id:ID!,$after:String!){product(id:$id){variants(first:100,after:$after){
+          pageInfo{hasNextPage endCursor} edges{node{id sku title price inventoryQuantity selectedOptions{name value} inventoryItem{id tracked}}}}}}`, {id:e.node.id,after});
+        if (!next.product) throw new Error("CATALOG_PRODUCT_DISAPPEARED");
+        e.node.variants.edges.push(...next.product.variants.edges);
+        e.node.variants.pageInfo = next.product.variants.pageInfo;
+      }
       products.push(e.node);
     }
     if (!d.products.pageInfo.hasNextPage) break;
     cursor = d.products.pageInfo.endCursor;
+    if (!cursor || productCursors.has(cursor)) throw new Error("CATALOG_PAGINATION_REQUIRED");
+    productCursors.add(cursor);
   }
   return { handle, shop, products, truncatedVariants };
 }

@@ -26,6 +26,7 @@ export interface ShopifyCapacityIngestionOptions {
     input: RawClaimInput,
     traceId: string,
   ) => ReturnType<typeof ingestClaim>;
+  merchantForStore?: (shop: string) => Promise<string | undefined>;
   onSkippedStore?: (store: string) => void;
 }
 
@@ -55,7 +56,7 @@ export type ShopifyInventoryIngestionResult =
 
 function inventorySourceReference(inventoryItemId: string | number): string {
   const value = String(inventoryItemId).trim();
-  return value.startsWith("gid://shopify/InventoryItem/")
+  return value.startsWith("gid://")
     ? value
     : `gid://shopify/InventoryItem/${value}`;
 }
@@ -139,7 +140,7 @@ export async function ingestShopifyCapacityBatch(
   };
 
   for (const store of stores) {
-    const merchantId = merchantIdForShopifyStore(store);
+    const merchantId = options.merchantForStore ? await options.merchantForStore(store) : merchantIdForShopifyStore(store);
     if (!merchantId) {
       result.skippedStores.push(store);
       options.onSkippedStore?.(store);

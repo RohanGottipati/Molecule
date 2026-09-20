@@ -76,6 +76,13 @@ const EnvelopeSchema = z.object({
     .optional(),
 });
 
+const VariantConnectionSchema = z.object({
+  nodes: z.array(z.object({ id: z.string(), sku: z.string().nullable(), price: z.string(),
+    selectedOptions: z.array(z.object({ name: z.string(), value: z.string() })).optional().default([]),
+    inventoryItem: z.object({ id: z.string(), tracked: z.boolean() }).nullable().optional() })),
+  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+});
+
 export class ShopifyTransport {
   readonly domain: string;
   private readonly options: ShopifyTransportOptions;
@@ -282,27 +289,7 @@ export class ShopifyTransport {
               vendor: z.string().optional().default(""),
               productType: z.string().optional().default(""),
               tags: z.array(z.string()).optional().default([]),
-              variants: z.object({
-                nodes: z.array(
-                  z.object({
-                    id: z.string(),
-                    sku: z.string().nullable(),
-                    price: z.string(),
-                    selectedOptions: z
-                      .array(z.object({ name: z.string(), value: z.string() }))
-                      .optional()
-                      .default([]),
-                    inventoryItem: z
-                      .object({ id: z.string(), tracked: z.boolean() })
-                      .nullable()
-                      .optional(),
-                  }),
-                ),
-                pageInfo: z.object({
-                  hasNextPage: z.boolean(),
-                  endCursor: z.string().nullable(),
-                }),
-              }),
+              variants: VariantConnectionSchema,
             }),
           ),
           pageInfo: z.object({
@@ -314,6 +301,13 @@ export class ShopifyTransport {
     );
   }
 
+  async listProductVariants(productId: string, after: string) {
+    if (!/^gid:\/\/shopify\/Product\/\d+$/.test(productId)) throw new ShopifyError("INVALID_PRODUCT_ID");
+    return this.graphql(`query Variants($id: ID!, $after: String!) {
+      product(id: $id) { variants(first:100, after:$after) { nodes { id sku price selectedOptions { name value } inventoryItem { id tracked } } pageInfo { hasNextPage endCursor } } }
+    }`, { id: productId, after }, z.object({ product: z.object({ variants: VariantConnectionSchema }).nullable() }));
+  }
+
   /**
    * Reads all tagged capacity products into the shared snapshot shape. It
    * refuses partial product, variant, or inventory-location pages rather than
@@ -323,12 +317,21 @@ export class ShopifyTransport {
     const products: ShopifySnapshot["products"] = [];
     const capacity: ShopifySnapshot["capacity"] = [];
     let after: string | undefined;
+    const productCursors = new Set<string>();
 
     do {
       const page = await this.listProducts(after);
       for (const product of page.products.nodes) {
-        if (product.variants.pageInfo.hasNextPage)
-          throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+        const cursors = new Set<string>();
+        while (product.variants.pageInfo.hasNextPage) {
+          const cursor = product.variants.pageInfo.endCursor;
+          if (!cursor || cursors.has(cursor)) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+          cursors.add(cursor);
+          const next = await this.listProductVariants(product.id, cursor);
+          if (!next.product) throw new ShopifyError("CATALOG_PRODUCT_DISAPPEARED");
+          product.variants.nodes.push(...next.product.variants.nodes);
+          product.variants.pageInfo = next.product.variants.pageInfo;
+        }
         products.push({
           productId: product.id,
           handle: product.handle,
@@ -373,7 +376,8 @@ export class ShopifyTransport {
       }
       if (!page.products.pageInfo.hasNextPage) break;
       after = page.products.pageInfo.endCursor ?? undefined;
-      if (!after) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+      if (!after || productCursors.has(after)) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+      productCursors.add(after);
     } while (after);
 
     return ShopifySnapshotSchema.parse({
@@ -386,13 +390,30 @@ export class ShopifyTransport {
   }
 
   async getInventory(inventoryItemId: string) {
+    const result = await this.inventoryPage(inventoryItemId);
+    if (!result.inventoryItem) return result;
+    const levels = result.inventoryItem.inventoryLevels;
+    const cursors = new Set<string>();
+    while (levels.pageInfo.hasNextPage) {
+      const cursor = levels.pageInfo.endCursor;
+      if (!cursor || cursors.has(cursor)) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+      cursors.add(cursor);
+      const next = await this.inventoryPage(inventoryItemId, cursor);
+      if (!next.inventoryItem) throw new ShopifyError("CATALOG_INVENTORY_DISAPPEARED");
+      levels.nodes.push(...next.inventoryItem.inventoryLevels.nodes);
+      levels.pageInfo = next.inventoryItem.inventoryLevels.pageInfo;
+    }
+    return result;
+  }
+
+  private async inventoryPage(inventoryItemId: string, after?: string) {
     if (!/^gid:\/\/shopify\/InventoryItem\/\d+$/.test(inventoryItemId))
       throw new ShopifyError("INVALID_INVENTORY_ID");
     return this.graphql(
-      `query Inventory($id: ID!) { inventoryItem(id: $id) { id tracked inventoryLevels(first: 100) {
-       nodes { location { id name } quantities(names: ["available"]) { name quantity } }
+      `query Inventory($id: ID!, $after: String) { inventoryItem(id: $id) { id tracked inventoryLevels(first: 100, after: $after) {
+       nodes { updatedAt location { id name } quantities(names: ["available"]) { name quantity } }
        pageInfo { hasNextPage endCursor } } } }`,
-      { id: inventoryItemId },
+      { id: inventoryItemId, after: after ?? null },
       z.object({
         inventoryItem: z
           .object({
@@ -401,6 +422,7 @@ export class ShopifyTransport {
             inventoryLevels: z.object({
               nodes: z.array(
                 z.object({
+                  updatedAt: z.iso.datetime().optional(),
                   location: z.object({ id: z.string(), name: z.string() }),
                   quantities: z.array(
                     z.object({ name: z.string(), quantity: z.number().int() }),

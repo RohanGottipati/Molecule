@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { ShopifyTransport } from "../../packages/shopify/dist/transport.js";
 import { MERCHANT_IDS, roleForStore } from "../seed-data.mjs";
 
 export const API_VERSION = "2026-07";
@@ -68,61 +69,19 @@ export function uuidFrom(key) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-const tokens = new Map();
-async function token(handle) {
-  const hit = tokens.get(handle);
-  if (hit && hit.exp > Date.now()) return hit.value;
-  const res = await fetch(
-    `https://${handle}.myshopify.com/admin/oauth/access_token`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "client_credentials",
-        client_id: process.env.SHOPIFY_CLIENT_ID,
-        client_secret: process.env.SHOPIFY_API_SECRET,
-      }),
-    },
-  );
-  if (!res.ok) throw new Error(`token ${handle}: HTTP ${res.status}`);
-  const j = await res.json();
-  tokens.set(handle, {
-    value: j.access_token,
-    exp: Date.now() + 55 * 60 * 1000,
-  });
-  return j.access_token;
-}
-
-/** Admin GraphQL with THROTTLED / 429 / 5xx backoff. */
-export async function gql(handle, query, variables = {}, attempt = 0) {
-  const res = await fetch(
-    `https://${handle}.myshopify.com/admin/api/${API_VERSION}/graphql.json`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-shopify-access-token": await token(handle),
-      },
-      body: JSON.stringify({ query, variables }),
-    },
-  );
-  if ((res.status === 429 || res.status >= 500) && attempt < 6) {
-    await sleep(1000 * 2 ** attempt);
-    return gql(handle, query, variables, attempt + 1);
-  }
-  const j = await res.json();
-  if (
-    j.errors?.some((e) => e.extensions?.code === "THROTTLED") &&
-    attempt < 8
-  ) {
-    await sleep(1500 * (attempt + 1));
-    return gql(handle, query, variables, attempt + 1);
-  }
-  if (j.errors)
-    throw new Error(`${handle}: ${JSON.stringify(j.errors).slice(0, 300)}`);
-  const avail = j.extensions?.cost?.throttleStatus?.currentlyAvailable;
-  if (avail !== undefined && avail < 250) await sleep(700);
-  return j.data;
+// Scripts and the runtime share token refresh, timeouts, version checks and
+// mutation retry rules. Build @molecule/shopify before using operational scripts.
+const transports = new Map();
+const { z } = createRequire(new URL("../../packages/shopify/package.json", import.meta.url))("zod");
+export async function gql(handle, query, variables = {}) {
+  const domain = handle.endsWith(".myshopify.com") ? handle : `${handle}.myshopify.com`;
+  if (!transports.has(domain)) transports.set(domain, new ShopifyTransport({
+    domain,
+    auth: process.env.SHOPIFY_ACCESS_TOKEN
+      ? { accessToken: process.env.SHOPIFY_ACCESS_TOKEN }
+      : { clientId: process.env.SHOPIFY_CLIENT_ID || process.env.SHOPIFY_API_KEY || "", clientSecret: process.env.SHOPIFY_API_SECRET || "" },
+  }));
+  return transports.get(domain).graphql(query, variables, z.record(z.string(), z.unknown()), /(?:^|\n)\s*mutation\b/.test(query));
 }
 
 /** Which capability each Shopify capacity-signal product feeds (Reality field `<capabilityId>.capacity`). */

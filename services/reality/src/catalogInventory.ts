@@ -48,9 +48,9 @@ export async function observeCatalogInventory(input: CatalogInventoryObservation
     if (changed) {
       await client.query(`insert into catalog_recovery_requests(order_id,resource_id,observation_key)
         select order_id,$1,$2 from order_sessions s
-        where s.session_json->>'state' in ('PLAN_VALIDATED','AWAITING_APPROVAL','COMPLETED','NEEDS_HUMAN') and exists (
+        where s.session_json->>'state' in ('PLAN_VALIDATED','AWAITING_APPROVAL','COMPLETED','NEEDS_HUMAN') and (exists (
           select 1 from jsonb_array_elements(coalesce(s.session_json->'activePlan'->'nodes','[]')) n
-          cross join lateral jsonb_array_elements(coalesce(n->'resourceRefs','[]')) ref where ref->>'resourceId'=$1)
+          cross join lateral jsonb_array_elements(coalesce(n->'resourceRefs','[]')) ref where ref->>'resourceId'=$1) or (s.session_json->>'state'='NEEDS_HUMAN' and exists (select 1 from catalog_recovery_requests previous where previous.order_id=s.order_id and previous.resource_id=$1)))
         on conflict(order_id,resource_id) do update set observation_key=excluded.observation_key,status='pending',updated_at=now()`, [resource.resource_id, observationKey]);
     }
     await persistEvent({ eventId: effectId(`catalog-observation:${observationKey}`), traceId: input.traceId, merchantId: resource.merchant_id, eventType: changed ? "catalog.resource.changed" : "catalog.resource.observed", source: "shopify", severity: status === "conflicted" ? "WARN" : "INFO", ts: new Date().toISOString(), payload: { ...ids, observationKey, available, status, sourceReference: source, observedAt: input.observedAt } }, client);

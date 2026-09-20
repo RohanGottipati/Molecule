@@ -73,7 +73,7 @@ export function broadCatalogFixture(version = "broad-fixture-v1", recipeLimit = 
       deadline: "2026-10-19T12:00:00.000Z", currency: "CAD", budgetMax: 2000, desiredOutputs, transformations,
       hardConstraints: [], softPreferences: [], assets: [{ assetId: "artwork", checksum: "synthetic-artwork-v1" }, { assetId: "model", checksum: "synthetic-model-v1" }], ambiguityFlags: [] });
     const value = { recordType: "recipe" as const, id: `recipe:${id}`, category,
-      prompt: `Create 10 ${bundle ? id + " bundles containing " : "customized "}${components.join(", ")} in the specified materials. Use the supplied artwork/model; deliver to Canada by October 19, 2026 for at most CAD 2000.`, intent,
+      prompt: `Create 10 ${bundle ? id + " bundles containing " : "customized "}${components.map(name => `${name} (${specs.get(name)!.material}, ${specs.get(name)!.operation}${name === "phone case" ? ", iPhone 16" : ""}${name === "enclosure" ? ", 100 x 80 x 40 mm" : ""})`).join(", ")}. Use the supplied artwork/model; deliver to Canada by October 19, 2026 for at most CAD 2000.`, intent,
       expected: { outputKind: bundle ? "bundle" as const : "individual" as const, operations: [...new Set(transformations.map(t => t.kind))], minimumDistinctSuppliers: id === "onboarding" ? 7 : 2 }, evidence };
     recipes.push(value);
     records.push(value);

@@ -863,7 +863,15 @@ export class Orchestrator {
   }
 
   async recoverResource(orderId: string, resourceId: string): Promise<OrderSession> {
-    const session = await this.load(orderId);
+    let session = await this.load(orderId);
+    if (session.state === "NEEDS_HUMAN" && session.activePlan?.status === "UNSAT" && session.intent) {
+      session.planGeneration += 1;
+      session = await this.move(session, "RECOVERING", "recovery.started", "orchestrator", { resourceId });
+      session = await this.move(session, "INTENT_COMPILED", "recovery.replanning");
+      // Earlier jobs were superseded before the UNSAT result. A newly feasible
+      // plan is reviewable again; never revive an uncertain external execution.
+      return this.plan(session, []);
+    }
     const node = session.activePlan?.nodes.find(node => node.resourceRefs?.some(ref => ref.resourceId === resourceId));
     if (!node) return session;
     return this.recoverSupplier(orderId, node.merchantId, resourceId);

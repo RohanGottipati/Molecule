@@ -423,7 +423,9 @@ export function createRealityService(
                 ((cap.kind === "SUPPLY" || cap.capacity.period === undefined) && cap.capacity.available < quantity)) ||
               quantity < cap.quantity.min ||
               quantity > cap.quantity.max ||
-              Math.max(hours(cap), candidate.risk?.p95Hours ?? 0) >
+              Math.max(hours(cap), candidate.risk?.p95Hours ?? 0,
+                cap.kind !== "SUPPLY" && cap.capacity.period && cap.capacity.available > 0
+                  ? quantity / cap.capacity.available * ({hour: 1, day: 24, week: 168}[cap.capacity.period]) : 0) >
                 remainingHours
             )
               continue;
