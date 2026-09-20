@@ -26,7 +26,6 @@ import {
 import type { Config } from "./config.js";
 import {
   configuredShopifyDomains,
-  fakeShopifyConfiguration,
   liveShopifyConfiguration,
 } from "./shopifyConfig.js";
 import { PostgresStore } from "./PostgresStore.js";
@@ -45,16 +44,10 @@ function configuredShopifyStores(value: string | undefined): string[] {
 }
 
 export async function createDurableRuntime(config: Config) {
-  // Fake mode resolves to the same shape as live, so everything downstream of this line is
-  // identical in both modes. Only the injected `fetch` differs.
-  const usesTransport =
-    config.SHOPIFY_MODE === "live" || config.SHOPIFY_MODE === "fake";
-  const liveShopify =
-    config.SHOPIFY_MODE === "live"
-      ? liveShopifyConfiguration(config)
-      : config.SHOPIFY_MODE === "fake"
-        ? fakeShopifyConfiguration(config)
-        : undefined;
+  const usesTransport = config.SHOPIFY_MODE === "live";
+  const liveShopify = usesTransport
+    ? liveShopifyConfiguration(config)
+    : undefined;
   const store = new PostgresStore();
   let resourceRecovery:
     ((orderId: string, resourceId: string) => Promise<unknown>) | undefined;
@@ -245,10 +238,7 @@ export async function createDurableRuntime(config: Config) {
   const commerce = usesTransport
     ? new RealShopifyClient({
         repository: journal,
-        // REAL_EXECUTION_ENABLED gates mutations against real dev stores. Fake mode has no
-        // real store to mutate, so execution is enabled there without relaxing the live gate.
-        executionEnabled:
-          config.SHOPIFY_MODE === "fake" || config.REAL_EXECUTION_ENABLED,
+        executionEnabled: config.REAL_EXECUTION_ENABLED,
         centralStore: liveShopify!.centralStore,
         supplierStores: supplierStores!,
       })
