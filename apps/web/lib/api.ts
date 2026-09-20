@@ -2,6 +2,8 @@ import {
   ActionStatusQuerySchema,
   ActionStatusSchema,
   ApiErrorSchema,
+  BriefClarificationRequestSchema,
+  BriefClarificationResultSchema,
   ContextReceiptSchema,
   ContextUploadSchema,
   DesktopActionSchema,
@@ -17,6 +19,7 @@ import {
   ProjectListSchema,
   type ActionStatusQuery,
   type AssetRef,
+  type BriefClarificationResult,
   type ChaosRequest,
   type CompileIntentRequest,
   type OrderSessionSnapshot,
@@ -246,7 +249,11 @@ export async function getMarketplace(signal?: AbortSignal) {
   return result.data;
 }
 
-export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {
+export type DemoCapabilities = { demoMode: boolean; resetAvailable: boolean };
+
+export async function getDemoCapabilities(
+  signal?: AbortSignal,
+): Promise<DemoCapabilities> {
   const config = await request("/api/desktop/config", { signal });
   if (
     typeof config !== "object" ||
@@ -259,7 +266,40 @@ export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {
       502,
       "INVALID_RESPONSE",
     );
-  return config.demoMode;
+  return {
+    demoMode: config.demoMode,
+    resetAvailable:
+      config.demoMode &&
+      "demoResetAvailable" in config &&
+      config.demoResetAvailable === true,
+  };
+}
+
+export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {
+  return (await getDemoCapabilities(signal)).demoMode;
+}
+
+export async function clarifyBrief(
+  text: string,
+  orderId?: string,
+  signal?: AbortSignal,
+): Promise<BriefClarificationResult> {
+  const body = BriefClarificationRequestSchema.parse({
+    text,
+    locale: navigator.language || "en-CA",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    requestedAt: new Date().toISOString(),
+    assets: [],
+    ...(orderId ? { orderId } : {}),
+  });
+  return parseRead(
+    BriefClarificationResultSchema,
+    await request("/api/briefs/clarify", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal,
+    }),
+  );
 }
 
 export async function submitMessage(

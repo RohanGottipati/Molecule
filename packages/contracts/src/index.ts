@@ -148,6 +148,61 @@ export const CompileIntentResultSchema = z.discriminatedUnion("status", [
 ]);
 export type CompileIntentResult = z.infer<typeof CompileIntentResultSchema>;
 
+export const BriefClarificationRequestSchema = CompileIntentRequestSchema.omit({
+  orderId: true,
+  traceId: true,
+}).extend({
+  text: z.string().min(1).max(20_000),
+  orderId: z.string().min(1).optional(),
+});
+export type BriefClarificationRequest = z.infer<
+  typeof BriefClarificationRequestSchema
+>;
+
+export const ClarificationOptionSchema = z.strictObject({
+  label: z.string().min(1).max(120),
+  value: z.string().min(1).max(400),
+  hint: z.string().max(200).optional(),
+});
+export type ClarificationOption = z.infer<typeof ClarificationOptionSchema>;
+
+export const ClarificationQuestionSchema = z.strictObject({
+  questionId: z.string().min(1).max(160),
+  field: z.string().min(1).max(160),
+  question: z.string().min(1).max(600),
+  reason: z.string().max(600).optional(),
+  options: z.array(ClarificationOptionSchema).max(6).default([]),
+  allowCustom: z.boolean().default(true),
+  inputHint: z.string().max(160).optional(),
+});
+export type ClarificationQuestion = z.infer<typeof ClarificationQuestionSchema>;
+
+export const BriefClarificationResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("CLEAR"),
+    summary: z.string().max(600).optional(),
+  }),
+  z.strictObject({
+    status: z.literal("NEEDS_INPUT"),
+    questions: z.array(ClarificationQuestionSchema).min(1).max(8),
+    summary: z.string().max(600).optional(),
+  }),
+  z.strictObject({
+    status: z.literal("UNSUPPORTED"),
+    reason: z.string().min(1).max(600),
+  }),
+]);
+export type BriefClarificationResult = z.infer<
+  typeof BriefClarificationResultSchema
+>;
+
+export const ClarificationAnswerSchema = z.strictObject({
+  questionId: z.string().min(1).max(160),
+  question: z.string().min(1).max(600),
+  answer: z.string().min(1).max(2_000),
+});
+export type ClarificationAnswer = z.infer<typeof ClarificationAnswerSchema>;
+
 export const ClaimSourceSchema = z.object({
   kind: z.enum(["shopify", "csv", "document", "note", "api", "manual"]),
   reference: z.string(),
@@ -1144,6 +1199,12 @@ export {
   isGoldenPathPrompt,
   normalizeBriefText,
 } from "./goldenPath.js";
+
+export {
+  CLARIFICATIONS_HEADING,
+  composeClarifiedBrief,
+  splitClarifiedBrief,
+} from "./clarification.js";
 
 export {
   deriveProjectCapabilities,

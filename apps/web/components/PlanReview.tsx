@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { GraphDetailPanel } from "./GraphDetailPanel";
+import { useMemo, useState } from "react";
 import type { PlanSelection } from "../lib/decisionPlan";
 import { relaxationDraft } from "../lib/navigation";
 import type { Workspace } from "../lib/useWorkspace";
 import { dateLabel, displayValue, money } from "../lib/workspace";
-import {
-  PlanGraph,
-  ProductionListView,
-  ProductionTimelineView,
-} from "./PlanGraph";
+import { PlanGraph } from "./PlanGraph";
+import { WorkspaceNotices } from "./WorkspaceNotices";
 import { Badge, Empty, ExecutionView, NodeDetail } from "./WorkspacePanels";
 import {
   decisionActionsBlocked,
@@ -15,7 +13,7 @@ import {
   resolveSelectedNode,
 } from "./workspacePresentation";
 
-export function PlanReview({
+function PlanActionsPanel({
   workspace,
   onCompose,
   onSuggest,
@@ -28,30 +26,11 @@ export function PlanReview({
 }) {
   const { order, marketplace, previousPlan, events } = workspace;
   const plan = order?.activePlan ?? null;
-  const dialog = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<"network" | "list" | "timeline">("network");
-  const [selection, setSelection] = useState<PlanSelection | null>(null);
-  const selected = resolveSelectedNode(plan, previousPlan, selection);
   const comparison = recoveryComparison(previousPlan, plan, events);
-  const offline = useMemo(
-    () =>
-      new Set([
-        ...events
-          .filter((event) => event.eventType === "supplier.offline")
-          .flatMap((event) => (event.merchantId ? [event.merchantId] : [])),
-        ...(marketplace?.merchants
-          .filter((merchant) => merchant.status === "offline")
-          .map((merchant) => merchant.merchantId) ?? []),
-      ]),
-    [events, marketplace],
-  );
-  useEffect(() => {
-    if (selected && !dialog.current?.open) dialog.current?.showModal();
-    if (!selected) dialog.current?.close();
-  }, [selected]);
   const actionsBlocked = decisionActionsBlocked(workspace);
   return (
     <div className="stack plan-review">
+      <WorkspaceNotices workspace={workspace} />
       <section className="panel" aria-labelledby="plan-review-title">
         <div className="section-heading">
           <div>
@@ -91,70 +70,6 @@ export function PlanReview({
                 This plan belongs to earlier requirements. It cannot be
                 approved.
               </p>
-            )}
-            {plan.nodes.length > 0 && (
-              <div
-                className="view-toggle"
-                role="group"
-                aria-label="Production network view"
-              >
-                {(["network", "list", "timeline"] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-pressed={view === option}
-                    onClick={() => setView(option)}
-                  >
-                    {option === "network"
-                      ? "Network"
-                      : option === "list"
-                        ? "List"
-                        : "Timeline"}
-                  </button>
-                ))}
-              </div>
-            )}
-            {plan.nodes.length ? (
-              view === "network" ? (
-                <PlanGraph
-                  key={plan.planId}
-                  plan={plan}
-                  previousPlan={previousPlan}
-                  merchants={marketplace?.merchants ?? []}
-                  candidates={order?.candidates ?? []}
-                  offlineMerchants={offline}
-                  onSelect={() => undefined}
-                  onSelectContext={setSelection}
-                />
-              ) : (
-                (() => {
-                  const View =
-                    view === "list"
-                      ? ProductionListView
-                      : ProductionTimelineView;
-                  return (
-                    <View
-                      plan={plan}
-                      merchants={marketplace?.merchants ?? []}
-                      candidates={order?.candidates ?? []}
-                      offlineMerchants={offline}
-                      onSelect={(node) =>
-                        setSelection({
-                          planId: plan.planId,
-                          nodeId: node.nodeId,
-                          currency: plan.currency,
-                          historical: false,
-                        })
-                      }
-                    />
-                  );
-                })()
-              )
-            ) : (
-              <Empty title="No feasible production plan">
-                Review the solver&apos;s conflicts and proposed changes, then
-                revise the brief.
-              </Empty>
             )}
             {plan.status === "UNSAT" && (
               <div className="unsat-panel">
@@ -294,42 +209,168 @@ export function PlanReview({
             resetting={workspace.operation === "reset"}
             onApprove={() => void workspace.approve()}
             onOffline={(id) => void workspace.offline(id)}
-            onReset={() => void workspace.resetDemo()}
+            onReset={
+              workspace.demoResetAvailable
+                ? () => void workspace.resetDemo()
+                : undefined
+            }
             events={events}
           />
         </>
       )}
-      <dialog
-        ref={dialog}
-        className="node-dialog"
-        aria-label="Production step and evidence"
-        onClose={() => setSelection(null)}
-      >
-        <div className="dialog-toolbar">
-          <span>Production step</span>
-          <button
-            type="button"
-            className="secondary"
-            autoFocus
-            onClick={() => dialog.current?.close()}
-          >
-            Close
-          </button>
-        </div>
-        {selected && selection && order && (
-          <NodeDetail
-            node={selected}
-            order={order}
-            currency={selection.currency}
-            marketplace={marketplace}
-            selection={selection}
-            onMerchant={(id) => {
-              dialog.current?.close();
-              onMerchant(id);
-            }}
+    </div>
+  );
+}
+
+export function PlanReview({
+  workspace,
+  onCompose,
+  onSuggest,
+  onMerchant,
+}: {
+  workspace: Workspace;
+  onCompose: () => void;
+  onSuggest: (value: string) => void;
+  onMerchant: (id: string) => void;
+}) {
+  const { order, marketplace, previousPlan, events } = workspace;
+  const plan = order?.activePlan ?? null;
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [selection, setSelection] = useState<PlanSelection | null>(null);
+  const selected = resolveSelectedNode(plan, previousPlan, selection);
+  const offline = useMemo(
+    () =>
+      new Set([
+        ...events
+          .filter((event) => event.eventType === "supplier.offline")
+          .flatMap((event) => (event.merchantId ? [event.merchantId] : [])),
+        ...(marketplace?.merchants
+          .filter((merchant) => merchant.status === "offline")
+          .map((merchant) => merchant.merchantId) ?? []),
+      ]),
+    [events, marketplace],
+  );
+  const details =
+    selected && selection && order ? (
+      <GraphDetailPanel onClose={() => setSelection(null)}>
+        <NodeDetail
+          node={selected}
+          order={order}
+          currency={selection.currency}
+          marketplace={marketplace}
+          selection={selection}
+          onMerchant={(id) => {
+            setSelection(null);
+            onMerchant(id);
+          }}
+        />
+      </GraphDetailPanel>
+    ) : null;
+  return (
+    <section
+      className="plan-actions-dark canvas-plan"
+      aria-label="Production flow chart"
+    >
+      <div className="canvas-heading">
+        <p className="eyebrow">PRODUCTION PLAN</p>
+        <h1>Plan &amp; actions</h1>
+        <p>
+          {plan?.nodes.length
+            ? `${money(plan.totalCost, plan.currency)} · ${dateLabel(plan.estimatedCompletion)}`
+            : "Your production flow"}
+        </p>
+        {plan && (
+          <Badge
+            value={
+              plan.intentVersion !== order?.intentVersion
+                ? "stale"
+                : plan.status
+            }
           />
         )}
-      </dialog>
-    </div>
+      </div>
+      <div className="canvas-actions">
+        <button type="button" className="secondary" onClick={onCompose}>
+          View brief
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          aria-expanded={actionsOpen}
+          onClick={() => {
+            setSelection(null);
+            setActionsOpen(!actionsOpen);
+          }}
+        >
+          Plan details &amp; actions
+        </button>
+      </div>
+      {plan?.nodes.length ? (
+        <PlanGraph
+          key={plan.planId}
+          plan={plan}
+          previousPlan={previousPlan}
+          merchants={marketplace?.merchants ?? []}
+          candidates={order?.candidates ?? []}
+          offlineMerchants={offline}
+          onSelect={() => setActionsOpen(false)}
+          onSelectContext={setSelection}
+          overlay={details}
+        />
+      ) : (
+        <div className="decision-plan-graph">
+          <div className="graph canvas-empty">
+            <div className="canvas-empty-message">
+              <Empty
+                title={
+                  workspace.loading
+                    ? "Loading the saved plan"
+                    : workspace.orderId && !order
+                      ? "Saved plan unavailable"
+                      : plan
+                        ? "No feasible production plan"
+                        : "No production plan yet"
+                }
+              >
+                {plan
+                  ? "Review solver conflicts and proposed changes to create a connected plan."
+                  : "Open a project or send a brief to create your production flow."}
+              </Empty>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setActionsOpen(true)}
+              >
+                Review plan details
+              </button>
+              {workspace.orderId && !order && (
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => void workspace.refresh()}
+                >
+                  Retry project
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {actionsOpen && (
+        <div className="canvas-actions-inspector">
+          <GraphDetailPanel
+            title="Plan details & actions"
+            onClose={() => setActionsOpen(false)}
+          >
+            <PlanActionsPanel
+              workspace={workspace}
+              onCompose={onCompose}
+              onSuggest={onSuggest}
+              onMerchant={onMerchant}
+            />
+          </GraphDetailPanel>
+        </div>
+      )}
+    </section>
   );
 }

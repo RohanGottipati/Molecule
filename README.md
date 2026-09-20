@@ -91,6 +91,8 @@ Read [`AGENTS.md`](AGENTS.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), a
 
 For the desktop application, permissions, setup, API boundaries, demo instructions, and verification limitations, see [`docs/DESKTOP.md`](docs/DESKTOP.md).
 
+For the Hack the North track dossier (Shopify, Rox, Backboard, Tiger Data, OpenAI), the one-prompt golden-path demo, and the evidence behind every claim, see [`docs/HACK_THE_NORTH_TRACKS.md`](docs/HACK_THE_NORTH_TRACKS.md).
+
 ## Core rules
 
 - Contracts first: request and response shapes come from `@molecule/contracts`.

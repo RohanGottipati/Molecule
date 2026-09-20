@@ -42,6 +42,7 @@ export function registerDesktopRoutes(
   };
   app.get("/api/desktop/config", async () => ({
     demoMode: deps.config.DEMO_MODE,
+    demoResetAvailable: deps.config.DEMO_MODE && Boolean(deps.resetDemo),
     mockProviders: {
       openai: deps.config.USE_MOCK_OPENAI,
       reality: deps.config.STORAGE_MODE === "local" || deps.config.DEMO_MODE,

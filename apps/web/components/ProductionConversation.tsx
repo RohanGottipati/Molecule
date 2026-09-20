@@ -34,7 +34,6 @@ export function ProductionConversation({
     >
       <div className="section-heading">
         <h2 id="conversation-title">Brief &amp; results</h2>
-        <span className="muted small">Saved production requests</span>
       </div>
       <div
         ref={scroll}
@@ -102,7 +101,7 @@ export function ProductionConversation({
         )}
         {order && (
           <article className="confirmed-result">
-            <p className="eyebrow">MOLECULE · CURRENT SAVED RESULT</p>
+            <p className="eyebrow">LATEST RESULT</p>
             <h3>{savedResultTitle(order, workspace.events)}</h3>
             {order.intent && (
               <p>

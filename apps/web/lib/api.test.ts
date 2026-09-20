@@ -5,6 +5,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   approvePlan,
+  clarifyBrief,
   createOrder,
   fileMetadata,
   getDemoMode,
@@ -154,6 +155,48 @@ describe("canonical API responses", () => {
         }),
       }),
     );
+  });
+});
+
+describe("brief clarification", () => {
+  it("sends the brief with browser locale context and returns structured questions", async () => {
+    const result = {
+      status: "NEEDS_INPUT",
+      questions: [
+        {
+          questionId: "quantity:1",
+          field: "quantity",
+          question: "How many units do you need?",
+          options: [{ label: "50", value: "50" }],
+        },
+      ],
+    };
+    const fetcher = vi.fn().mockResolvedValue(Response.json(result));
+    vi.stubGlobal("fetch", fetcher);
+    const parsed = await clarifyBrief("Make hoodies");
+    expect(parsed.status).toBe("NEEDS_INPUT");
+    if (parsed.status !== "NEEDS_INPUT") return;
+    expect(parsed.questions[0]).toMatchObject({
+      questionId: "quantity:1",
+      allowCustom: true,
+      options: [{ label: "50", value: "50" }],
+    });
+    const [path, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/briefs/clarify");
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ text: "Make hoodies", assets: [] });
+    expect(typeof body.requestedAt).toBe("string");
+    expect(typeof body.timeZone).toBe("string");
+    expect(body).not.toHaveProperty("orderId");
+  });
+  it("rejects malformed clarification results instead of advancing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ status: "NEEDS_INPUT" })),
+    );
+    await expect(clarifyBrief("Make hoodies")).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
   });
 });
 
