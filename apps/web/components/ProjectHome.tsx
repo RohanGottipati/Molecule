@@ -11,10 +11,7 @@ export function ProjectHome({ workspace }: { workspace: Workspace }) {
     >
       <div className="section-heading">
         <div>
-          <h2 id="project-history-title">Your projects</h2>
-          <p className="muted">
-            Return to a brief, review a plan or find its records.
-          </p>
+          <h2 id="project-history-title">Project library</h2>
         </div>
         <button
           className="text-button"
@@ -22,11 +19,11 @@ export function ProjectHome({ workspace }: { workspace: Workspace }) {
           disabled={workspace.projectsLoading}
           onClick={() => void workspace.refreshProjects()}
         >
-          Refresh list
+          Refresh
         </button>
       </div>
       <label className="project-search">
-        <span>Search saved projects</span>
+        <span>Search projects</span>
         <input
           type="search"
           value={workspace.projectSearch}
@@ -83,7 +80,7 @@ export function ProjectHome({ workspace }: { workspace: Workspace }) {
               >
                 <span className="project-list-title">
                   <strong>{project.title}</strong>
-                  <span>
+                  <span data-state={project.state}>
                     {project.state === "COMPLETED"
                       ? "Completed · see commerce records"
                       : stateLabels[project.state]}

@@ -16,6 +16,8 @@ import { DecisionRecovery } from "./DecisionRecovery";
 import { Badge } from "./DecisionPrimitives";
 import { evidenceGroups, merchantSelection } from "../lib/decisionEvidence";
 import { nodeEvidenceContext, type PlanSelection } from "../lib/decisionPlan";
+import { kindColorVar } from "../lib/planVisuals";
+import { PlanKindIcon } from "./PlanKindIcon";
 import {
   dateLabel,
   displayValue,
@@ -126,7 +128,7 @@ export function MerchantDetail({
     <section className="merchant-detail">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">MERCHANT TWIN</p>
+          <p className="eyebrow">SUPPLIER PROFILE</p>
           <h2>{merchant.name}</h2>
           <small className="muted">{merchant.merchantId}</small>
         </div>
@@ -320,7 +322,7 @@ export function MerchantsView({
     <div className="directory-layout evidence-directory" aria-busy={loading}>
       <section className="panel merchant-directory">
         <div className="section-heading">
-          <h2>Merchant network</h2>
+          <h2>Supplier directory</h2>
           <span className="count">
             {marketplace ? merchants.length : "Unavailable"}
           </span>
@@ -415,11 +417,10 @@ export function RealityView({
     <section className="panel evidence-view" aria-busy={loading}>
       <div className="section-heading">
         <div>
-          <p className="eyebrow">SOURCE OF TRUTH</p>
-          <h2>Evidence before assumptions</h2>
+          <p className="eyebrow">SUPPLIER EVIDENCE</p>
+          <h2>Source records</h2>
           <p className="muted">
-            Compare field values with their sources. Conflicted, quarantined and
-            unknown facts stay unresolved until the server resolves them.
+            Compare supplier facts and review unresolved evidence.
           </p>
         </div>
         <label className="filter-label">
@@ -448,12 +449,13 @@ export function RealityView({
           </select>
         </label>
       </div>
-      <p className="evidence-scope">
-        {loading && "Loading evidence… "}
-        Counts describe returned claim rows. Missing or expired operational
-        fields may have no claim row; zero unknown claims does not establish
-        complete evidence.
-      </p>
+      <details className="evidence-scope">
+        <summary>About evidence coverage</summary>
+        <p>
+          Counts reflect available records. Missing or expired facts may have no
+          record; a zero count does not mean evidence is complete.
+        </p>
+      </details>
       {merchants
         .filter(
           (merchant) =>
@@ -476,8 +478,7 @@ export function RealityView({
               .map((candidate) => (
                 <div className="evidence-impact" key={candidate.capabilityId}>
                   <strong>
-                    {candidate.capability.name} · server-reported eligibility
-                    blocks
+                    {candidate.capability.name} · planning restrictions
                   </strong>
                   <ul>
                     {candidate.blockedReasons.map((reason) => (
@@ -496,9 +497,8 @@ export function RealityView({
                 </div>
                 {group.conflicted && (
                   <p className="inline-warning">
-                    Sources disagree. This field is not confirmed operational
-                    truth. Review the server-reported capability blocks; the
-                    solver determines plan feasibility.
+                    Sources disagree on this value. It remains unresolved; the
+                    solver checks whether the plan can proceed.
                   </p>
                 )}
                 <ul className="evidence-comparison">
@@ -747,8 +747,18 @@ export function NodeDetail({
     ) ?? [];
   return (
     <div className="evidence-node-detail">
-      <p className="eyebrow">{humanize(node.kind)}</p>
-      <h2>{merchant?.name ?? node.merchantId}</h2>
+      <div className="node-detail-head">
+        <span
+          className="node-kind-tile"
+          style={{ color: kindColorVar[node.kind] }}
+        >
+          <PlanKindIcon kind={node.kind} />
+        </span>
+        <div>
+          <p className="eyebrow">{humanize(node.kind)}</p>
+          <h2>{merchant?.name ?? node.merchantId}</h2>
+        </div>
+      </div>
       <p>{candidate?.capability.name ?? node.capabilityId}</p>
       {selection && (
         <p className="muted small">

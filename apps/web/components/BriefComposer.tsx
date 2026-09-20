@@ -36,9 +36,7 @@ export function BriefComposer({
     >
       <div className="composer-label">
         <label htmlFor="production-request">
-          {workspace.order?.intent
-            ? "Clarify or change the brief"
-            : "Start with a production brief"}
+          {workspace.order?.intent ? "Update your brief" : "Production brief"}
         </label>
         <span className="muted small">Ctrl / ⌘ + Enter to send</span>
       </div>
@@ -73,8 +71,8 @@ export function BriefComposer({
               ? (workspace.capabilities.reason ??
                 "Keep your draft here while Molecule finishes the current task.")
               : workspace.order?.intent
-                ? "Sending an update replaces the current plan and asks the solver to check the revised requirements."
-                : "Molecule checks the brief for missing details, then finds suppliers, gathers quotes and validates a plan. Nothing is approved by sending a brief."}
+                ? "Updates replace the current plan and recheck feasibility."
+                : "Molecule checks for missing details, then gets a supplier plan to review. Sending does not approve execution."}
       </p>
       {draft.storageWarning && (
         <p className="inline-warning" role="status">
