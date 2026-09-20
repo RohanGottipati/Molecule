@@ -414,8 +414,12 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
         0,
       );
     expect(cost).toBe(6395);
-    const merchants = (await service.listMerchants()).filter(merchant => merchant.capabilities.length > 0);
-    expect(merchants.filter(merchant => merchant.capabilities.length > 0)).toHaveLength(7);
+    const merchants = (await service.listMerchants()).filter(
+      (merchant) => merchant.capabilities.length > 0,
+    );
+    expect(
+      merchants.filter((merchant) => merchant.capabilities.length > 0),
+    ).toHaveLength(7);
     expect(
       merchants.every(
         (merchant) => merchant.documents.length && merchant.policies.length,
@@ -472,7 +476,14 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
         (entry) => entry.merchantId === "thread-forge",
       ),
     ).toBe(true); // Remaining daily production can fulfill this multi-day order.
-    expect((await service.searchCandidates({ ...intent, deadline: new Date(now.getTime() + 24 * 3600000).toISOString() })).some(entry => entry.merchantId === "thread-forge")).toBe(false);
+    expect(
+      (
+        await service.searchCandidates({
+          ...intent,
+          deadline: new Date(now.getTime() + 24 * 3600000).toISOString(),
+        })
+      ).some((entry) => entry.merchantId === "thread-forge"),
+    ).toBe(false);
   });
 
   it.each([

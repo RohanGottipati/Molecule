@@ -862,17 +862,36 @@ export class Orchestrator {
     return completed;
   }
 
-  async recoverResource(orderId: string, resourceId: string): Promise<OrderSession> {
+  async recoverResource(
+    orderId: string,
+    resourceId: string,
+  ): Promise<OrderSession> {
     let session = await this.load(orderId);
-    if (session.state === "NEEDS_HUMAN" && session.activePlan?.status === "UNSAT" && session.intent) {
+    if (
+      session.state === "NEEDS_HUMAN" &&
+      session.activePlan?.status === "UNSAT" &&
+      session.intent
+    ) {
       session.planGeneration += 1;
-      session = await this.move(session, "RECOVERING", "recovery.started", "orchestrator", { resourceId });
-      session = await this.move(session, "INTENT_COMPILED", "recovery.replanning");
+      session = await this.move(
+        session,
+        "RECOVERING",
+        "recovery.started",
+        "orchestrator",
+        { resourceId },
+      );
+      session = await this.move(
+        session,
+        "INTENT_COMPILED",
+        "recovery.replanning",
+      );
       // Earlier jobs were superseded before the UNSAT result. A newly feasible
       // plan is reviewable again; never revive an uncertain external execution.
       return this.plan(session, []);
     }
-    const node = session.activePlan?.nodes.find(node => node.resourceRefs?.some(ref => ref.resourceId === resourceId));
+    const node = session.activePlan?.nodes.find((node) =>
+      node.resourceRefs?.some((ref) => ref.resourceId === resourceId),
+    );
     if (!node) return session;
     return this.recoverSupplier(orderId, node.merchantId, resourceId);
   }
@@ -905,16 +924,19 @@ export class Orchestrator {
       { merchantId, ...(resourceId ? { resourceId } : {}) },
       merchantId,
     );
-    if (session.state !== "NEEDS_HUMAN") session = await this.move(
-      session,
-      "AT_RISK",
-      "plan.invalidated",
-      "orchestrator",
-      {
-        reason: resourceId ? "resource_availability_changed" : "supplier_offline",
-        merchantId,
-      },
-    );
+    if (session.state !== "NEEDS_HUMAN")
+      session = await this.move(
+        session,
+        "AT_RISK",
+        "plan.invalidated",
+        "orchestrator",
+        {
+          reason: resourceId
+            ? "resource_availability_changed"
+            : "supplier_offline",
+          merchantId,
+        },
+      );
     session.planGeneration += 1;
     session = await this.move(session, "RECOVERING", "recovery.started");
     if (session.executionReceipt?.planId === previousPlan.planId) {

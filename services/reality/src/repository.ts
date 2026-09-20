@@ -53,12 +53,18 @@ export async function resolveMerchant(
         ...claim,
         // Resolution may reconsider losing sources, but cannot revive an old
         // observation after a newer value from the same source stream arrived.
-        resolutionStatus: fieldClaims.some(other =>
-          other.source.kind === claim.source.kind &&
-          other.source.reference === claim.source.reference &&
-          !["quarantined", "unknown"].includes(other.resolutionStatus) &&
-          Date.parse(other.observedAt ?? other.ingestedAt) > Date.parse(claim.observedAt ?? claim.ingestedAt)
-        ) ? "superseded" : claim.resolutionStatus === "superseded" ? "active" : claim.resolutionStatus,
+        resolutionStatus: fieldClaims.some(
+          (other) =>
+            other.source.kind === claim.source.kind &&
+            other.source.reference === claim.source.reference &&
+            !["quarantined", "unknown"].includes(other.resolutionStatus) &&
+            Date.parse(other.observedAt ?? other.ingestedAt) >
+              Date.parse(claim.observedAt ?? claim.ingestedAt),
+        )
+          ? "superseded"
+          : claim.resolutionStatus === "superseded"
+            ? "active"
+            : claim.resolutionStatus,
       })),
       now,
     );

@@ -389,7 +389,11 @@ export function createRealityService(
           "select * from merchants where not is_placeholder and not(merchant_id=any($1::text[])) order by merchant_id",
           [excludedMerchantIds],
         );
-        const catalog = await catalogCandidates(client, intent, excludedMerchantIds);
+        const catalog = await catalogCandidates(
+          client,
+          intent,
+          excludedMerchantIds,
+        );
         const candidates: CandidateCapability[] = [...catalog.candidates];
         const remainingHours =
           (Date.parse(intent.deadline) - now().getTime()) / 3600000;
@@ -419,14 +423,21 @@ export function createRealityService(
               !satisfiesAttributes(cap, intent) ||
               cap.pricing.currency !== intent.currency ||
               cap.capacity.available === undefined ||
-              (cap.capacity.available <= 0 ||
-                ((cap.kind === "SUPPLY" || cap.capacity.period === undefined) && cap.capacity.available < quantity)) ||
+              cap.capacity.available <= 0 ||
+              ((cap.kind === "SUPPLY" || cap.capacity.period === undefined) &&
+                cap.capacity.available < quantity) ||
               quantity < cap.quantity.min ||
               quantity > cap.quantity.max ||
-              Math.max(hours(cap), candidate.risk?.p95Hours ?? 0,
-                cap.kind !== "SUPPLY" && cap.capacity.period && cap.capacity.available > 0
-                  ? quantity / cap.capacity.available * ({hour: 1, day: 24, week: 168}[cap.capacity.period]) : 0) >
-                remainingHours
+              Math.max(
+                hours(cap),
+                candidate.risk?.p95Hours ?? 0,
+                cap.kind !== "SUPPLY" &&
+                  cap.capacity.period &&
+                  cap.capacity.available > 0
+                  ? (quantity / cap.capacity.available) *
+                      { hour: 1, day: 24, week: 168 }[cap.capacity.period]
+                  : 0,
+              ) > remainingHours
             )
               continue;
             candidates.push(candidate);

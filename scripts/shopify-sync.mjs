@@ -44,10 +44,15 @@ async function fetchStore(handle) {
       const seen = new Set();
       while (e.node.variants.pageInfo.hasNextPage) {
         const after = e.node.variants.pageInfo.endCursor;
-        if (!after || seen.has(after)) throw new Error("CATALOG_PAGINATION_REQUIRED");
+        if (!after || seen.has(after))
+          throw new Error("CATALOG_PAGINATION_REQUIRED");
         seen.add(after);
-        const next = await gql(handle, `query Variants($id:ID!,$after:String!){product(id:$id){variants(first:100,after:$after){
-          pageInfo{hasNextPage endCursor} edges{node{id sku title price inventoryQuantity selectedOptions{name value} inventoryItem{id tracked}}}}}}`, {id:e.node.id,after});
+        const next = await gql(
+          handle,
+          `query Variants($id:ID!,$after:String!){product(id:$id){variants(first:100,after:$after){
+          pageInfo{hasNextPage endCursor} edges{node{id sku title price inventoryQuantity selectedOptions{name value} inventoryItem{id tracked}}}}}}`,
+          { id: e.node.id, after },
+        );
         if (!next.product) throw new Error("CATALOG_PRODUCT_DISAPPEARED");
         e.node.variants.edges.push(...next.product.variants.edges);
         e.node.variants.pageInfo = next.product.variants.pageInfo;
@@ -56,7 +61,8 @@ async function fetchStore(handle) {
     }
     if (!d.products.pageInfo.hasNextPage) break;
     cursor = d.products.pageInfo.endCursor;
-    if (!cursor || productCursors.has(cursor)) throw new Error("CATALOG_PAGINATION_REQUIRED");
+    if (!cursor || productCursors.has(cursor))
+      throw new Error("CATALOG_PAGINATION_REQUIRED");
     productCursors.add(cursor);
   }
   return { handle, shop, products, truncatedVariants };

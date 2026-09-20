@@ -140,7 +140,9 @@ export async function ingestShopifyCapacityBatch(
   };
 
   for (const store of stores) {
-    const merchantId = options.merchantForStore ? await options.merchantForStore(store) : merchantIdForShopifyStore(store);
+    const merchantId = options.merchantForStore
+      ? await options.merchantForStore(store)
+      : merchantIdForShopifyStore(store);
     if (!merchantId) {
       result.skippedStores.push(store);
       options.onSkippedStore?.(store);

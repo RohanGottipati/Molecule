@@ -72,16 +72,37 @@ export function uuidFrom(key) {
 // Scripts and the runtime share token refresh, timeouts, version checks and
 // mutation retry rules. Build @molecule/shopify before using operational scripts.
 const transports = new Map();
-const { z } = createRequire(new URL("../../packages/shopify/package.json", import.meta.url))("zod");
+const { z } = createRequire(
+  new URL("../../packages/shopify/package.json", import.meta.url),
+)("zod");
 export async function gql(handle, query, variables = {}) {
-  const domain = handle.endsWith(".myshopify.com") ? handle : `${handle}.myshopify.com`;
-  if (!transports.has(domain)) transports.set(domain, new ShopifyTransport({
-    domain,
-    auth: process.env.SHOPIFY_ACCESS_TOKEN
-      ? { accessToken: process.env.SHOPIFY_ACCESS_TOKEN }
-      : { clientId: process.env.SHOPIFY_CLIENT_ID || process.env.SHOPIFY_API_KEY || "", clientSecret: process.env.SHOPIFY_API_SECRET || "" },
-  }));
-  return transports.get(domain).graphql(query, variables, z.record(z.string(), z.unknown()), /(?:^|\n)\s*mutation\b/.test(query));
+  const domain = handle.endsWith(".myshopify.com")
+    ? handle
+    : `${handle}.myshopify.com`;
+  if (!transports.has(domain))
+    transports.set(
+      domain,
+      new ShopifyTransport({
+        domain,
+        auth: process.env.SHOPIFY_ACCESS_TOKEN
+          ? { accessToken: process.env.SHOPIFY_ACCESS_TOKEN }
+          : {
+              clientId:
+                process.env.SHOPIFY_CLIENT_ID ||
+                process.env.SHOPIFY_API_KEY ||
+                "",
+              clientSecret: process.env.SHOPIFY_API_SECRET || "",
+            },
+      }),
+    );
+  return transports
+    .get(domain)
+    .graphql(
+      query,
+      variables,
+      z.record(z.string(), z.unknown()),
+      /(?:^|\n)\s*mutation\b/.test(query),
+    );
 }
 
 /** Which capability each Shopify capacity-signal product feeds (Reality field `<capabilityId>.capacity`). */

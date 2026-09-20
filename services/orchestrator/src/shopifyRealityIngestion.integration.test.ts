@@ -80,7 +80,9 @@ describe.skipIf(!database)("Shopify capacity ingestion", () => {
       getPool(),
       `shopify-webhook-${randomUUID()}`,
     );
-    const source = new MockShopifyAdapter({ stores: ["stitchworks-webhook-test"] });
+    const source = new MockShopifyAdapter({
+      stores: ["stitchworks-webhook-test"],
+    });
     const snapshot = await source.getSnapshot("stitchworks-webhook-test");
     const capacity = snapshot.capacity[0];
     if (!capacity) throw new Error("StitchWorks mock must expose capacity");
@@ -94,7 +96,9 @@ describe.skipIf(!database)("Shopify capacity ingestion", () => {
     expect(initial.accepted).toBe(1);
     // Isolate ordering within one Shopify observation stream. The seeded StitchWorks
     // notes deliberately conflict; independent-source conflict behavior is tested in Reality.
-    await getPool().query("delete from canonical_claims where merchant_id='stitch-works' and field='capacity_per_day' and source_kind<>'shopify'");
+    await getPool().query(
+      "delete from canonical_claims where merchant_id='stitch-works' and field='capacity_per_day' and source_kind<>'shopify'",
+    );
     const store = new LocalStore();
     await store.load();
     const openai = new MockOpenAIAdapter();

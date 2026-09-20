@@ -54,7 +54,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     config.SHOPIFY_MODE === "live" &&
     (!config.REAL_EXECUTION_ENABLED ||
       !config.SHOPIFY_STOREFRONT_DOMAIN ||
-      !(config.SHOPIFY_ACCESS_TOKEN || (config.SHOPIFY_CLIENT_ID && config.SHOPIFY_API_SECRET)) ||
+      !(
+        config.SHOPIFY_ACCESS_TOKEN ||
+        (config.SHOPIFY_CLIENT_ID && config.SHOPIFY_API_SECRET)
+      ) ||
       !config.SHOPIFY_STORES)
   )
     throw new Error(

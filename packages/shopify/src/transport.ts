@@ -77,10 +77,25 @@ const EnvelopeSchema = z.object({
 });
 
 const VariantConnectionSchema = z.object({
-  nodes: z.array(z.object({ id: z.string(), sku: z.string().nullable(), price: z.string(),
-    selectedOptions: z.array(z.object({ name: z.string(), value: z.string() })).optional().default([]),
-    inventoryItem: z.object({ id: z.string(), tracked: z.boolean() }).nullable().optional() })),
-  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+  nodes: z.array(
+    z.object({
+      id: z.string(),
+      sku: z.string().nullable(),
+      price: z.string(),
+      selectedOptions: z
+        .array(z.object({ name: z.string(), value: z.string() }))
+        .optional()
+        .default([]),
+      inventoryItem: z
+        .object({ id: z.string(), tracked: z.boolean() })
+        .nullable()
+        .optional(),
+    }),
+  ),
+  pageInfo: z.object({
+    hasNextPage: z.boolean(),
+    endCursor: z.string().nullable(),
+  }),
 });
 
 export class ShopifyTransport {
@@ -302,10 +317,17 @@ export class ShopifyTransport {
   }
 
   async listProductVariants(productId: string, after: string) {
-    if (!/^gid:\/\/shopify\/Product\/\d+$/.test(productId)) throw new ShopifyError("INVALID_PRODUCT_ID");
-    return this.graphql(`query Variants($id: ID!, $after: String!) {
+    if (!/^gid:\/\/shopify\/Product\/\d+$/.test(productId))
+      throw new ShopifyError("INVALID_PRODUCT_ID");
+    return this.graphql(
+      `query Variants($id: ID!, $after: String!) {
       product(id: $id) { variants(first:100, after:$after) { nodes { id sku price selectedOptions { name value } inventoryItem { id tracked } } pageInfo { hasNextPage endCursor } } }
-    }`, { id: productId, after }, z.object({ product: z.object({ variants: VariantConnectionSchema }).nullable() }));
+    }`,
+      { id: productId, after },
+      z.object({
+        product: z.object({ variants: VariantConnectionSchema }).nullable(),
+      }),
+    );
   }
 
   /**
@@ -325,10 +347,12 @@ export class ShopifyTransport {
         const cursors = new Set<string>();
         while (product.variants.pageInfo.hasNextPage) {
           const cursor = product.variants.pageInfo.endCursor;
-          if (!cursor || cursors.has(cursor)) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+          if (!cursor || cursors.has(cursor))
+            throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
           cursors.add(cursor);
           const next = await this.listProductVariants(product.id, cursor);
-          if (!next.product) throw new ShopifyError("CATALOG_PRODUCT_DISAPPEARED");
+          if (!next.product)
+            throw new ShopifyError("CATALOG_PRODUCT_DISAPPEARED");
           product.variants.nodes.push(...next.product.variants.nodes);
           product.variants.pageInfo = next.product.variants.pageInfo;
         }
@@ -376,7 +400,8 @@ export class ShopifyTransport {
       }
       if (!page.products.pageInfo.hasNextPage) break;
       after = page.products.pageInfo.endCursor ?? undefined;
-      if (!after || productCursors.has(after)) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+      if (!after || productCursors.has(after))
+        throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
       productCursors.add(after);
     } while (after);
 
@@ -396,10 +421,12 @@ export class ShopifyTransport {
     const cursors = new Set<string>();
     while (levels.pageInfo.hasNextPage) {
       const cursor = levels.pageInfo.endCursor;
-      if (!cursor || cursors.has(cursor)) throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
+      if (!cursor || cursors.has(cursor))
+        throw new ShopifyError("CATALOG_PAGINATION_REQUIRED");
       cursors.add(cursor);
       const next = await this.inventoryPage(inventoryItemId, cursor);
-      if (!next.inventoryItem) throw new ShopifyError("CATALOG_INVENTORY_DISAPPEARED");
+      if (!next.inventoryItem)
+        throw new ShopifyError("CATALOG_INVENTORY_DISAPPEARED");
       levels.nodes.push(...next.inventoryItem.inventoryLevels.nodes);
       levels.pageInfo = next.inventoryItem.inventoryLevels.pageInfo;
     }

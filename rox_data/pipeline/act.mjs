@@ -49,11 +49,19 @@ Rules:
 - The body is plain text and starts at the greeting. No "Subject:" line inside it, and no signature block - the system adds the signature.`;
 
 const DRAFT_SCHEMA = {
-  type: "object", additionalProperties: false,
+  type: "object",
+  additionalProperties: false,
   required: ["subject", "body"],
   properties: {
-    subject: { type: "string", description: "Non-empty email subject, six words or fewer." },
-    body: { type: "string", description: "Email body starting at the greeting, with no Subject: line." },
+    subject: {
+      type: "string",
+      description: "Non-empty email subject, six words or fewer.",
+    },
+    body: {
+      type: "string",
+      description:
+        "Email body starting at the greeting, with no Subject: line.",
+    },
   },
 };
 
@@ -63,11 +71,19 @@ async function draftFollowUp(client, db, runId, context) {
     model: MODELS.adjudicate,
     instructions: DRAFT_INSTRUCTIONS,
     input: JSON.stringify(context),
-    text: { format: { type: "json_schema", name: "supplier_followup", schema: DRAFT_SCHEMA, strict: true } },
+    text: {
+      format: {
+        type: "json_schema",
+        name: "supplier_followup",
+        schema: DRAFT_SCHEMA,
+        strict: true,
+      },
+    },
     max_output_tokens: 2500,
   });
   await meter(db, runId, {
-    stage: "act", model: MODELS.adjudicate,
+    stage: "act",
+    model: MODELS.adjudicate,
     usage: {
       input_tokens: res.usage?.input_tokens ?? 0,
       cached_tokens: res.usage?.input_tokens_details?.cached_tokens ?? 0,
@@ -83,14 +99,26 @@ async function draftFollowUp(client, db, runId, context) {
   try {
     return JSON.parse(res.output_text);
   } catch {
-    console.warn(`  act: draft for ${context.supplier}/${context.fact} came back unparseable; queued without a draft`);
+    console.warn(
+      `  act: draft for ${context.supplier}/${context.fact} came back unparseable; queued without a draft`,
+    );
     return null;
   }
 }
 
 export async function act(db, { runId, traceId, dry = false, apply = false }) {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000, maxRetries: 2 });
-  const counts = { conflicts: 0, drafted: 0, writebacks_proposed: 0, writebacks_applied: 0, unknown_fields: 0 };
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: 60_000,
+    maxRetries: 2,
+  });
+  const counts = {
+    conflicts: 0,
+    drafted: 0,
+    writebacks_proposed: 0,
+    writebacks_applied: 0,
+    unknown_fields: 0,
+  };
 
   // 1. Conflicts and unknowns become questions, with the evidence attached.
   const { rows: open } = await db.query(
@@ -108,20 +136,24 @@ export async function act(db, { runId, traceId, dry = false, apply = false }) {
   for (const row of open) {
     counts.conflicts += 1;
     if (row.status === "unknown") counts.unknown_fields += 1;
-    const sources = scoreRows(row.scores).map((s) => {
-      const c = s.value === undefined ? hydrated.get(s.claimId) : null;
-      return {
-        value: s.value ?? c?.normalized_value ?? null,
-        unit: s.unit ?? c?.normalized_unit ?? null,
-        saidBy: s.source ?? c?.source_kind ?? null,
-        reference: s.reference ?? c?.source_reference ?? null,
-        observed: s.observedAt ?? c?.observed_at ?? null,
-        score: s.score,
-      };
-    }).filter((s) => s.value !== null);
+    const sources = scoreRows(row.scores)
+      .map((s) => {
+        const c = s.value === undefined ? hydrated.get(s.claimId) : null;
+        return {
+          value: s.value ?? c?.normalized_value ?? null,
+          unit: s.unit ?? c?.normalized_unit ?? null,
+          saidBy: s.source ?? c?.source_kind ?? null,
+          reference: s.reference ?? c?.source_reference ?? null,
+          observed: s.observedAt ?? c?.observed_at ?? null,
+          score: s.score,
+        };
+      })
+      .filter((s) => s.value !== null);
     // The top few by score are what the supplier needs to reconcile; citing 27
     // sources makes an unreadable email and a prompt long enough to truncate.
-    const cited = [...sources].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8);
+    const cited = [...sources]
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, 8);
     let draft = null;
     if (!dry) {
       draft = await draftFollowUp(client, db, runId, {
@@ -137,13 +169,25 @@ export async function act(db, { runId, traceId, dry = false, apply = false }) {
       `insert into rox_review_queue (task_id, run_id, kind, merchant_id, field, detail, proposed_action, draft_message)
        values ($1,$2,'conflict',$3,$4,$5,$6,$7)
        on conflict (task_id) do update set detail = excluded.detail, draft_message = excluded.draft_message`,
-      [shortId(runId, "conflict", row.merchant_id, row.field), runId, row.merchant_id, row.field,
-       { status: row.status, explanation: row.explanation, sources },
-       { action: "email_supplier", subject: draft?.subject ?? null, requiresApproval: true },
-       draft ? `Subject: ${draft.subject}\n\n${draft.body}` : null],
+      [
+        shortId(runId, "conflict", row.merchant_id, row.field),
+        runId,
+        row.merchant_id,
+        row.field,
+        { status: row.status, explanation: row.explanation, sources },
+        {
+          action: "email_supplier",
+          subject: draft?.subject ?? null,
+          requiresApproval: true,
+        },
+        draft ? `Subject: ${draft.subject}\n\n${draft.body}` : null,
+      ],
     );
     await emitEvent(db, {
-      traceId, type: "rox.review.queued", severity: "WARN", merchantId: row.merchant_id,
+      traceId,
+      type: "rox.review.queued",
+      severity: "WARN",
+      merchantId: row.merchant_id,
       payload: { field: row.field, status: row.status },
     });
   }
@@ -159,20 +203,48 @@ export async function act(db, { runId, traceId, dry = false, apply = false }) {
   );
   for (const row of drift) {
     const kind = row.field.split(".").slice(1).join(".");
-    const current = kind === "capacity" ? Number(row.current_available)
-      : kind === "lead_time_hours" ? Number(row.current_lead_max) : null;
+    const current =
+      kind === "capacity"
+        ? Number(row.current_available)
+        : kind === "lead_time_hours"
+          ? Number(row.current_lead_max)
+          : null;
     const next = Number(row.value);
-    if (current === null || Number.isNaN(current) || Number.isNaN(next) || current === next) continue;
+    if (
+      current === null ||
+      Number.isNaN(current) ||
+      Number.isNaN(next) ||
+      current === next
+    )
+      continue;
     counts.writebacks_proposed += 1;
     await db.query(
       `insert into rox_review_queue (task_id, run_id, kind, merchant_id, field, detail, proposed_action, status)
        values ($1,$2,'missing_fact',$3,$4,$5,$6,'open')
        on conflict (task_id) do update set detail = excluded.detail, proposed_action = excluded.proposed_action`,
-      [shortId(runId, "writeback", row.merchant_id, row.field), runId, row.merchant_id, row.field,
-       { capabilityId: row.capability_id, current, resolved: next, claimId: row.winning_claim_id },
-       { action: "shopify_metafield_writeback", namespace: "molecule",
-         fields: { resolved_value: next, claim_status: "resolved", resolution_source: row.winning_claim_id },
-         note: "scripts/shopify-writeback.mjs applies this", requiresApproval: !apply }],
+      [
+        shortId(runId, "writeback", row.merchant_id, row.field),
+        runId,
+        row.merchant_id,
+        row.field,
+        {
+          capabilityId: row.capability_id,
+          current,
+          resolved: next,
+          claimId: row.winning_claim_id,
+        },
+        {
+          action: "shopify_metafield_writeback",
+          namespace: "molecule",
+          fields: {
+            resolved_value: next,
+            claim_status: "resolved",
+            resolution_source: row.winning_claim_id,
+          },
+          note: "scripts/shopify-writeback.mjs applies this",
+          requiresApproval: !apply,
+        },
+      ],
     );
   }
 

@@ -313,27 +313,91 @@ describe("bounded Shopify transport", () => {
     ]);
   });
   it("collects later variant and inventory-location pages and rejects repeated cursors", async () => {
-    const variant = (id: number) => ({ id: `gid://shopify/ProductVariant/${id}`, sku: `SKU-${id}`, price: "1.00", selectedOptions: [], inventoryItem: { id: `gid://shopify/InventoryItem/${id}`, tracked: true } });
+    const variant = (id: number) => ({
+      id: `gid://shopify/ProductVariant/${id}`,
+      sku: `SKU-${id}`,
+      price: "1.00",
+      selectedOptions: [],
+      inventoryItem: { id: `gid://shopify/InventoryItem/${id}`, tracked: true },
+    });
     let repeat = false;
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
       const { query, variables } = JSON.parse(String(init?.body));
-      if (query.includes("query Inventory")) return Response.json({ data: { inventoryItem: {
-        id: variables.id, tracked: true, inventoryLevels: {
-          nodes: [{ updatedAt: "2026-09-19T12:00:00Z", location: { id: `gid://shopify/Location/${variables.after ? 2 : 1}`, name: "Warehouse" }, quantities: [{ name: "available", quantity: variables.after ? 7 : 3 }] }],
-          pageInfo: { hasNextPage: !variables.after || repeat, endCursor: "location-page" },
+      if (query.includes("query Inventory"))
+        return Response.json({
+          data: {
+            inventoryItem: {
+              id: variables.id,
+              tracked: true,
+              inventoryLevels: {
+                nodes: [
+                  {
+                    updatedAt: "2026-09-19T12:00:00Z",
+                    location: {
+                      id: `gid://shopify/Location/${variables.after ? 2 : 1}`,
+                      name: "Warehouse",
+                    },
+                    quantities: [
+                      { name: "available", quantity: variables.after ? 7 : 3 },
+                    ],
+                  },
+                ],
+                pageInfo: {
+                  hasNextPage: !variables.after || repeat,
+                  endCursor: "location-page",
+                },
+              },
+            },
+          },
+        });
+      if (query.includes("query Variants"))
+        return Response.json({
+          data: {
+            product: {
+              variants: {
+                nodes: [variant(2)],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        });
+      return Response.json({
+        data: {
+          products: {
+            nodes: [
+              {
+                id: "gid://shopify/Product/1",
+                title: "Capacity",
+                handle: "capacity",
+                status: "ACTIVE",
+                tags: ["capacity"],
+                variants: {
+                  nodes: [variant(1)],
+                  pageInfo: { hasNextPage: true, endCursor: "variant-page" },
+                },
+              },
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
         },
-      } } });
-      if (query.includes("query Variants")) return Response.json({ data: { product: { variants: { nodes: [variant(2)], pageInfo: { hasNextPage: false, endCursor: null } } } } });
-      return Response.json({ data: { products: { nodes: [{ id: "gid://shopify/Product/1", title: "Capacity", handle: "capacity", status: "ACTIVE", tags: ["capacity"], variants: { nodes: [variant(1)], pageInfo: { hasNextPage: true, endCursor: "variant-page" } } }], pageInfo: { hasNextPage: false, endCursor: null } } } });
+      });
     });
     const client = transport(fetch);
     const snapshot = await client.getSnapshot();
-    expect(snapshot.products[0]!.variants.map(v => v.sku)).toEqual(["SKU-1", "SKU-2"]);
-    expect(snapshot.capacity.map(c => c.quantity)).toEqual([10,10]);
-    const inventory = await client.getInventory("gid://shopify/InventoryItem/1");
-    expect(inventory.inventoryItem?.inventoryLevels.nodes.map(n => n.location.id)).toHaveLength(2);
+    expect(snapshot.products[0]!.variants.map((v) => v.sku)).toEqual([
+      "SKU-1",
+      "SKU-2",
+    ]);
+    expect(snapshot.capacity.map((c) => c.quantity)).toEqual([10, 10]);
+    const inventory = await client.getInventory(
+      "gid://shopify/InventoryItem/1",
+    );
+    expect(
+      inventory.inventoryItem?.inventoryLevels.nodes.map((n) => n.location.id),
+    ).toHaveLength(2);
     repeat = true;
-    await expect(client.getInventory("gid://shopify/InventoryItem/1")).rejects.toMatchObject({ code: "CATALOG_PAGINATION_REQUIRED" });
+    await expect(
+      client.getInventory("gid://shopify/InventoryItem/1"),
+    ).rejects.toMatchObject({ code: "CATALOG_PAGINATION_REQUIRED" });
   });
-
 });
