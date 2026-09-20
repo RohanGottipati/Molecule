@@ -1733,7 +1733,7 @@ function laserLab() {
       "transform",
       ["sample"],
     ),
-    capacity(R, "Engraving Capacity - Units per Day", 250, "transform"),
+    capacity(R, "Engraving Capacity - Units per Day", 400, "transform"),
   ];
   const blanks = [
     [
@@ -2797,9 +2797,9 @@ export function catalogFor(role) {
     case "stitchworks":
       return embroidery("stitchworks", 1, 5, 20);
     case "threadforge":
-      return embroidery("threadforge", 1.13, 4, 180);
+      return embroidery("threadforge", 1.13, 4, 400);
     case "needlenorth":
-      return embroidery("needlenorth", 1.14, 3, 200);
+      return embroidery("needlenorth", 1.14, 3, 300);
     case "laserlab":
       return laserLab();
     case "packship":

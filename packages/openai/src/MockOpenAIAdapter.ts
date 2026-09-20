@@ -112,8 +112,12 @@ function quantityIn(text: string): number | null {
 
 function makeExtraction(input: CompileIntentRequest): IntentExtraction {
   const previous = input.previousIntent;
-  const text = `${input.text}\n${input.correction?.text ?? ""}`.toLowerCase();
-  const sources = [input.correction?.text ?? "", input.text].map((source) =>
+  const correctionText =
+    input.correction && input.correction.text.trim() !== input.text.trim()
+      ? input.correction.text
+      : "";
+  const text = `${input.text}\n${correctionText}`.toLowerCase();
+  const sources = [correctionText, input.text].map((source) =>
     source.toLowerCase(),
   );
   const clauses = clausesOf(text, /\s+(?:and|with|including)\s+|,\s+/);
@@ -603,7 +607,11 @@ function makeExtraction(input: CompileIntentRequest): IntentExtraction {
       products.some(([, , pattern]) =>
         new RegExp(`\\b${pattern}\\b`).test(clause),
       ) ||
-      /^(?:embroider(?:y|ed|ing)?|engrav(?:e|ed|ing)|print(?:ed|ing)?)\s+(?:the\s+)?(?:supplied\s+)?(?:logo|artwork|names?)$/.test(
+      /^(?:embroider(?:y|ed|ing)?|engrav(?:e|ed|ing)|print(?:ed|ing)?)\s+(?:the\s+)?(?:supplied\s+)?(?:logo|artwork|names?)(?:\s+(?:by|before|under|within|in|for|due)\b.*)?$/.test(
+        clause,
+      ) ||
+      /\b\d[\d,]*\s+(?:[\w-]+\s+){0,4}kits?\b/.test(clause) ||
+      /^(?:please\s+)?(?:use|see|refer\s+to|consider|apply|follow|review)\s+(?:the\s+)?(?:attached|attachments?|context|files?|documents?|notes?|brief)\b/.test(
         clause,
       ) ||
       (/\bengrav(?:e|ed|ing)\b/.test(clauses[index - 1] ?? "") &&

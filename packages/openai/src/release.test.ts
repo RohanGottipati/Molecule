@@ -805,12 +805,91 @@ describe("compiler and solver release acceptance", () => {
       "Asia/Kolkata",
       "2026-09-25T18:29:59.000Z",
     ],
+    [
+      "by end of month",
+      "2026-09-19T12:00:00Z",
+      "America/Toronto",
+      "2026-10-01T03:59:59.000Z",
+    ],
+    [
+      "by the end of next month",
+      "2026-09-19T12:00:00Z",
+      "America/Toronto",
+      "2026-11-01T03:59:59.000Z",
+    ],
+    [
+      "by end of the week",
+      "2026-09-23T12:00:00Z",
+      "America/Toronto",
+      "2026-09-26T03:59:59.000Z",
+    ],
+    [
+      "within 10 days",
+      "2026-09-19T12:00:00Z",
+      "America/Toronto",
+      "2026-09-30T03:59:59.000Z",
+    ],
+    [
+      "in two weeks",
+      "2026-09-19T12:00:00Z",
+      "America/Toronto",
+      "2026-10-04T03:59:59.000Z",
+    ],
+    [
+      "in 3 business days",
+      "2026-09-18T12:00:00Z",
+      "America/Toronto",
+      "2026-09-24T03:59:59.000Z",
+    ],
   ])(
     "resolves %s from the caller's local calendar",
     (text, at, zone, expected) => {
       expect(relativeDeadline(text, at, zone)).toBe(expected);
     },
   );
+
+  it.each([
+    "50 black hoodies with embroidered logo by end of month under CAD 3000.",
+    "Use the attached context and keep all requirements unchanged. 50 black hoodies with embroidered logo by Friday under CAD 3000.",
+  ])(
+    "compiles ordinary brief wording without clarification: %s",
+    async (text) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text,
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY")
+        throw new Error(result.questions.join(" "));
+      expect(result.intent.quantity).toBe(50);
+      expect(result.intent.budgetMax).toBe(3000);
+      expect(result.intent.transformations).toEqual([
+        expect.objectContaining({ kind: "embroidery" }),
+      ]);
+    },
+  );
+
+  it("does not double-count a correction that repeats the full brief", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const first = await adapter.compileIntent({ ...base, text: acceptance });
+    if (first.status !== "READY") throw new Error("acceptance brief failed");
+    const resent = `${acceptance}, no polyester.`;
+    const result = await adapter.compileIntent({
+      ...base,
+      text: resent,
+      previousIntent: first.intent,
+      correction: { kind: "other", text: resent },
+    });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error(result.questions.join(" "));
+    expect(result.intent.hardConstraints).toContainEqual(
+      expect.objectContaining({
+        field: "material",
+        operator: "not_contains",
+        value: "polyester",
+      }),
+    );
+  });
 
   it("never makes cyclic or dangling extracted graphs READY", () => {
     for (const inputKeys of [["absent"], ["finished"]]) {
