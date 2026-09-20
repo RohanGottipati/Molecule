@@ -1,0 +1,47 @@
+{
+  "pessimistic": {
+    "unattributed": 154,
+    "unmatchedToTruth": 132,
+    "pairingAmbiguous": 59,
+    "overall": {
+      "attributed": 438,
+      "merchant_precision_pct": 92.9,
+      "merchant_and_capability_precision_pct": 79.5
+    },
+    "byMethod": {
+      "exact": {
+        "attributed": 383,
+        "merchant_precision_pct": 91.9,
+        "merchant_and_capability_precision_pct": 81.2
+      },
+      "trgm": {
+        "attributed": 55,
+        "merchant_precision_pct": 100,
+        "merchant_and_capability_precision_pct": 67.3
+      }
+    }
+  },
+  "optimistic": {
+    "unattributed": 154,
+    "unmatchedToTruth": 132,
+    "pairingAmbiguous": 59,
+    "overall": {
+      "attributed": 438,
+      "merchant_precision_pct": 99.1,
+      "merchant_and_capability_precision_pct": 94.5
+    },
+    "byMethod": {
+      "exact": {
+        "attributed": 383,
+        "merchant_precision_pct": 99,
+        "merchant_and_capability_precision_pct": 94.8
+      },
+      "trgm": {
+        "attributed": 55,
+        "merchant_precision_pct": 100,
+        "merchant_and_capability_precision_pct": 92.7
+      }
+    }
+  },
+  "note": "Synthetic ROX corpus. The true precision lies between the two; the gap is pairing ambiguity in the benchmark, not pipeline behaviour."
+}
