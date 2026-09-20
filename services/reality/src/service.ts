@@ -26,6 +26,7 @@ import {
 } from "@molecule/db";
 
 import { catalogCandidates } from "./catalog.js";
+import { applyCapacityLimit } from "./capacity.js";
 
 import {
   ingestClaim,
@@ -149,11 +150,18 @@ function applyFacts(
         capability.pricing.unitPrice = fact.value;
       if (field === "setup_fee") capability.pricing.setupFee = fact.value;
       if (["capacity", "capacity_per_day", "inventory"].includes(field)) {
-        capability.capacity.available = Math.min(
-          capability.capacity.available ?? fact.value,
+        const result = applyCapacityLimit(
+          capability.capacity,
+          capability.quantity.unit,
+          field as "capacity" | "capacity_per_day" | "inventory",
           fact.value,
+          fact.normalizedUnit,
         );
-        if (field === "capacity_per_day") capability.capacity.period = "day";
+        if (result.ok) capability.capacity = result.capacity;
+        else {
+          blocked.push(`${fact.field}: ${result.reason}`);
+          unknownCapacity = true;
+        }
       }
       if (field === "lead_time_hours")
         capability.leadTime = {
@@ -371,10 +379,34 @@ export function createRealityService(
     const factsByMerchant = new Map<string, ResolvedFact[]>();
     for (const merchantId of merchantIds) {
       const merchantClaims = claimsByMerchant.get(merchantId) ?? [];
+      const resolutions = resolveMerchantClaims(merchantClaims, now());
       factsByMerchant.set(
         merchantId,
-        resolveMerchantClaims(merchantClaims, now()).map(({ fact }) => fact),
+        resolutions.map(({ fact }) => fact),
       );
+      // Evidence shown with a read-only snapshot must agree with that
+      // snapshot's resolution, including sources that have lost freshness.
+      for (const { fieldClaims, result, winner } of resolutions) {
+        const eligible = new Set(
+          result.status === "unknown"
+            ? []
+            : result.allScored.map(({ claim }) => claim.claimId),
+        );
+        for (const claim of fieldClaims) {
+          if (
+            claim.resolutionStatus === "quarantined" ||
+            claim.resolutionStatus === "unknown"
+          )
+            continue;
+          claim.resolutionStatus = !eligible.has(claim.claimId)
+            ? "superseded"
+            : result.status === "conflicted"
+              ? "conflicted"
+              : claim.claimId === winner?.claimId
+                ? "active"
+                : "superseded";
+        }
+      }
     }
     for (const merchant of merchants) {
       const status = factsByMerchant
@@ -418,7 +450,14 @@ export function createRealityService(
         blocked.push("Price is unknown");
       if (capability.capacity.available === undefined)
         blocked.push("Capacity is unknown");
-      if (capability.capacity.available !== undefined)
+      // Periodic capacity is a production rate, not a one-time stock balance.
+      // Existing unscheduled holds cannot be subtracted from every future
+      // period here; the solver certifies whether the dated work fits. For
+      // non-periodic inventory, active holds do reduce what can be offered.
+      if (
+        capability.capacity.available !== undefined &&
+        capability.capacity.period === undefined
+      )
         capability.capacity.available = Math.max(
           0,
           capability.capacity.available -
@@ -502,16 +541,8 @@ export function createRealityService(
                 cap.capacity.available < quantity) ||
               quantity < cap.quantity.min ||
               quantity > cap.quantity.max ||
-              Math.max(
-                hours(cap),
-                candidate.risk?.p95Hours ?? 0,
-                cap.kind !== "SUPPLY" &&
-                  cap.capacity.period &&
-                  cap.capacity.available > 0
-                  ? (quantity / cap.capacity.available) *
-                      { hour: 1, day: 24, week: 168 }[cap.capacity.period]
-                  : 0,
-              ) > remainingHours
+              Math.max(hours(cap), candidate.risk?.p95Hours ?? 0) >
+                remainingHours
             )
               continue;
             candidates.push(candidate);

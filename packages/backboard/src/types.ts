@@ -18,6 +18,11 @@ export interface MerchantAssistant {
   model: string;
   systemPrompt: string;
   createdAt: string;
+  /**
+   * Live JSON-quote assistant with no documents. Backboard ignores
+   * json_output when RAG is active, so corpus files stay on assistantId.
+   */
+  jsonAssistantId?: string;
 }
 
 export type MerchantDocumentCategory =

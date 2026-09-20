@@ -13,6 +13,9 @@ Desired outputs are separately procured components, e.g. hoodie, bottle, snacks,
 Put product identity and explicit attributes (material, color, diet) on each component; preserve component quantities.
 Do not add an extra kit supply when components will be assembled. A preassembled kit may be one supply if no components are requested.
 Scope constraints to component keys: hoodie.color=black, snacks.diet=vegan. Material exclusions apply globally to supplied and transformed goods.
+Encode material exclusions such as "no polyester" or "no leather" with not_contains, including scoped material fields, so blends containing the material are excluded.
+Global material exclusions use the bare field material. Scope component-specific constraints only to actual component or transformation keys, or the matching operation kind; never invent supplied or transformed scopes.
+Do not use material neq for an exclusion: exact inequality admits blends. If the customer means only an exact composition inequality, request clarification.
 Support Apparel, Bags & Accessories, Tech Accessories, Desk & Office, Gaming, Home Decor, Kitchen & Dining,
 Fitness, Pets, Travel, Gifts and 3D Printing / Maker; other catalog categories remain interpretable, not certified.
 Preserve deviceModel, dimensions and material when supplied. Ask for missing model compatibility or customization assets.

@@ -7,15 +7,22 @@ export function useVoice(store: DesktopStore) {
   const [voice] = useState(
     () =>
       new RealtimeClient({
-        createSession: (projectId) =>
-          store.api.createRealtimeSession(projectId),
-        permission: () => store.bridge.requestMicrophone(),
+        createSession: (projectId, signal) =>
+          store.api.createRealtimeSession(projectId, signal),
+        permission: async () => {
+          const { microphone } = await store.bridge.getPermissionStatus();
+          if (microphone === "granted") return true;
+          if (microphone === "denied" || microphone === "restricted")
+            return false;
+          return store.bridge.requestMicrophone();
+        },
         microphoneDevice: () =>
           store.getSnapshot().bootstrap?.settings.microphoneDevice ?? "",
         mockProviders: () => store.getSnapshot().mockProviders,
-        refresh: async () => {
+        refresh: async (signal) => {
           await store.ensureProject();
-          await store.refresh();
+          signal?.throwIfAborted();
+          await store.refresh(signal);
           const result = store.getSnapshot();
           if (!result.project)
             throw new DOMException("Project changed", "AbortError");
@@ -32,9 +39,7 @@ export function useVoice(store: DesktopStore) {
       voice.stop();
       return;
     }
-    void store
-      .mode("conversation")
-      .catch((error: unknown) => store.error(error));
+    await store.mode("conversation");
     if (!store.getSnapshot().bootstrap?.settings.voiceEnabled)
       throw new Error("Enable voice in Settings to start a conversation.");
     await voice.start();

@@ -16,7 +16,13 @@ import { DecisionRecovery } from "./DecisionRecovery";
 import { Badge } from "./DecisionPrimitives";
 import { evidenceGroups, merchantSelection } from "../lib/decisionEvidence";
 import { nodeEvidenceContext, type PlanSelection } from "../lib/decisionPlan";
-import { dateLabel, displayValue, humanize, money } from "../lib/workspace";
+import {
+  dateLabel,
+  displayValue,
+  humanize,
+  money,
+  rangeLabel,
+} from "../lib/workspace";
 
 export { Badge };
 
@@ -166,8 +172,11 @@ export function MerchantDetail({
                     <div>
                       <dt>Lead time</dt>
                       <dd>
-                        {item.leadTime.min}–{item.leadTime.max}{" "}
-                        {humanize(item.leadTime.unit)}
+                        {rangeLabel(
+                          item.leadTime.min,
+                          item.leadTime.max,
+                          item.leadTime.unit,
+                        )}
                       </dd>
                     </div>
                     <div>
@@ -182,8 +191,11 @@ export function MerchantDetail({
                     <div>
                       <dt>Quantity range</dt>
                       <dd>
-                        {item.quantity.min}–{item.quantity.max}{" "}
-                        {item.quantity.unit}
+                        {rangeLabel(
+                          item.quantity.min,
+                          item.quantity.max,
+                          item.quantity.unit,
+                        )}
                       </dd>
                     </div>
                     <div>

@@ -14,6 +14,7 @@ import {
   parseEvent,
   parseView,
   planDelta,
+  rangeLabel,
   safeHref,
   supplierAdminUrl,
 } from "./workspace";
@@ -273,5 +274,15 @@ describe("provider links", () => {
         "gid://shopify/DraftOrder/123/../../",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("rangeLabel", () => {
+  it("collapses equal bounds and pluralizes units", () => {
+    expect(rangeLabel(8, 8, "HOURS")).toBe("8 hours");
+    expect(rangeLabel(1, 1000, "unit")).toBe("1–1000 units");
+    expect(rangeLabel(1, 1, "unit")).toBe("1 unit");
+    expect(rangeLabel(2, 5, "business_day")).toBe("2–5 business days");
+    expect(rangeLabel(3, 3, "")).toBe("3");
   });
 });

@@ -3,7 +3,11 @@ import type { PlanSelection } from "../lib/decisionPlan";
 import { relaxationDraft } from "../lib/navigation";
 import type { Workspace } from "../lib/useWorkspace";
 import { dateLabel, displayValue, money } from "../lib/workspace";
-import { PlanGraph } from "./PlanGraph";
+import {
+  PlanGraph,
+  ProductionListView,
+  ProductionTimelineView,
+} from "./PlanGraph";
 import { Badge, Empty, ExecutionView, NodeDetail } from "./WorkspacePanels";
 import {
   decisionActionsBlocked,
@@ -25,6 +29,7 @@ export function PlanReview({
   const { order, marketplace, previousPlan, events } = workspace;
   const plan = order?.activePlan ?? null;
   const dialog = useRef<HTMLDialogElement>(null);
+  const [view, setView] = useState<"network" | "list" | "timeline">("network");
   const [selection, setSelection] = useState<PlanSelection | null>(null);
   const selected = resolveSelectedNode(plan, previousPlan, selection);
   const comparison = recoveryComparison(previousPlan, plan, events);
@@ -87,17 +92,64 @@ export function PlanReview({
                 approved.
               </p>
             )}
+            {plan.nodes.length > 0 && (
+              <div
+                className="view-toggle"
+                role="group"
+                aria-label="Production network view"
+              >
+                {(["network", "list", "timeline"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={view === option}
+                    onClick={() => setView(option)}
+                  >
+                    {option === "network"
+                      ? "Network"
+                      : option === "list"
+                        ? "List"
+                        : "Timeline"}
+                  </button>
+                ))}
+              </div>
+            )}
             {plan.nodes.length ? (
-              <PlanGraph
-                key={plan.planId}
-                plan={plan}
-                previousPlan={previousPlan}
-                merchants={marketplace?.merchants ?? []}
-                candidates={order?.candidates ?? []}
-                offlineMerchants={offline}
-                onSelect={() => undefined}
-                onSelectContext={setSelection}
-              />
+              view === "network" ? (
+                <PlanGraph
+                  key={plan.planId}
+                  plan={plan}
+                  previousPlan={previousPlan}
+                  merchants={marketplace?.merchants ?? []}
+                  candidates={order?.candidates ?? []}
+                  offlineMerchants={offline}
+                  onSelect={() => undefined}
+                  onSelectContext={setSelection}
+                />
+              ) : (
+                (() => {
+                  const View =
+                    view === "list"
+                      ? ProductionListView
+                      : ProductionTimelineView;
+                  return (
+                    <View
+                      plan={plan}
+                      merchants={marketplace?.merchants ?? []}
+                      candidates={order?.candidates ?? []}
+                      offlineMerchants={offline}
+                      onSelect={(node) =>
+                        setSelection({
+                          planId: plan.planId,
+                          nodeId: node.nodeId,
+                          currency: plan.currency,
+                          historical: false,
+                        })
+                      }
+                    />
+                  );
+                })()
+              )
             ) : (
               <Empty title="No feasible production plan">
                 Review the solver&apos;s conflicts and proposed changes, then

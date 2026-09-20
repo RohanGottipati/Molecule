@@ -26,14 +26,14 @@ export async function syncCatalogInventory(
     Awaited<ReturnType<ShopifyTransport["getInventory"]>>
   >();
   for (const mapping of mappings.rows) {
-    const transport = transportFor(mapping.domain);
-    if (!transport) {
-      unavailable.push(mapping.resource_id);
-      continue;
-    }
     const key = `${mapping.domain}/${mapping.item}`;
     let snapshot = snapshots.get(key);
     if (!snapshot) {
+      const transport = transportFor(mapping.domain);
+      if (!transport) {
+        unavailable.push(mapping.resource_id);
+        continue;
+      }
       snapshot = await transport.getInventory(mapping.item);
       snapshots.set(key, snapshot);
     }

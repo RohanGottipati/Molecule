@@ -1,4 +1,7 @@
-import { MerchantCapabilitySchema } from "@molecule/contracts";
+import {
+  MerchantCapabilitySchema,
+  applyCapacityLimit,
+} from "@molecule/contracts";
 import { resolveMerchantFields } from "@molecule/resolution";
 
 import { listMerchantClaims } from "./claims.js";
@@ -161,7 +164,7 @@ export async function reserveCapacity(
     const facts = resolveMerchantFields(
       await listMerchantClaims(input.merchantId, client),
     ).map(({ fact }) => fact);
-    let maximum = capability.capacity.available;
+    let capacity = capability.capacity;
     for (const fact of facts) {
       if (
         ![
@@ -186,8 +189,27 @@ export async function reserveCapacity(
           "Capacity or inventory is unresolved",
         );
       }
-      maximum = Math.min(maximum ?? fact.value, fact.value);
+      const field =
+        fact.field === "capacity_per_day" ||
+        fact.field.endsWith(".capacity_per_day")
+          ? "capacity_per_day"
+          : fact.field === "inventory" ||
+              fact.field.startsWith("inventory.") ||
+              fact.field.endsWith(".inventory")
+            ? "inventory"
+            : "capacity";
+      const applied = applyCapacityLimit(
+        capacity,
+        capability.quantity.unit,
+        field,
+        fact.value,
+        fact.normalizedUnit,
+      );
+      if (!applied.ok)
+        throw new ReservationError("UNAVAILABLE", applied.reason);
+      capacity = applied.capacity;
     }
+    const maximum = capacity.available;
     if (maximum === undefined)
       throw new ReservationError("UNAVAILABLE", "Capacity is unknown");
     if (

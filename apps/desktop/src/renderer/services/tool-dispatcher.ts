@@ -20,6 +20,10 @@ export class ToolDispatcher {
       name,
       args: JSON.parse(argumentsJson),
     });
+    // Model-selected tools cannot authorize commerce. The explicit approval
+    // button calls DesktopStore.command directly, outside this voice boundary.
+    if (command.name === "approve_action")
+      throw new Error("Review the plan and use Approve in the app.");
     const fingerprint = JSON.stringify(command);
     const existing = this.calls.get(callId);
     if (existing) {
@@ -29,6 +33,12 @@ export class ToolDispatcher {
     }
     const result = this.execute(command, `voice:${callId}`);
     this.calls.set(callId, { fingerprint, result });
+    void result
+      .finally(() => {
+        if (this.calls.size > 500)
+          this.calls.delete(this.calls.keys().next().value!);
+      })
+      .catch(() => undefined);
     return result;
   }
 }

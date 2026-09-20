@@ -5,6 +5,33 @@ import type { CompositeProductPlan, SupplierJobPlanNode } from "./types.js";
 const STORES = ["stitchworks-test", "molecule-test"] as const;
 
 describe("MockShopifyAdapter", () => {
+  it("opts into the release catalog without changing the broad catalog or reset profile", async () => {
+    const stores = ["threadforge-test"];
+    const broad = new MockShopifyAdapter({ stores });
+    const release = new MockShopifyAdapter({
+      stores,
+      catalogProfile: "release",
+    });
+    expect((await broad.getSnapshot(stores[0]!)).capacity[0]?.quantity).toBe(
+      400,
+    );
+    const before = await release.getSnapshot(stores[0]!);
+    expect(before.capacity[0]?.quantity).toBe(400);
+    expect(
+      before.products.some((product) => product.tags.includes("release-demo")),
+    ).toBe(true);
+    await release.demoAdjustInventory(
+      stores[0]!,
+      before.capacity[0]!.itemId,
+      0,
+    );
+    await release.reset();
+    expect(await release.getSnapshot(stores[0]!)).toEqual(before);
+    expect((await broad.getSnapshot(stores[0]!)).capacity[0]?.quantity).toBe(
+      400,
+    );
+  });
+
   it("refuses to put a composite product in a supplier store when the central store is missing", async () => {
     const adapter = new MockShopifyAdapter({ stores: ["stitchworks-test"] });
     const before = await adapter.getSnapshot("stitchworks-test");
@@ -159,6 +186,33 @@ describe("MockShopifyAdapter", () => {
 
     const after = await adapter.getSnapshot("stitchworks-test");
     expect(after.capacity[0]?.quantity).toBe(0);
+  });
+
+  it("uses stable inventory-item identities without changing product variant identities", async () => {
+    const adapter = new MockShopifyAdapter({ stores: STORES });
+    const before = await adapter.getSnapshot("stitchworks-test");
+    const capacity = before.capacity[0]!;
+    expect(capacity.itemId).toMatch(/^gid:\/\/shopify\/InventoryItem\/\d+$/);
+    const variants = before.products.flatMap((product) => product.variants);
+    expect(
+      variants.some((variant) => variant.variantId === capacity.itemId),
+    ).toBe(false);
+
+    await adapter.demoAdjustInventory("stitchworks-test", capacity.itemId, 0);
+    const after = await adapter.getSnapshot("stitchworks-test");
+    expect(after.capacity[0]).toMatchObject({
+      itemId: capacity.itemId,
+      quantity: 0,
+    });
+    expect(
+      after.products.flatMap((product) =>
+        product.variants.map((variant) => variant.variantId),
+      ),
+    ).toEqual(variants.map((variant) => variant.variantId));
+    await adapter.reset();
+    expect(
+      (await adapter.getSnapshot("stitchworks-test")).capacity[0]?.itemId,
+    ).toBe(capacity.itemId);
   });
 
   it("supersedeJob tags the job instead of deleting it, and is idempotent by actionKey", async () => {

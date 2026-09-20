@@ -100,6 +100,14 @@ export async function resetDemoData(): Promise<void> {
     await client.query(`update canonical_claims set resolution_status = 'active'
       where resolution_status != 'quarantined' and merchant_id in
       (select merchant_id from merchants where demo_tag = 'MOLECULE_DEMO')`);
+    await client.query(`update canonical_claims c set resolution_status = 'superseded'
+      where c.resolution_status = 'active'
+        and c.merchant_id in (select merchant_id from merchants where demo_tag = 'MOLECULE_DEMO')
+        and exists (select 1 from canonical_claims n
+          where n.merchant_id = c.merchant_id and n.field = c.field
+            and n.source_kind = c.source_kind and n.source_reference = c.source_reference
+            and n.resolution_status != 'quarantined'
+            and coalesce(n.observed_at, n.ingested_at) > coalesce(c.observed_at, c.ingested_at))`);
     await client.query(
       "update demo_chaos_actions set reverted_at = now() where reverted_at is null",
     );

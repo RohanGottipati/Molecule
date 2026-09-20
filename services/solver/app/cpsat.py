@@ -614,7 +614,7 @@ def _solve(data: SolverInput) -> ProductionPlan:
         constraint_results=results,
         unsat_relaxations=[],
     )
-    fingerprint = plan.model_dump_json(exclude={"plan_id"})
+    fingerprint = plan.model_dump_json(exclude={"plan_id"}, exclude_none=True)
     return plan.model_copy(
         update={"plan_id": str(uuid5(NAMESPACE_URL, f"{data.generation}:{fingerprint}"))}
     )

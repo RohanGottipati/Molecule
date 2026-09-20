@@ -3,16 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    JsonValue,
-    SerializerFunctionWrapHandler,
-    field_validator,
-    model_serializer,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -28,30 +19,6 @@ class ContractModel(BaseModel):
         allow_inf_nan=False,
         strict=True,
     )
-
-    @model_serializer(mode="wrap")
-    def omit_absent_catalog_fields(
-        self, handler: SerializerFunctionWrapHandler
-    ) -> dict[str, object]:
-        data: dict[str, object] = handler(self)
-        for field in (
-            "catalog_version",
-            "selected_item",
-            "resource_refs",
-            "required_asset_ids",
-            "transfer_minutes",
-            "synthetic",
-            "customization_assets",
-            "shop_domain",
-            "variant_gid",
-            "period_minutes",
-            "occupied_intervals",
-            "quoted_quantity",
-        ):
-            for key in (field, to_camel(field)):
-                if data.get(key) is None:
-                    data.pop(key, None)
-        return data
 
 
 class Constraint(ContractModel):

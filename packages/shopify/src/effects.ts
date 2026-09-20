@@ -80,7 +80,20 @@ export class MockShopifyEffects implements ShopifyEffects {
 }
 
 export function actionTag(key: string): string {
-  return `molecule_action_${digest(key)}`;
+  // Draft-order tags are limited to 40 characters (products accept more).
+  // Keep 128 hash bits here; the full deterministic key remains in the journal
+  // and draft custom attributes, which are authoritative for idempotency.
+  return `mol_act_${digest(key).slice(0, 32)}`;
+}
+
+export function matchesActionTag(
+  tags: readonly string[],
+  key: string,
+): boolean {
+  return (
+    tags.includes(actionTag(key)) ||
+    tags.includes(`molecule_action_${digest(key)}`)
+  );
 }
 
 const UserErrors = z.array(z.object({ message: z.string() }));
@@ -236,7 +249,7 @@ export class RealShopifyEffects implements ShopifyEffects {
         ...(effect.existing?.tags ?? []),
         "MOLECULE",
         tag,
-        `molecule_trace_${digest(effect.traceId)}`,
+        `mol_trc_${digest(effect.traceId).slice(0, 32)}`,
       ]),
     ];
     if (effect.operation === "product") {
@@ -431,13 +444,14 @@ export class RealShopifyEffects implements ShopifyEffects {
         { identifier: { handle: effect.handle } },
         z.object({ productByIdentifier: Product.nullable() }),
       );
-      return result.productByIdentifier?.tags.includes(tag)
+      return result.productByIdentifier &&
+        matchesActionTag(result.productByIdentifier.tags, effect.actionKey)
         ? this.productResource(result.productByIdentifier, effect.domain)
         : undefined;
     }
     if (effect.existing) {
       const draft = await this.getDraft(effect.domain, effect.existing.id);
-      return draft?.tags.includes(tag)
+      return draft && matchesActionTag(draft.tags, effect.actionKey)
         ? this.checkDraft(draft, effect)
         : undefined;
     }

@@ -24,49 +24,51 @@ export async function reserveCatalogPlan(
     const active = await client.query<{ catalog_version: string }>(
       "select catalog_version from catalog_active_version",
     );
-    const keys: string[] = [];
-    for (const node of [...plan.nodes].sort((a, b) =>
+    const nodes = [...plan.nodes].sort((a, b) =>
       a.nodeId.localeCompare(b.nodeId),
-    )) {
+    );
+    const activeVersion = active.rows[0]?.catalog_version;
+    for (const node of nodes) {
       if (
         !node.catalogVersion ||
         !node.selectedItem ||
         !node.resourceRefs?.length
       )
         throw new Error("MISSING_CATALOG_REFERENCES");
-      if (node.catalogVersion !== active.rows[0]?.catalog_version)
+      if (node.catalogVersion !== activeVersion)
         throw new Error("STALE_CATALOG_VERSION");
-      const selected = await client.query<{ record_json: unknown }>(
-        `select record_json from catalog_records
-        where catalog_version=$1 and record_id in ($2,$3,$4,
-          (select record_json->>'familyId' from catalog_records where catalog_version=$1 and record_id=$2))`,
-        [
-          node.catalogVersion,
-          node.selectedItem.bindingId,
-          node.selectedItem.variantId,
-          node.selectedItem.productId,
-        ],
-      );
-      const records = selected.rows.map((row) =>
-        CatalogRecordSchema.parse(row.record_json),
-      );
-      const binding = records.find(
-        (r) =>
-          r.id === node.selectedItem!.bindingId && r.recordType === "binding",
-      );
-      const variant = records.find(
-        (r) =>
-          r.id === node.selectedItem!.variantId && r.recordType === "variant",
-      );
-      const product = records.find(
-        (r) =>
-          r.id === node.selectedItem!.productId && r.recordType === "product",
-      );
+    }
+    const selectedIds = nodes.flatMap(({ selectedItem }) => [
+      selectedItem!.bindingId,
+      selectedItem!.variantId,
+      selectedItem!.productId,
+    ]);
+    const selected = await client.query<{ record_json: unknown }>(
+      `select record_json from catalog_records
+      where catalog_version=$1 and (
+        record_id=any($2::text[]) or record_id in (
+          select record_json->>'familyId' from catalog_records
+          where catalog_version=$1 and record_id=any($2::text[])
+        )
+      )`,
+      [activeVersion, selectedIds],
+    );
+    const catalogRecords = new Map(
+      selected.rows.map((row) => {
+        const record = CatalogRecordSchema.parse(row.record_json);
+        return [record.id, record] as const;
+      }),
+    );
+    const keys: string[] = [];
+    for (const node of nodes) {
+      const selectedItem = node.selectedItem!;
+      const resourceRefs = node.resourceRefs!;
+      const binding = catalogRecords.get(selectedItem.bindingId);
+      const variant = catalogRecords.get(selectedItem.variantId);
+      const product = catalogRecords.get(selectedItem.productId);
       const family =
         binding?.recordType === "binding"
-          ? records.find(
-              (r) => r.id === binding.familyId && r.recordType === "family",
-            )
+          ? catalogRecords.get(binding.familyId)
           : undefined;
       if (
         binding?.recordType !== "binding" ||
@@ -76,9 +78,9 @@ export async function reserveCatalogPlan(
         binding.merchantId !== node.merchantId ||
         binding.variantId !== variant.id ||
         variant.productId !== product.id ||
-        variant.sku !== node.selectedItem.sku ||
-        product.itemKind !== node.selectedItem.itemKind ||
-        variant.shopify?.variantGid !== node.selectedItem.variantGid ||
+        variant.sku !== selectedItem.sku ||
+        product.itemKind !== selectedItem.itemKind ||
+        variant.shopify?.variantGid !== selectedItem.variantGid ||
         family.kind !== node.kind ||
         node.capabilityId !== `bound:${node.catalogVersion}:${binding.id}` ||
         family.requiredAssetIds.some(
@@ -88,12 +90,12 @@ export async function reserveCatalogPlan(
       )
         throw new Error("INVALID_CATALOG_SELECTION");
       if (
-        binding.resources.length !== node.resourceRefs.length ||
-        new Set(node.resourceRefs.map((ref) => ref.resourceId)).size !==
-          node.resourceRefs.length ||
+        binding.resources.length !== resourceRefs.length ||
+        new Set(resourceRefs.map((ref) => ref.resourceId)).size !==
+          resourceRefs.length ||
         binding.resources.some(
           (required) =>
-            !node.resourceRefs!.some(
+            !resourceRefs.some(
               (ref) =>
                 ref.resourceId === required.resourceId &&
                 ref.unitsPerItem === required.unitsPerItem,
@@ -101,7 +103,7 @@ export async function reserveCatalogPlan(
         )
       )
         throw new Error("INVALID_RESOURCE_REFERENCES");
-      for (const ref of [...node.resourceRefs].sort((a, b) =>
+      for (const ref of [...resourceRefs].sort((a, b) =>
         a.resourceId.localeCompare(b.resourceId),
       )) {
         const key = `${actionKey}:${node.nodeId}:${ref.resourceId}`;

@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, systemPreferences } from "electron";
 import { join } from "node:path";
 import type { DesktopSignal, OverlayMode } from "../shared/bridge.js";
-import { clampPosition, isPlainEscape, overlaySize } from "./policy.js";
+import { clampPosition, overlaySize } from "./policy.js";
 import type { SettingsStore } from "./settings.js";
 
 export class OverlayWindow {
@@ -60,12 +60,6 @@ export class OverlayWindow {
           );
         });
       }, 250);
-    });
-    this.window.webContents.on("before-input-event", (event, input) => {
-      if (isPlainEscape(input)) {
-        event.preventDefault();
-        this.hide();
-      }
     });
     this.window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     this.window.webContents.on("will-navigate", (event) =>

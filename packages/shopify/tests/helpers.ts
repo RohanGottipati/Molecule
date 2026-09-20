@@ -241,7 +241,7 @@ export class FakeShopify {
       const input = DraftInput.parse(variables.input);
       const key =
         operation === "CreateDraft" ? "draftOrderCreate" : "draftOrderUpdate";
-      if (failure === "bad-input")
+      if (failure === "bad-input" || input.tags.some((tag) => tag.length > 40))
         return response({
           [key]: {
             draftOrder: null,
@@ -258,6 +258,16 @@ export class FakeShopify {
             .object({ amount: z.string(), currencyCode: z.string() })
             .parse(line.priceOverride ?? line.originalUnitPriceWithCurrency)
         : undefined;
+      const lineTotal = input.lineItems?.reduce((total, item) => {
+        const itemMoney = z
+          .object({ amount: z.string(), currencyCode: z.string() })
+          .parse(item.priceOverride ?? item.originalUnitPriceWithCurrency);
+        return (
+          total +
+          Number(itemMoney.amount) *
+            z.number().int().positive().parse(item.quantity)
+        );
+      }, 0);
       const old = this.drafts.get(`${domain}:${id}`);
       const draft = {
         id,
@@ -267,7 +277,7 @@ export class FakeShopify {
         totalPriceSet: money
           ? {
               presentmentMoney: {
-                amount: String(Number(money.amount) + this.tax),
+                amount: String(lineTotal! + this.tax),
                 currencyCode: money.currencyCode,
               },
             }

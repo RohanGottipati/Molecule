@@ -198,6 +198,75 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     }
   });
 
+  it("compares reservation capacity on the winning claim's daily time basis", async () => {
+    await getPool()
+      .query(`update capabilities set capability_json=jsonb_set(capability_json,'{capacity}',
+      '{"available":700,"maximum":1400,"period":"week"}') where capability_id='cap-thread-embroidery'`);
+    await getPool()
+      .query(`update canonical_claims set normalized_value='200',normalized_unit='units/day'
+      where claim_id='demo:cap-thread-embroidery:capacity'`);
+    const inserted = await getPool()
+      .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
+      select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
+      from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'
+      on conflict(merchant_id,field) do update set winning_claim_id=excluded.winning_claim_id,value=excluded.value,status='resolved'`);
+    expect(inserted.rowCount).toBe(1);
+    expect(await reserveCapacity(input())).toEqual({
+      ok: false,
+      reason: "insufficient_capacity",
+      available: 100,
+    });
+    expect((await reserveCapacity({ ...input(), quantity: 100 })).ok).toBe(
+      true,
+    );
+    expect(await reserveCapacity({ ...input(), quantity: 1 })).toEqual({
+      ok: false,
+      reason: "insufficient_capacity",
+      available: 0,
+    });
+    const stored = await getPool()
+      .query(`select capability_json->'capacity' as capacity from capabilities
+      where capability_id='cap-thread-embroidery'`);
+    expect(stored.rows[0].capacity).toEqual({
+      available: 700,
+      maximum: 1400,
+      period: "week",
+    });
+    await getPool().query(`update canonical_claims c
+      set normalized_value=baseline.capability_json #> '{capacity,available}',normalized_unit=null
+      from demo_capability_baselines baseline
+      where c.claim_id='demo:cap-thread-embroidery:capacity'
+        and baseline.capability_id='cap-thread-embroidery'`);
+  });
+
+  it("refuses incompatible winning capacity units before creating a hold", async () => {
+    try {
+      await getPool()
+        .query(`update canonical_claims set normalized_unit='kg/day'
+        where claim_id='demo:cap-thread-embroidery:capacity'`);
+      const inserted = await getPool()
+        .query(`insert into canonical_resolutions(merchant_id,field,status,winning_claim_id,value,explanation,scores)
+        select merchant_id,field,'resolved',claim_id,normalized_value,'Unit regression fixture','{}'
+        from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'
+        on conflict(merchant_id,field) do update set winning_claim_id=excluded.winning_claim_id,value=excluded.value,status='resolved'`);
+      expect(inserted.rowCount).toBe(1);
+      await expect(reserveCapacity(input())).rejects.toMatchObject({
+        code: "UNAVAILABLE",
+      });
+      expect(
+        (
+          await getPool().query(
+            `select count(*) as count from reservations where status='active'`,
+          )
+        ).rows[0].count,
+      ).toBe("0");
+    } finally {
+      await getPool()
+        .query(`update canonical_claims set normalized_unit='units/day'
+        where claim_id='demo:cap-thread-embroidery:capacity'`);
+    }
+  });
+
   it("releases and expires holds without reviving inactive retries", async () => {
     const request = input();
     const first = await reserveCapacity(request);
@@ -272,6 +341,42 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     await expect(resetDemoData()).rejects.toThrow("DEMO_MODE");
     process.env.DEMO_MODE = "true";
     await getPool().query("delete from merchants where merchant_id=$1", [id]);
+  });
+
+  it("keeps older same-stream observations superseded across a demo reset", async () => {
+    const older = `claim:${randomUUID()}`;
+    const newer = `claim:${randomUUID()}`;
+    const insert = (claimId: string, value: number, at: string) =>
+      getPool().query(
+        `insert into canonical_claims(claim_id,merchant_id,field,normalized_value,source_kind,source_reference,
+           observed_at,ingested_at,source_authority,extraction_confidence,resolution_status)
+         values($1,'laser-lab','capacity_per_day',$2::jsonb,'shopify','gid://test/Variant/1',$3,$3,0.9,1,'active')`,
+        [claimId, String(value), at],
+      );
+    await insert(older, 250, "2026-09-01T00:00:00Z");
+    await insert(newer, 400, "2026-09-02T00:00:00Z");
+    await getPool().query(
+      "update canonical_claims set resolution_status='superseded' where claim_id=$1",
+      [older],
+    );
+    await resetDemoData();
+    const statuses = Object.fromEntries(
+      (
+        await getPool().query<{ claim_id: string; resolution_status: string }>(
+          "select claim_id,resolution_status from canonical_claims where claim_id = any($1::text[])",
+          [[older, newer]],
+        )
+      ).rows.map((row) => [row.claim_id, row.resolution_status]),
+    );
+    expect(statuses).toEqual({ [older]: "superseded", [newer]: "active" });
+    await getPool().query(
+      "delete from canonical_resolutions where winning_claim_id = any($1::text[])",
+      [[older, newer]],
+    );
+    await getPool().query(
+      "delete from canonical_claims where claim_id = any($1::text[])",
+      [[older, newer]],
+    );
   });
 
   it("counts real session/plan/execution rows without counting missing plans or double counting", async () => {

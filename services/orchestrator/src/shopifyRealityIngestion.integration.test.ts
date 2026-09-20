@@ -73,110 +73,138 @@ describe.skipIf(!database)("Shopify capacity ingestion", () => {
     expect(second.claimIds).toEqual(first.claimIds);
   });
 
-  it("persists an authenticated inventory webhook and resolves its Shopify capacity claim", async () => {
-    const secret = "shopify-webhook-integration-secret";
-    const domain = "stitchworks-webhook-test.myshopify.com";
-    const repository = new PostgresShopifyActionRepository(
-      getPool(),
-      `shopify-webhook-${randomUUID()}`,
-    );
-    const source = new MockShopifyAdapter({
-      stores: ["stitchworks-webhook-test"],
-    });
-    const snapshot = await source.getSnapshot("stitchworks-webhook-test");
-    const capacity = snapshot.capacity[0];
-    if (!capacity) throw new Error("StitchWorks mock must expose capacity");
-    const initial = await ingestShopifyCapacityBatch(
-      source,
-      source.listStores(),
-      {
-        traceId: "shopify-webhook-initial-capacity",
-      },
-    );
-    expect(initial.accepted).toBe(1);
-    // Isolate ordering within one Shopify observation stream. The seeded StitchWorks
-    // notes deliberately conflict; independent-source conflict behavior is tested in Reality.
-    await getPool().query(
-      "delete from canonical_claims where merchant_id='stitch-works' and field='capacity_per_day' and source_kind<>'shopify'",
-    );
-    const store = new LocalStore();
-    await store.load();
-    const openai = new MockOpenAIAdapter();
-    const solver = { solve: vi.fn() };
-    const dependencies = {
-      sessions: store,
-      events: store,
-      openai,
-      solver,
-      reality: new MockRealityClient(),
-      merchantAgents: new MockMerchantAgentClient(),
-      shopify: new MockShopifyClient(),
-    };
-    const app = await buildServer({
-      ...dependencies,
-      config: ConfigSchema.parse({ SHOPIFY_API_SECRET: secret }),
-      orchestrator: new Orchestrator(dependencies),
-      desktopStore: store,
-      shopifyWebhook: {
-        options: { secret, allowedDomains: [domain], repository },
-        ingestInventoryUpdate: async (update) => {
-          await ingestShopifyInventoryUpdate(update);
+  it.each([
+    {
+      handle: "threadforge-webhook-test",
+      merchantId: "thread-forge",
+      expectedStatus: "resolved",
+    },
+    {
+      handle: "stitchworks-webhook-test",
+      merchantId: "stitch-works",
+      expectedStatus: "conflicted",
+    },
+  ])(
+    "supersedes the $merchantId inventory stream and retains $expectedStatus evidence",
+    async ({ handle, merchantId, expectedStatus }) => {
+      const secret = "shopify-webhook-integration-secret";
+      const domain = `${handle}.myshopify.com`;
+      const repository = new PostgresShopifyActionRepository(
+        getPool(),
+        `shopify-webhook-${randomUUID()}`,
+      );
+      const source = new MockShopifyAdapter({
+        stores: [handle],
+      });
+      const snapshot = await source.getSnapshot(handle);
+      const capacity = snapshot.capacity[0];
+      if (!capacity) throw new Error("Supplier mock must expose capacity");
+      expect(capacity.itemId).toMatch(/^gid:\/\/shopify\/InventoryItem\/\d+$/);
+      const initial = await ingestShopifyCapacityBatch(
+        source,
+        source.listStores(),
+        {
+          traceId: "shopify-webhook-initial-capacity",
         },
-      },
-    });
-    const triggeredAt = new Date(Date.now() + 1_000).toISOString();
-    const body = Buffer.from(
-      JSON.stringify({
-        inventory_item_id: capacity.itemId,
-        location_id: 24,
-        available: 0,
-      }),
-    );
-    try {
-      const response = await app.inject({
-        method: "POST",
-        url: "/api/shopify/webhooks",
-        payload: body,
-        headers: {
-          "content-type": "application/json",
-          "x-shopify-hmac-sha256": createHmac("sha256", secret)
-            .update(body)
-            .digest("base64"),
-          "x-shopify-webhook-id": randomUUID(),
-          "x-shopify-shop-domain": domain,
-          "x-shopify-topic": "inventory_levels/update",
-          "x-shopify-triggered-at": triggeredAt,
+      );
+      expect(initial.accepted).toBe(1);
+      const store = new LocalStore();
+      await store.load();
+      const openai = new MockOpenAIAdapter();
+      const solver = { solve: vi.fn() };
+      const dependencies = {
+        sessions: store,
+        events: store,
+        openai,
+        solver,
+        reality: new MockRealityClient(),
+        merchantAgents: new MockMerchantAgentClient(),
+        shopify: new MockShopifyClient(),
+      };
+      const app = await buildServer({
+        ...dependencies,
+        config: ConfigSchema.parse({ SHOPIFY_API_SECRET: secret }),
+        orchestrator: new Orchestrator(dependencies),
+        desktopStore: store,
+        shopifyWebhook: {
+          options: { secret, allowedDomains: [domain], repository },
+          ingestInventoryUpdate: async (update) => {
+            await ingestShopifyInventoryUpdate(update);
+          },
         },
       });
+      const triggeredAt = new Date(Date.now() + 1_000).toISOString();
+      const body = Buffer.from(
+        JSON.stringify({
+          inventory_item_id: Number(capacity.itemId.split("/").at(-1)),
+          location_id: 24,
+          available: 0,
+        }),
+      );
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/shopify/webhooks",
+          payload: body,
+          headers: {
+            "content-type": "application/json",
+            "x-shopify-hmac-sha256": createHmac("sha256", secret)
+              .update(body)
+              .digest("base64"),
+            "x-shopify-webhook-id": randomUUID(),
+            "x-shopify-shop-domain": domain,
+            "x-shopify-topic": "inventory_levels/update",
+            "x-shopify-triggered-at": triggeredAt,
+          },
+        });
 
-      expect(response.statusCode, response.body).toBe(200);
-      expect(await repository.events()).toHaveLength(1);
-      const facts = await transaction((client) =>
-        resolveMerchant("stitch-works", "shopify-webhook-assertion", client),
-      );
-      expect(
-        facts.find((fact) => fact.field === "capacity_per_day"),
-      ).toMatchObject({ status: "resolved", value: 0 });
-      const claims = await transaction((client) =>
-        listMerchantClaims("stitch-works", client),
-      );
-      expect(
-        claims.find(
-          (claim) =>
-            claim.field === "capacity_per_day" && claim.normalizedValue === 0,
-        ),
-      ).toMatchObject({
-        source: {
-          kind: "shopify",
-          reference: capacity.itemId,
-        },
-      });
-      expect(
-        claims.find((claim) => claim.claimId === initial.claimIds[0])
-          ?.resolutionStatus,
-      ).toBe("superseded");
-    } finally {
-      await app.close();
-    }
-  });
+        expect(response.statusCode, response.body).toBe(200);
+        expect(await repository.events()).toHaveLength(1);
+        const facts = await transaction((client) =>
+          resolveMerchant(merchantId, "shopify-webhook-assertion", client),
+        );
+        const capacityFact = facts.find(
+          (fact) => fact.field === "capacity_per_day",
+        );
+        if (expectedStatus === "resolved") {
+          expect(capacityFact).toMatchObject({ status: "resolved", value: 0 });
+        } else {
+          expect(capacityFact).toMatchObject({
+            status: "conflicted",
+            value: undefined,
+          });
+        }
+        const claims = await transaction((client) =>
+          listMerchantClaims(merchantId, client),
+        );
+        expect(
+          claims.find(
+            (claim) =>
+              claim.field === "capacity_per_day" && claim.normalizedValue === 0,
+          ),
+        ).toMatchObject({
+          source: {
+            kind: "shopify",
+            reference: capacity.itemId,
+          },
+        });
+        expect(
+          claims.find((claim) => claim.claimId === initial.claimIds[0])
+            ?.resolutionStatus,
+        ).toBe("superseded");
+        if (expectedStatus === "conflicted") {
+          expect(
+            claims.find(
+              (claim) => claim.source.reference === "demo:note:machine-2-down",
+            ),
+          ).toMatchObject({
+            normalizedValue: 20,
+            resolutionStatus: "conflicted",
+          });
+        }
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });

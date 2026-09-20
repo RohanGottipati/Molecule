@@ -2,6 +2,7 @@ import { z } from "zod";
 import { digest, ShopifyError } from "../types.js";
 import {
   catalogFor,
+  releaseCatalogFor,
   roleForStore,
   DEMO_STORE_HANDLES,
 } from "@molecule/test-fixtures";
@@ -61,6 +62,8 @@ interface MockDraftOrder {
 export interface MockShopifyAdapterOptions {
   /** Store handles to seed. Defaults to the current Dev Dashboard org's stores. */
   stores?: readonly string[];
+  /** Explicit synthetic acceptance fixture; broad seeded catalogs remain the default. */
+  catalogProfile?: "broad" | "release";
   now?: () => Date;
 }
 
@@ -74,6 +77,10 @@ function toSnapshotProduct(product: MockProduct): ShopifyProductSnapshot {
     tags: [...product.tags],
     variants: structuredClone(product.variants),
   };
+}
+
+function inventoryItemId(variant: MockVariant): string {
+  return `gid://shopify/InventoryItem/${variant.variantId.split("/").at(-1)}`;
 }
 
 /**
@@ -90,12 +97,14 @@ export class MockShopifyAdapter implements ShopifyAdapter {
     { fingerprint: string; result: unknown }
   >();
   private readonly now: () => Date;
+  private readonly catalogProfile: "broad" | "release";
   private seq = 0;
 
   constructor(options: MockShopifyAdapterOptions = {}) {
     this.storeHandles = [...(options.stores ?? DEMO_STORE_HANDLES)];
     if (!this.storeHandles.length) throw new ShopifyError("NO_MOCK_STORES");
     this.now = options.now ?? (() => new Date("2026-09-19T12:00:00.000Z"));
+    this.catalogProfile = options.catalogProfile ?? "broad";
     this.seedAll();
   }
 
@@ -136,7 +145,9 @@ export class MockShopifyAdapter implements ShopifyAdapter {
   private seedStore(shop: string): void {
     const role = roleForStore(shop);
     const products = new Map<string, MockProduct>();
-    for (const p of catalogFor(role) as any[]) {
+    const catalog =
+      this.catalogProfile === "release" ? releaseCatalogFor : catalogFor;
+    for (const p of catalog(role) as any[]) {
       const variants: MockVariant[] = p.variants.map((v: any) => ({
         variantId: this.nextId("ProductVariant"),
         sku: v.sku,
@@ -183,7 +194,7 @@ export class MockShopifyAdapter implements ShopifyAdapter {
       .map((p) => ({
         shop,
         role,
-        itemId: p.variants[0]!.variantId,
+        itemId: inventoryItemId(p.variants[0]!),
         title: p.title,
         quantity: p.variants[0]!.quantity,
       }));
@@ -373,7 +384,10 @@ export class MockShopifyAdapter implements ShopifyAdapter {
     const store = this.requireStore(shop);
     for (const product of store.values()) {
       const variant = product.variants.find(
-        (v) => v.variantId === itemId || v.sku === itemId,
+        (v) =>
+          inventoryItemId(v) === itemId ||
+          v.variantId === itemId ||
+          v.sku === itemId,
       );
       if (variant) {
         variant.quantity = quantity;

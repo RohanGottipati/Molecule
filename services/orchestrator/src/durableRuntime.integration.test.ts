@@ -99,6 +99,7 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
   }, 30000);
 
   afterAll(async () => {
+    vi.restoreAllMocks();
     await app?.close();
     solver?.kill();
     process.env.DATABASE_URL = database;

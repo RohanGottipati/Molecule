@@ -5,15 +5,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closePool,
   getPool,
+  insertClaim,
   listMerchantClaims,
   migrate,
   reserveCapacity,
   seedDemo,
+  transaction,
 } from "@molecule/db";
 import { kitIntent } from "@molecule/test-fixtures";
 
 import { stableJson } from "./ingestion.js";
-import { ingestClaim } from "./repository.js";
+import { ingestClaim, resolveMerchant } from "./repository.js";
 import { createRealityApp } from "./server.js";
 import { createRealityService } from "./service.js";
 
@@ -140,6 +142,11 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
             status === "resolved" ? "active" : "unknown",
           ],
         );
+        // Direct SQL bypasses ingestion, which normally persists resolutions.
+        // Candidate reads intentionally do not mutate the database.
+        await transaction((client) =>
+          resolveMerchant("base-goods", "inventory-fixture", client, now),
+        );
         const candidates = await service.searchCandidates(kitIntent(now));
         expect(
           candidates.some((entry) => entry.capabilityId === "cap-base-hoodie"),
@@ -192,6 +199,64 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     );
     expect(candidate?.capability.capacity.available).toBe(400);
   });
+
+  it.each([
+    "capacity",
+    "cap-thread-embroidery.capacity",
+    "capacity_per_day",
+    "cap-thread-embroidery.capacity_per_day",
+  ])(
+    "preserves normalized daily units in the actual read model for %s",
+    async (field) => {
+      // Replace this synthetic fixture's original capacity source with explicit
+      // daily evidence; the next beforeEach restores the deterministic seed.
+      await getPool().query(
+        "delete from canonical_resolutions where winning_claim_id='demo:cap-thread-embroidery:capacity'",
+      );
+      await getPool().query(
+        "delete from canonical_claims where claim_id='demo:cap-thread-embroidery:capacity'",
+      );
+      await getPool().query(
+        `update capabilities set capability_json=jsonb_set(capability_json,'{capacity}',
+       '{"available":700,"maximum":1400,"period":"week"}') where capability_id='cap-thread-embroidery'`,
+      );
+      const claimId = randomUUID();
+      await insertClaim({
+        claimId,
+        merchantId: "thread-forge",
+        field,
+        normalizedValue: 80,
+        normalizedUnit: "units/day",
+        source: {
+          kind: "api",
+          reference: `demo:chaos:unit-regression:${claimId}`,
+        },
+        observedAt: now.toISOString(),
+        ingestedAt: now.toISOString(),
+        sourceAuthority: 1,
+        extractionConfidence: 1,
+        resolutionStatus: "active",
+      });
+      const capability = (await service.listMerchants()).find(
+        (merchant) => merchant.merchantId === "thread-forge",
+      )?.capabilities[0];
+      expect(capability?.capability.capacity).toMatchObject({
+        available: 80,
+        maximum: 200,
+        period: "day",
+      });
+      expect(capability?.blockedReasons).toEqual([]);
+      expect(capability?.capability.sourceClaimIds).toContain(claimId);
+      const stored = await getPool().query(
+        "select capability_json->'capacity' as capacity from capabilities where capability_id='cap-thread-embroidery'",
+      );
+      expect(stored.rows[0].capacity).toEqual({
+        available: 700,
+        maximum: 1400,
+        period: "week",
+      });
+    },
+  );
 
   it("removes superseded evidence from candidate source claims", async () => {
     const result = await ingestClaim(
@@ -384,7 +449,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
     }
   });
 
-  it("returns every kit component, two embroidery options, evidence and risk without certifying a plan", async () => {
+  it("returns every kit component and daily-capacity options for solver certification", async () => {
     const candidates = await service.searchCandidates(kitIntent(now));
     expect(candidates.map((entry) => entry.capabilityId).sort()).toEqual([
       "cap-base-bottle",
@@ -394,6 +459,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       "cap-pack-assembly",
       "cap-pack-fulfillment",
       "cap-snacks",
+      "cap-stitch-embroidery",
       "cap-thread-embroidery",
     ]);
     expect(await service.searchCandidates(kitIntent(now))).toEqual(candidates);
@@ -405,7 +471,9 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       ),
     ).toBe(true);
     const cost = candidates
-      .filter((entry) => entry.merchantId !== "needle-north")
+      .filter(
+        (entry) => !["needle-north", "stitch-works"].includes(entry.merchantId),
+      )
       .reduce(
         (total, entry) =>
           total +
@@ -414,12 +482,17 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
         0,
       );
     expect(cost).toBe(6395);
-    const merchants = (await service.listMerchants()).filter(
-      (merchant) => merchant.capabilities.length > 0,
+    const demoIds = new Set(
+      (
+        await getPool().query<{ merchant_id: string }>(
+          "select merchant_id from merchants where demo_tag='MOLECULE_DEMO'",
+        )
+      ).rows.map(({ merchant_id }) => merchant_id),
     );
-    expect(
-      merchants.filter((merchant) => merchant.capabilities.length > 0),
-    ).toHaveLength(7);
+    const merchants = (await service.listMerchants()).filter(({ merchantId }) =>
+      demoIds.has(merchantId),
+    );
+    expect(merchants).toHaveLength(7);
     expect(
       merchants.every(
         (merchant) => merchant.documents.length && merchant.policies.length,
@@ -469,7 +542,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       value: "polyester",
     });
     const candidates = await service.searchCandidates(intent, ["thread-forge"]);
-    expect(candidates).toHaveLength(7);
+    expect(candidates).toHaveLength(8);
     expect(
       candidates.some((entry) => entry.merchantId === "needle-north"),
     ).toBe(true);
@@ -489,7 +562,7 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
       merchantId: "thread-forge",
       capabilityId: "cap-thread-embroidery",
       orderId: "held",
-      quantity: 201,
+      quantity: 400,
       actionKey: randomUUID(),
     });
     expect(
@@ -614,14 +687,14 @@ describe.skipIf(!database)("Rox database and mock marketplace", () => {
   });
 
   it("serves validated HTTP requests without listening at import time", async () => {
-    const app = createRealityApp();
+    const app = createRealityApp({ now: () => now });
     const response = await app.inject({
       method: "POST",
       url: "/api/candidates/search",
       payload: { intent: kitIntent(now) },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().candidates).toHaveLength(8);
+    expect(response.json().candidates).toHaveLength(9);
     expect(
       (
         await app.inject({

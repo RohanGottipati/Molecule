@@ -106,6 +106,28 @@ function fallback<T>(
   return { outcome: "FALLBACK", reason, text: fallbackText(reason), toolCalls };
 }
 
+function parseJsonPayload(text: string): unknown {
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    /* Live completions sometimes wrap the object in prose or a fence. */
+  }
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1]);
+    } catch {
+      /* continue */
+    }
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start)
+    return JSON.parse(trimmed.slice(start, end + 1));
+  throw new SyntaxError("Merchant assistant output was not JSON");
+}
+
 function finalize<T>(
   text: string,
   toolCalls: ToolCallRecord[],
@@ -116,7 +138,7 @@ function finalize<T>(
   }
   let candidate: unknown;
   try {
-    candidate = JSON.parse(text);
+    candidate = parseJsonPayload(text);
   } catch {
     return fallback("MALFORMED_OUTPUT", toolCalls);
   }

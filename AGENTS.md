@@ -34,3 +34,25 @@
 - Runtime Zod/Pydantic validation at service boundaries.
 - Deterministic test fixtures and seeded randomness.
 - Minimal abstractions optimized for debuggability during the initial build.
+
+## Design Context
+
+### Users
+
+Merchant operators and production teams use Molecule during focused daily work to describe outcomes, inspect evidence-backed plans, approve actions, and recover from operational change. Text remains a complete fallback; voice is an optional high-trust input mode.
+
+### Brand Personality
+
+Calm, precise, and quietly premium. The interface should feel responsive and alive without becoming theatrical, distracting, or vague about what is happening.
+
+### Aesthetic Direction
+
+Mac-oriented, restrained, and operational. Preserve the existing Molecule design system and dark Dock identity. Use one coherent voice signal rather than a generic AI orb, neon spectacle, or full-screen visualizer. Support intended narrow and desktop layouts, keyboard use, reduced motion, and WCAG AA behavior.
+
+### Design Principles
+
+- Make system state and microphone privacy unmistakable.
+- Prefer real operational feedback over decorative motion.
+- Distinguish listening, transcription, processing, speaking, and failure.
+- Keep the primary request, Molecule’s work, and the confirmed result central.
+- Preserve typed text and a fully usable text path through every voice failure.

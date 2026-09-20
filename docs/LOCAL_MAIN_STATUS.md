@@ -1,5 +1,12 @@
 # Local checkout versus main
 
+> Historical snapshot from the database documentation workstream's checkout.
+> The integration checkout subsequently combined current remote main, the voice
+> reliability work, and these documentation updates. The local-only commit and
+> temporary backup below belong to that other checkout; they are not evidence
+> that the integrated main branch remains behind. See `docs/DESKTOP.md` for the
+> integrated validation record.
+
 Verified 2026-09-19 America/Toronto after fetching `origin/main`.
 
 - Local `main`: `1317c972ab2eb6aa3def230282eea08141ad7260` (`more inventory stuff`).

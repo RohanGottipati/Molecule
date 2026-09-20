@@ -325,13 +325,13 @@ export function App() {
             <div className="error" role="alert">
               <span>{audio.error}</span>
               <div className="feedback-actions">
-                {audio.error.includes("Microphone access") && (
+                {audio.errorCode === "permission" && (
                   <button
                     onClick={() =>
                       run(store.bridge.openPermissionSettings("microphone"))
                     }
                   >
-                    Microphone permissions
+                    Open microphone settings
                   </button>
                 )}
                 {audio.state !== "reconnecting" && (

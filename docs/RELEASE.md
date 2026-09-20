@@ -75,9 +75,21 @@ Use dedicated development stores and synthetic customer data first. Credentials 
 
 - OpenAI: set `USE_MOCK_OPENAI=false` and `OPENAI_API_KEY`. Model names remain configurable. Real context files use the provider file API; local mock uploads are persisted but their contents are not interpreted by a language model.
 - Backboard: set `STORAGE_MODE=postgres`, `BACKBOARD_MODE=live`, and `BACKBOARD_API_KEY`. Identity, threads, documents and memory indexes remain durable. Operational answers are grounded in canonical tools, never in remembered capacity.
-- Shopify: set `STORAGE_MODE=postgres`, `SHOPIFY_MODE=live`, `REAL_EXECUTION_ENABLED=true`, `SHOPIFY_STOREFRONT_DOMAIN`, `SHOPIFY_ACCESS_TOKEN`, and `SHOPIFY_SUPPLIER_STORES`. The supplier setting is a JSON object keyed by merchant ID whose values contain `domain` and `auth: { accessToken }`. The adapter currently targets API version `2026-07`; configuration rejects a different version.
+- Shopify: set `STORAGE_MODE=postgres`, `SHOPIFY_MODE=live`, `REAL_EXECUTION_ENABLED=true`, `SHOPIFY_STORES`, and `SHOPIFY_STOREFRONT_DOMAIN` (the existing `MOLECULE_STOREFRONT_DOMAIN` alias also works). For stores in the app's organization, existing `SHOPIFY_CLIENT_ID` + `SHOPIFY_API_SECRET` credentials provide renewable tokens; copying a dashboard access token is unnecessary. Known merchant handles in `SHOPIFY_STORES` provide the default supplier mapping; unknown merchants remain unmapped. Optional `SHOPIFY_SUPPLIER_STORES` is JSON keyed by merchant ID, with `domain` and optional `auth: { accessToken }` or `auth: { clientId, clientSecret }`. Omitted supplier auth uses shared app credentials. A static `SHOPIFY_ACCESS_TOKEN` for the storefront remains supported. Ambiguous domains/mappings and conflicting storefront aliases fail before startup effects. The adapter targets API version `2026-07` and rejects a different version.
+
+Durable synthetic startup uses the existing release-demo Shopify fixture, matching
+the seeded operational scenario (Thread Forge 400/day). The default standalone
+mock and broad catalog retain their separate 180/day fixture. This does not
+change any real store's inventory. Durable acceptance no longer patches capacity
+inside the test.
+
+`GET /health` checks process liveness. `GET /ready` returns 503 if the solver
+health request or PostgreSQL connectivity check fails; it is not certification
+that live provider credentials, supplier facts or a production plan are valid.
 
 Live paid-provider smoke tests, real voice, production signing/notarization, fresh macOS permission prompts and physical-device interactions require separate acceptance. Automated mocks do not establish those results.
+
+Backboard live identity writes were exercised with `scripts/verify-backboard.ts --execute` against an isolated local journal and a synthetic merchant. Assistant, document, memory, document-free JSON protocol, advisory canonical quote, and replay identity reuse passed. That is not production quoting of a real merchant.
 
 ## Recovery and uncertain actions
 

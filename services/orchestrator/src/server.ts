@@ -61,6 +61,7 @@ function shopifyWebhookStatus(error: ShopifyError): number {
 }
 
 export interface ServerDependencies {
+  readiness?: () => Promise<{ solver: boolean; persistence: boolean }>;
   catalogGallery?: () => Promise<import("@molecule/contracts").CatalogGallery>;
   config: Config;
   sessions: SessionRepository;
@@ -132,7 +133,14 @@ export async function buildServer(deps: ServerDependencies) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
-  app.get("/ready", async () => ({ status: "ready" }));
+  app.get("/ready", async (_request, reply) => {
+    const checks = await deps.readiness?.().catch(() => undefined);
+    const ready = checks?.solver === true && checks.persistence === true;
+    return reply.code(ready ? 200 : 503).send({
+      status: ready ? "ready" : "unavailable",
+      checks: checks ?? { solver: false, persistence: false },
+    });
+  });
   if (deps.shopifyWebhook) {
     app.post(
       SHOPIFY_WEBHOOK_PATH,
@@ -240,8 +248,11 @@ export async function buildServer(deps: ServerDependencies) {
   );
 
   app.post("/api/orders", async (request, reply) => {
+    const actionId = ActionIdSchema.parse(
+      request.headers["x-action-id"] ?? randomUUID(),
+    );
     const result = await chaosActions.run(
-      `order:create:${request.headers["x-action-id"] ?? randomUUID()}`,
+      `order:create:${actionId}`,
       {},
       OrderSessionSnapshotSchema.parse,
       async () => {
@@ -514,14 +525,13 @@ export async function buildServer(deps: ServerDependencies) {
       normalized,
       typeof trace === "string" && trace ? trace.slice(0, 160) : request.id,
     );
-    app.log.error(
-      {
-        name: normalized.name,
-        code: failure.body.code,
-        traceId: failure.body.traceId,
-      },
-      "request failed",
-    );
+    const details = {
+      name: normalized.name,
+      code: failure.body.code,
+      traceId: failure.body.traceId,
+    };
+    if (failure.status >= 500) app.log.error(details, "request failed");
+    else app.log.warn(details, "request rejected");
     void reply.code(failure.status).send(failure.body);
   });
   return app;

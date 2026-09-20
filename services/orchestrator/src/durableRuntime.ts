@@ -1,7 +1,6 @@
 import { syncCatalogInventory } from "./catalogInventorySync.js";
 import { Serial } from "./serial.js";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { getPool, getOperationsMetrics, getRecentEvents } from "@molecule/db";
 import {
   createMerchantRuntime,
@@ -19,7 +18,6 @@ import {
   ShopifyError,
   ShopifyTransport,
   merchantIdForShopifyStore,
-  shopDomain,
   type ShopifyActionRepository,
 } from "@molecule/shopify";
 import { MockShopifyAdapter } from "@molecule/shopify/catalog";
@@ -28,6 +26,10 @@ import {
   type ProviderStatus,
 } from "@molecule/contracts";
 import type { Config } from "./config.js";
+import {
+  configuredShopifyDomains,
+  liveShopifyConfiguration,
+} from "./shopifyConfig.js";
 import { PostgresStore } from "./PostgresStore.js";
 import { DurableExecutionClient } from "./clients/DurableExecutionClient.js";
 import {
@@ -46,18 +48,11 @@ function configuredShopifyStores(value: string | undefined): string[] {
   ];
 }
 
-function configuredShopifyDomains(stores: readonly string[]): string[] {
-  return stores.map((store) => {
-    const normalized = store.trim().toLowerCase();
-    return shopDomain(
-      normalized.endsWith(".myshopify.com")
-        ? normalized
-        : `${normalized}.myshopify.com`,
-    );
-  });
-}
-
 export async function createDurableRuntime(config: Config) {
+  const liveShopify =
+    config.SHOPIFY_MODE === "live"
+      ? liveShopifyConfiguration(config)
+      : undefined;
   const store = new PostgresStore();
   let resourceRecovery:
     ((orderId: string, resourceId: string) => Promise<unknown>) | undefined;
@@ -195,51 +190,28 @@ export async function createDurableRuntime(config: Config) {
       return status;
     },
   };
-  const authSchema = z.union([
-    z.object({ accessToken: z.string().min(1) }),
-    z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }),
-  ]);
+  const supplierStores = liveShopify?.supplierStores;
   const registered = await getPool().query<{
     merchant_id: string;
     shopify_domain: string;
   }>("select merchant_id,shopify_domain from merchant_stores");
   const registeredByDomain = new Map(
-    registered.rows.map((row) => [row.shopify_domain, row.merchant_id]),
+    registered.rows.map((row) => [
+      configuredShopifyDomains(row.shopify_domain)[0]!,
+      row.merchant_id,
+    ]),
   );
   const registeredMerchant = (shop: string) =>
-    registeredByDomain.get(configuredShopifyDomains([shop])[0]!);
-  const defaultAuth = config.SHOPIFY_ACCESS_TOKEN
-    ? { accessToken: config.SHOPIFY_ACCESS_TOKEN }
-    : {
-        clientId: config.SHOPIFY_CLIENT_ID ?? "",
-        clientSecret: config.SHOPIFY_API_SECRET ?? "",
-      };
-  const supplierSchema = z.record(
-    z.string(),
-    z.object({
-      domain: z.string().min(1),
-      auth: authSchema,
-    }),
-  );
-  const supplierStores =
-    config.SHOPIFY_MODE === "live"
-      ? supplierSchema.parse(
-          config.SHOPIFY_SUPPLIER_STORES
-            ? JSON.parse(config.SHOPIFY_SUPPLIER_STORES)
-            : Object.fromEntries(
-                registered.rows.map((row) => [
-                  row.merchant_id,
-                  { domain: row.shopify_domain, auth: defaultAuth },
-                ]),
-              ),
-        )
-      : undefined;
+    registeredByDomain.get(configuredShopifyDomains(shop)[0]!) ??
+    merchantIdForShopifyStore(shop);
   const mockCatalog =
-    config.SHOPIFY_MODE === "demo" ? new MockShopifyAdapter() : undefined;
+    config.SHOPIFY_MODE === "demo"
+      ? new MockShopifyAdapter({ catalogProfile: "release" })
+      : undefined;
   const shops = configuredShopifyStores(config.SHOPIFY_STORES);
-  const snapshotStores = shops.length
-    ? shops
-    : (mockCatalog?.listStores() ?? []);
+  const snapshotStores =
+    liveShopify?.snapshotStores ??
+    (shops.length ? shops : mockCatalog!.listStores());
   const snapshotSource =
     config.SHOPIFY_MODE === "live"
       ? {
@@ -250,10 +222,7 @@ export async function createDurableRuntime(config: Config) {
               : undefined;
             if (!supplier)
               throw new ShopifyError("SUPPLIER_STORE_NOT_CONFIGURED");
-            return new ShopifyTransport({
-              domain: supplier.domain,
-              auth: supplier.auth,
-            }).getSnapshot(shop);
+            return new ShopifyTransport(supplier).getSnapshot(shop);
           },
         }
       : mockCatalog!;
@@ -270,14 +239,21 @@ export async function createDurableRuntime(config: Config) {
         }),
     },
   );
-  if (config.SHOPIFY_MODE === "live")
+  if (config.SHOPIFY_MODE === "live") {
+    const inventoryTransports = new Map<string, ShopifyTransport>();
     await syncCatalogInventory((domain) => {
-      const merchantId = registeredByDomain.get(domain);
+      const normalizedDomain = configuredShopifyDomains(domain)[0]!;
+      const merchantId = registeredByDomain.get(normalizedDomain);
       const supplier = merchantId ? supplierStores?.[merchantId] : undefined;
-      return supplier
-        ? new ShopifyTransport({ domain, auth: supplier.auth })
-        : undefined;
+      if (supplier?.domain !== normalizedDomain) return undefined;
+      let transport = inventoryTransports.get(normalizedDomain);
+      if (!transport) {
+        transport = new ShopifyTransport(supplier);
+        inventoryTransports.set(normalizedDomain, transport);
+      }
+      return transport;
     }, batch.traceId);
+  }
   const syncedAt = new Date().toISOString();
   await store.append({
     eventId: randomUUID(),
@@ -298,10 +274,7 @@ export async function createDurableRuntime(config: Config) {
       ? new RealShopifyClient({
           repository: journal,
           executionEnabled: config.REAL_EXECUTION_ENABLED,
-          centralStore: {
-            domain: config.SHOPIFY_STOREFRONT_DOMAIN!,
-            auth: defaultAuth,
-          },
+          centralStore: liveShopify!.centralStore,
           supplierStores: supplierStores!,
         })
       : new MockShopifyClient({ repository: journal });
@@ -329,7 +302,7 @@ export async function createDurableRuntime(config: Config) {
       ? {
           options: {
             secret: config.SHOPIFY_API_SECRET,
-            allowedDomains: configuredShopifyDomains(snapshotStores),
+            allowedDomains: configuredShopifyDomains(snapshotStores.join(",")),
             repository: journal,
           },
           ingestInventoryUpdate: async (update: ShopifyInventoryUpdate) => {

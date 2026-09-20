@@ -34,8 +34,7 @@ const PRODUCTS = `query($c:String){
 async function fetchStore(handle) {
   const products = [];
   let cursor = null,
-    shop = null,
-    truncatedVariants = 0;
+    shop = null;
   const productCursors = new Set();
   for (;;) {
     const d = await gql(handle, PRODUCTS, { c: cursor });
@@ -65,7 +64,7 @@ async function fetchStore(handle) {
       throw new Error("CATALOG_PAGINATION_REQUIRED");
     productCursors.add(cursor);
   }
-  return { handle, shop, products, truncatedVariants };
+  return { handle, shop, products };
 }
 
 async function upsertCatalog(db, s, merchantId, domain) {
@@ -283,7 +282,7 @@ async function main() {
   const fetched = await Promise.all(handles.map((h) => fetchStore(h)));
   for (const s of fetched)
     console.log(
-      `  fetched ${s.handle.padEnd(24)} ${String(s.products.length).padStart(4)} products ${String(s.products.reduce((n, p) => n + p.variants.edges.length, 0)).padStart(5)} variants ${s.shop.currencyCode}${s.truncatedVariants ? `  WARNING ${s.truncatedVariants} products have >30 variants (truncated)` : ""}`,
+      `  fetched ${s.handle.padEnd(24)} ${String(s.products.length).padStart(4)} products ${String(s.products.reduce((n, p) => n + p.variants.edges.length, 0)).padStart(5)} variants ${s.shop.currencyCode}`,
     );
   if (dry && only !== "claims") {
     console.log("dry run: catalog not written");

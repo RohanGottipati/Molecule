@@ -52,18 +52,33 @@ const DEFAULT_LLM_PROVIDER = "openai";
 const timestamp = z
   .string()
   .refine((value) => Number.isFinite(Date.parse(value)));
+const memoryIdentity = {
+  id: z.string().min(1).optional(),
+  memory_id: z.string().min(1).optional(),
+  content: z.string().optional(),
+  metadata: z.object({ source: z.string().optional() }).nullish(),
+};
 const memoryWire = z
   .object({
-    id: z.string().min(1).optional(),
-    memory_id: z.string().min(1).optional(),
-    content: z.string().optional(),
-    metadata: z.object({ source: z.string().optional() }).nullish(),
+    ...memoryIdentity,
     created_at: timestamp,
+  })
+  .refine((value) => value.id || value.memory_id);
+// Add-memory is documented as an open 201 object. Live responses include
+// memory_id and omit created_at; observation time is recorded locally rather
+// than inventing a provider historical timestamp.
+const memoryCreateWire = z
+  .object({
+    ...memoryIdentity,
+    created_at: timestamp.optional(),
+    success: z.boolean().optional(),
+    message: z.string().optional(),
   })
   .refine((value) => value.id || value.memory_id);
 const messageWire = z.object({
   thread_id: z.string().min(1),
   content: z.string().nullish(),
+  message: z.string().nullish(),
   status: z.enum(["COMPLETED", "REQUIRES_ACTION"]),
   tool_calls: z
     .array(
@@ -79,7 +94,10 @@ function parseWire<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success)
     throw new BackboardApiError(
-      "Invalid Backboard response",
+      `Invalid Backboard response (${parsed.error.issues
+        .map((issue) => issue.path.join(".") || "root")
+        .slice(0, 8)
+        .join(",")})`,
       502,
       "INVALID_RESPONSE",
     );
@@ -112,6 +130,7 @@ class RealConversationClient implements ConversationClient {
     private readonly tools: ToolDefinition[],
     private readonly model: string,
     private readonly provider: string,
+    private readonly jsonOutput: boolean,
   ) {}
 
   private toConverseTurn(value: unknown): ConverseTurn {
@@ -143,13 +162,14 @@ class RealConversationClient implements ConversationClient {
       };
     }
     if (data.status === "COMPLETED") {
-      if (!data.content)
+      const text = data.content ?? data.message;
+      if (!text)
         throw new BackboardApiError(
           "Missing Backboard content",
           502,
           "INVALID_RESPONSE",
         );
-      return { status: "completed", text: data.content };
+      return { status: "completed", text };
     }
     throw new BackboardApiError(
       `Backboard message ended with status ${data.status}`,
@@ -158,6 +178,10 @@ class RealConversationClient implements ConversationClient {
   }
 
   async start(input: { message: string }): Promise<ConverseTurn> {
+    // json_output is ignored when tools, RAG/documents, or web search are
+    // active. Omit empty tools and turn memory off so a schema-backed call
+    // can actually request JSON. Canonical notes still travel in `content`.
+    const jsonOutput = this.jsonOutput && this.tools.length === 0;
     const data = await this.request<unknown>("/threads/messages", {
       method: "POST",
       body: JSON.stringify({
@@ -166,9 +190,10 @@ class RealConversationClient implements ConversationClient {
         assistant_id: this.assistantId,
         llm_provider: this.provider,
         model_name: this.model,
-        tools: this.tools.map(toToolSpec),
-        memory: "Auto",
+        ...(this.tools.length ? { tools: this.tools.map(toToolSpec) } : {}),
+        memory: jsonOutput ? "off" : "Auto",
         stream: false,
+        json_output: jsonOutput,
       }),
     });
     return this.toConverseTurn(data);
@@ -359,6 +384,60 @@ export class RealBackboardAdapter implements BackboardAdapter {
     };
   }
 
+  async waitUntilDocumentIndexed(
+    documentId: string,
+    options?: { timeoutMs?: number; intervalMs?: number },
+  ): Promise<void> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+    const intervalMs = options?.intervalMs ?? 2_000;
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const signal = AbortSignal.any([
+      deadline,
+      ...(this.config.signal ? [this.config.signal] : []),
+    ]);
+    const statusWire = z.object({ status: z.string().min(1) });
+    try {
+      while (!signal.aborted) {
+        const status = parseWire(
+          statusWire,
+          await this.request<unknown>(
+            `/documents/${encodeURIComponent(documentId)}/status`,
+          ),
+        );
+        if (status.status === "indexed" || status.status === "completed")
+          return;
+        if (status.status === "error")
+          throw new BackboardApiError(
+            "Backboard document indexing failed",
+            502,
+            "INVALID_RESPONSE",
+          );
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, intervalMs);
+          const abort = () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          };
+          if (signal.aborted) abort();
+          else signal.addEventListener("abort", abort, { once: true });
+        });
+      }
+    } catch (error) {
+      if (signal.aborted)
+        throw new BackboardApiError(
+          "Backboard document indexing timed out",
+          504,
+          "TIMEOUT",
+        );
+      throw error;
+    }
+    throw new BackboardApiError(
+      "Backboard document indexing timed out",
+      504,
+      "TIMEOUT",
+    );
+  }
+
   async retrieveMerchantDocuments(
     _input: RetrieveMerchantDocumentsInput,
   ): Promise<RetrievedDocumentChunk[]> {
@@ -413,6 +492,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
       input.model ?? this.defaultModel,
       this.modelProviders.get(input.model ?? this.defaultModel) ??
         this.defaultProvider,
+      input.responseSchema !== undefined,
     );
     try {
       return await runBoundedToolLoop<T>({
@@ -439,7 +519,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
     input: RecordMerchantMemoryInput,
   ): Promise<MerchantMemoryEntry> {
     const data = parseWire(
-      memoryWire,
+      memoryCreateWire,
       await this.request<unknown>(
         `/assistants/${encodeURIComponent(input.assistantId)}/memories`,
         {
@@ -459,7 +539,7 @@ export class RealBackboardAdapter implements BackboardAdapter {
       memoryId: data.memory_id ?? data.id ?? "",
       note: input.note,
       sourceThreadId: input.sourceThreadId,
-      recordedAt: data.created_at,
+      recordedAt: data.created_at ?? new Date().toISOString(),
     };
   }
 

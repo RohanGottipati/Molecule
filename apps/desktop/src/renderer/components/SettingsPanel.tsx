@@ -23,9 +23,18 @@ export function SettingsPanel({
   useEffect(() => {
     mounted.current = true;
     title.current?.focus();
+    const media = navigator.mediaDevices;
+    if (!media?.enumerateDevices) {
+      setDeviceError(
+        "Microphone devices are unavailable. You can still save other preferences.",
+      );
+      return () => {
+        mounted.current = false;
+      };
+    }
     let active = true;
     const refresh = () => {
-      void navigator.mediaDevices
+      void media
         .enumerateDevices()
         .then((all) => {
           if (!active) return;
@@ -40,11 +49,11 @@ export function SettingsPanel({
         });
     };
     refresh();
-    navigator.mediaDevices.addEventListener("devicechange", refresh);
+    media.addEventListener("devicechange", refresh);
     return () => {
       mounted.current = false;
       active = false;
-      navigator.mediaDevices.removeEventListener("devicechange", refresh);
+      media.removeEventListener("devicechange", refresh);
     };
   }, []);
   return (

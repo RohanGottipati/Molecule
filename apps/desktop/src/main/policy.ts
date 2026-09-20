@@ -155,24 +155,6 @@ export function overlaySize(
   };
 }
 
-export function isPlainEscape(input: {
-  type: string;
-  key: string;
-  alt?: boolean;
-  control?: boolean;
-  meta?: boolean;
-  shift?: boolean;
-}) {
-  return (
-    input.type === "keyDown" &&
-    input.key === "Escape" &&
-    !input.alt &&
-    !input.control &&
-    !input.meta &&
-    !input.shift
-  );
-}
-
 export function clampPosition(
   position: { x: number; y: number },
   size: { width: number; height: number },

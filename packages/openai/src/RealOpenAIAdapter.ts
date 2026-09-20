@@ -37,6 +37,14 @@ export interface RealOpenAIAdapterOptions {
   client?: OpenAI;
 }
 
+function safeProviderMessage(error: unknown) {
+  if (!(error instanceof Error)) return undefined;
+  return error.message
+    .replace(/\b(?:sk-[A-Za-z0-9_-]+|ek_[A-Za-z0-9_-]+)\b/g, "[redacted]")
+    .replaceAll(/\s+/g, " ")
+    .slice(0, 300);
+}
+
 export class RealOpenAIAdapter implements OpenAIAdapter {
   private readonly client: OpenAI;
   private readonly compilerModel: string;
@@ -50,8 +58,8 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
         timeout: options.timeoutMs ?? 25_000,
         maxRetries: 1,
       });
-    this.compilerModel = options.compilerModel ?? "gpt-5.6-terra";
-    this.realtimeModel = options.realtimeModel ?? "gpt-realtime-2.1";
+    this.compilerModel = options.compilerModel?.trim() || "gpt-5.6-terra";
+    this.realtimeModel = options.realtimeModel?.trim() || "gpt-realtime-2.1";
   }
 
   async compileIntent(
@@ -242,6 +250,35 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
           true,
         );
       }
+      if (error instanceof OpenAI.APIError) {
+        const status = error.status;
+        const auth = status === 401 || status === 403;
+        const retryable =
+          status === undefined ||
+          status === 408 ||
+          status === 409 ||
+          status >= 500;
+        throw new MoleculeOpenAIError(
+          auth ? "AUTH" : retryable ? "TRANSPORT" : "VALIDATION",
+          auth
+            ? "OpenAI authorization failed"
+            : status === undefined
+              ? "OpenAI connection failed"
+              : `OpenAI request failed (${status})`,
+          retryable,
+          {
+            status,
+            code: error.code,
+            type:
+              error.error &&
+              typeof error.error === "object" &&
+              "type" in error.error
+                ? error.error.type
+                : undefined,
+            message: safeProviderMessage(error),
+          },
+        );
+      }
       if (error instanceof ZodError) {
         throw new MoleculeOpenAIError(
           "VALIDATION",
@@ -254,7 +291,10 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
         "TRANSPORT",
         "OpenAI request failed",
         true,
-        { cause: error instanceof Error ? error.name : "unknown" },
+        {
+          cause: error instanceof Error ? error.name : "unknown",
+          message: safeProviderMessage(error),
+        },
       );
     }
   }
@@ -285,13 +325,14 @@ export class RealOpenAIAdapter implements OpenAIAdapter {
               input: {
                 transcription: {
                   model:
-                    this.options.transcriptionModel ?? "gpt-4o-mini-transcribe",
+                    this.options.transcriptionModel?.trim() ||
+                    "gpt-4o-mini-transcribe",
                 },
                 turn_detection: {
                   type: "semantic_vad",
-                  eagerness: "medium",
+                  eagerness: "low",
                   interrupt_response: true,
-                  create_response: true,
+                  create_response: profile !== "desktop",
                 },
               },
               output: { voice: "marin" },

@@ -4,7 +4,8 @@
 > source for current counts, evaluation caveats and priorities. Historical test
 > results and incidents below apply only to their recorded revision/environment.
 
-Owner: Emaad (Shopify). Written Sat Sep 19 2026. Status tracked in section 9.
+Owner: Emaad (Shopify). Written Sat Sep 19 2026. Current status is tracked in
+`../DATABASE_ROX.md`; section 9 is historical.
 
 Goal: pull all types of supplier data out of the 8 Shopify dev stores, land it in the Tiger Cloud database (the same tables Reality, the solver and the merchant agents already read), and write the results back into Shopify Admin so a judge can see them there. Closing the loop is the demo: edit a supplier's capacity in Admin, the sync turns it into a claim, Reality resolves it, and the plan heals.
 

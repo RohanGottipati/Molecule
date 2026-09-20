@@ -13,7 +13,9 @@ const PriceSchema = z
 
 export const ShopifyVariantSnapshotSchema = z.object({
   variantId: z.string().min(1),
-  sku: z.string().min(1),
+  // Shopify allows unset SKUs; an empty value preserves that unknown fact.
+  // variantId remains the identity even when multiple variants have no SKU.
+  sku: z.string(),
   optionValues: z.record(z.string(), z.string()),
   price: z.string().min(1),
   tracked: z.boolean(),

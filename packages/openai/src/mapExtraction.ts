@@ -210,6 +210,20 @@ export function mapExtractionToResult(
       question: "Please clarify the components and their production steps.",
     })),
   );
+  for (const constraint of draft.hardConstraints) {
+    if (
+      constraint.field.split(".").at(-1) === "material" &&
+      constraint.operator === "neq" &&
+      typeof constraint.value === "string"
+    ) {
+      draft.ambiguityFlags.push({
+        field: constraint.field,
+        reason:
+          "Material neq excludes only an exact material name and can admit blends. Use not_contains for material exclusions or clarify the exact composition requirement.",
+        question: `Should ${constraint.value.slice(0, 120)} also be excluded from material blends?`,
+      });
+    }
+  }
 
   const questions = [
     ...new Set(

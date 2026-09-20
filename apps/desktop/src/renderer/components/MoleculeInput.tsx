@@ -1,36 +1,14 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { VoiceBeam } from "voice-glow";
 import type {
   RealtimeClient,
   VoiceSnapshot,
 } from "../services/realtime-client.js";
 import type { StagedContext } from "../state/desktop-store.js";
+import { VoiceOrb } from "./VoiceOrb.js";
+import { VoiceDock, voiceStatusLabel } from "./VoiceDock.js";
 import { DockIcon } from "./DockIcon.js";
 
-export function voiceLabel(audio: VoiceSnapshot): string {
-  if (audio.muted && !["idle", "error"].includes(audio.state))
-    return "Microphone muted";
-  switch (audio.state) {
-    case "idle":
-      return "Type or talk to Molecule";
-    case "connecting":
-      return "Opening microphone…";
-    case "reconnecting":
-      return "Reconnecting voice…";
-    case "listening":
-      return "Listening";
-    case "user-speaking":
-      return "Listening to you";
-    case "thinking":
-      return "Working on your request";
-    case "speaking":
-      return "Molecule is speaking";
-    case "interrupted":
-      return "Interrupted · listening";
-    case "error":
-      return "Voice unavailable · text is ready";
-  }
-}
+export const voiceLabel = voiceStatusLabel;
 
 export interface MoleculeInputProps {
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -55,7 +33,12 @@ export interface MoleculeInputProps {
 export function MoleculeInput(props: MoleculeInputProps) {
   const { audio, compact } = props;
   const active = !["idle", "error"].includes(audio.state);
-  const interruptible = ["speaking", "thinking"].includes(audio.state);
+  const interruptible = [
+    "speech_detected",
+    "transcribing",
+    "processing",
+    "speaking",
+  ].includes(audio.state);
   return (
     <form
       className="composer"
@@ -111,12 +94,18 @@ export function MoleculeInput(props: MoleculeInputProps) {
         <button
           className={`icon-button mic-button ${active ? "active" : ""}`}
           type="button"
-          aria-label={active ? "Stop voice" : "Start voice"}
+          aria-label={
+            active
+              ? "Stop voice input"
+              : audio.state === "error"
+                ? "Retry voice input"
+                : "Start voice input"
+          }
           title={active ? "End voice conversation" : "Start voice conversation"}
           aria-pressed={active}
           onClick={props.onVoice}
         >
-          <DockIcon name={active ? "stop" : "mic"} />
+          <VoiceOrb state={audio} />
         </button>
         <button
           className="icon-button primary send-button"
@@ -160,12 +149,17 @@ export function MoleculeInput(props: MoleculeInputProps) {
             <DockIcon name="screen" />
           </button>
         )}
-        <span className="input-status" role="status" aria-live="polite">
+        <span
+          id="voice-status"
+          className="input-status"
+          role="status"
+          aria-live="polite"
+        >
           {props.pending && (
             <span className="status-pulse" aria-hidden="true" />
           )}
           {active &&
-          !(props.pending && ["listening", "thinking"].includes(audio.state))
+          !(props.pending && ["listening", "processing"].includes(audio.state))
             ? voiceLabel(audio)
             : (props.status ?? voiceLabel(audio))}
         </span>
@@ -205,20 +199,18 @@ function LiveInput({
   ...props
 }: MoleculeInputProps & { voice: RealtimeClient }) {
   const surface = useRef<HTMLDivElement>(null);
-  let yourLevel = voice.getLevel();
   // Each committed getter has its own subscription; samples never render React.
   useLayoutEffect(() =>
     voice.subscribeLevel((level) => {
-      yourLevel = level;
       if (surface.current)
         surface.current.dataset.audible = String(level > 0.015);
     }),
   );
   return (
     <div ref={surface} className="voice-input" data-audible="false">
-      <VoiceBeam level={() => yourLevel}>
+      <VoiceDock voice={voice} state={props.audio}>
         <MoleculeInput {...props} />
-      </VoiceBeam>
+      </VoiceDock>
     </div>
   );
 }
@@ -230,9 +222,13 @@ export function VoiceInput({
 }: MoleculeInputProps & { voice: RealtimeClient; visible: boolean }) {
   const metering =
     visible &&
-    !["idle", "error", "connecting", "reconnecting"].includes(
-      props.audio.state,
-    );
+    ![
+      "idle",
+      "error",
+      "requesting_permission",
+      "connecting",
+      "reconnecting",
+    ].includes(props.audio.state);
   useLayoutEffect(() => {
     if (visible && document.hasFocus()) props.inputRef.current?.focus();
   }, [metering, visible, props.inputRef]);
