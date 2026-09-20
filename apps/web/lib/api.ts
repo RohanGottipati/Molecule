@@ -15,6 +15,7 @@ import {
   ProjectCapabilitiesEnvelopeSchema,
   ProjectListQuerySchema,
   ProjectListSchema,
+  RealtimeSessionSchema,
   type ActionStatusQuery,
   type AssetRef,
   type ChaosRequest,
@@ -122,6 +123,25 @@ export async function getOrder(orderId: string, signal?: AbortSignal) {
   return parseSnapshot(
     await request(`/api/orders/${encodeURIComponent(orderId)}`, { signal }),
   );
+}
+
+export async function mintRealtimeSecret(
+  orderId: string,
+  signal?: AbortSignal,
+) {
+  const result = RealtimeSessionSchema.safeParse(
+    await request(
+      `/api/orders/${encodeURIComponent(orderId)}/realtime/client-secret`,
+      { method: "POST", body: "{}", signal },
+    ),
+  );
+  if (!result.success)
+    throw new RequestError(
+      "The service returned an incompatible voice session. Refresh and try again.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  return { value: result.data.value };
 }
 
 function parseRead<T>(
@@ -234,16 +254,27 @@ export async function getCapabilities(orderId: string, signal?: AbortSignal) {
 }
 
 export async function getMarketplace(signal?: AbortSignal) {
-  const result = MarketplaceSnapshotSchema.safeParse(
-    await request("/api/marketplace", { signal }),
-  );
-  if (!result.success)
-    throw new RequestError(
-      "Marketplace data is incompatible. Ask the operator to check the read model.",
-      502,
-      "INVALID_RESPONSE",
+  try {
+    const result = MarketplaceSnapshotSchema.safeParse(
+      await request("/api/marketplace", { signal }),
     );
-  return result.data;
+    if (!result.success)
+      throw new RequestError(
+        "Marketplace data is incompatible. Ask the operator to check the read model.",
+        502,
+        "INVALID_RESPONSE",
+      );
+    return result.data;
+  } catch (error) {
+    if (error instanceof RequestError && error.status === 503) {
+      throw new RequestError(
+        "Marketplace temporarily unavailable. Retry supplier information",
+        503,
+        "MARKETPLACE_UNAVAILABLE",
+      );
+    }
+    throw error;
+  }
 }
 
 export async function getDemoMode(signal?: AbortSignal): Promise<boolean> {

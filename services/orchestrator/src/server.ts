@@ -238,9 +238,21 @@ export async function buildServer(deps: ServerDependencies) {
     },
   );
   app.get("/api/marketplace", async (_request, reply) => {
-    if (!deps.marketplace)
-      return reply.code(503).send({ message: "Marketplace is unavailable" });
-    return MarketplaceSnapshotSchema.parse(await deps.marketplace());
+    try {
+      if (!deps.marketplace)
+        return reply.code(503).send({ message: "Marketplace is unavailable" });
+      return MarketplaceSnapshotSchema.parse(await deps.marketplace());
+    } catch (error) {
+      _request.log.warn(
+        {
+          scope: "marketplace",
+          event: "marketplace.failed",
+          reason: error instanceof Error ? error.message : "unknown",
+        },
+        "Marketplace snapshot failed",
+      );
+      return reply.code(503).send({ message: "Marketplace temporarily unavailable" });
+    }
   });
 
   app.post("/api/intents/compile", async (request) =>
@@ -375,16 +387,41 @@ export async function buildServer(deps: ServerDependencies) {
   app.post<{ Params: { id: string } }>(
     "/api/orders/:id/realtime/client-secret",
     async (request, reply) => {
-      const session = await deps.sessions.get(request.params.id);
-      if (!session) return reply.code(404).send({ error: "not_found" });
-      if (!deps.openai.mintRealtimeClientSecret) {
-        return reply.code(503).send({ error: "realtime_unavailable" });
+      const id = z.uuid().parse(request.params.id);
+      const session = await deps.sessions.get(id);
+      if (!session)
+        throw new RequestProblem(
+          404,
+          "NOT_FOUND",
+          "Project not found. Check the link or start a new project.",
+        );
+      if (!deps.openai.mintRealtimeClientSecret)
+        throw new RequestProblem(
+          503,
+          "VOICE_UNAVAILABLE",
+          "Voice is unavailable. You can keep using text.",
+        );
+      reply.header("Cache-Control", "no-store");
+      try {
+        const secret = await deps.openai.mintRealtimeClientSecret(
+          createHash("sha256").update(session.orderId).digest("hex"),
+        );
+        return { value: secret.value, expiresAt: secret.expiresAt };
+      } catch (error) {
+        request.log.warn(
+          {
+            scope: "voice",
+            event: "realtime_session.failed",
+            reason: error instanceof Error ? error.name : "unknown",
+          },
+          "Realtime session minting failed",
+        );
+        throw new RequestProblem(
+          503,
+          "VOICE_UNAVAILABLE",
+          "Voice is unavailable. You can keep using text.",
+        );
       }
-      const safetyId = createHash("sha256")
-        .update(session.orderId)
-        .digest("hex");
-      const secret = await deps.openai.mintRealtimeClientSecret(safetyId);
-      return { value: secret.value };
     },
   );
 

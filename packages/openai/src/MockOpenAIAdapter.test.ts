@@ -236,4 +236,19 @@ describe("MockOpenAIAdapter", () => {
       }
     }
   });
+
+  it("mints mock realtime client secrets for voice", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const secret = await adapter.mintRealtimeClientSecret("test-project-id");
+    expect(secret.value).toBe("mock-secret-test-project-id");
+    expect(secret.expiresAt).toBeGreaterThan(Date.now() / 1000);
+    expect(secret.expiresAt).toBeLessThanOrEqual(Date.now() / 1000 + 120);
+  });
+
+  it("mints desktop-specific mock realtime secrets", async () => {
+    const adapter = new MockOpenAIAdapter();
+    const secret = await adapter.mintRealtimeClientSecret("desktop-project", "desktop");
+    expect(secret.value).toBe("mock-secret-desktop-project");
+    expect(secret.expiresAt).toBeGreaterThan(Date.now() / 1000);
+  });
 });

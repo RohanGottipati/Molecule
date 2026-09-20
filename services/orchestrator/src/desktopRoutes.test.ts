@@ -442,7 +442,7 @@ describe("desktop backend integration", () => {
             payload: { projectId: project.orderId },
           })
         ).statusCode,
-      ).toBe(503);
+      ).toBe(200);
       const replay = await store.append(
         makeEvent({
           traceId: project.traceId,

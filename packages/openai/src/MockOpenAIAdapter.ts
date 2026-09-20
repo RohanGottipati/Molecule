@@ -661,4 +661,14 @@ export class MockOpenAIAdapter implements OpenAIAdapter {
   ): Promise<ClaimExtractionResult> {
     return mockExtractClaims(input);
   }
+
+  async mintRealtimeClientSecret(
+    safetyIdentifier: string,
+    profile?: "desktop",
+  ): Promise<{ value: string; expiresAt?: number }> {
+    return {
+      value: `mock-secret-${safetyIdentifier}`,
+      expiresAt: Math.floor(Date.now() / 1000) + 120,
+    };
+  }
 }
