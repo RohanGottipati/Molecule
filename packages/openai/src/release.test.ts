@@ -851,19 +851,23 @@ describe("compiler and solver release acceptance", () => {
   it.each([
     "50 black hoodies with embroidered logo by end of month under CAD 3000.",
     "Use the attached context and keep all requirements unchanged. 50 black hoodies with embroidered logo by Friday under CAD 3000.",
-  ])("compiles ordinary brief wording without clarification: %s", async (text) => {
-    const result = await new MockOpenAIAdapter().compileIntent({
-      ...base,
-      text,
-    });
-    expect(result.status).toBe("READY");
-    if (result.status !== "READY") throw new Error(result.questions.join(" "));
-    expect(result.intent.quantity).toBe(50);
-    expect(result.intent.budgetMax).toBe(3000);
-    expect(result.intent.transformations).toEqual([
-      expect.objectContaining({ kind: "embroidery" }),
-    ]);
-  });
+  ])(
+    "compiles ordinary brief wording without clarification: %s",
+    async (text) => {
+      const result = await new MockOpenAIAdapter().compileIntent({
+        ...base,
+        text,
+      });
+      expect(result.status).toBe("READY");
+      if (result.status !== "READY")
+        throw new Error(result.questions.join(" "));
+      expect(result.intent.quantity).toBe(50);
+      expect(result.intent.budgetMax).toBe(3000);
+      expect(result.intent.transformations).toEqual([
+        expect.objectContaining({ kind: "embroidery" }),
+      ]);
+    },
+  );
 
   it("does not double-count a correction that repeats the full brief", async () => {
     const adapter = new MockOpenAIAdapter();

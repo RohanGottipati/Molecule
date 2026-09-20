@@ -108,7 +108,10 @@ export function humanize(value: string) {
 
 export function rangeLabel(min: number, max: number, unit: string) {
   const span = min === max ? String(min) : `${min}–${max}`;
-  const word = unit.replace(/[_.-]+/g, " ").toLowerCase().trim();
+  const word = unit
+    .replace(/[_.-]+/g, " ")
+    .toLowerCase()
+    .trim();
   const plural =
     max === 1 || !word || /s$/.test(word) || /\d/.test(word)
       ? word
