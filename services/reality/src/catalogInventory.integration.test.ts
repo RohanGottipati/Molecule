@@ -165,7 +165,7 @@ describe.skipIf(!database)(
         ),
       ).toBe(80);
     });
-    it("conflicts equal-time contradictory observations instead of selecting whichever arrived last", async () => {
+    it("keeps the last known-good availability and queues review when equal-time observations conflict", async () => {
       const observation = {
         shop,
         inventoryItemId: 2,
@@ -176,14 +176,23 @@ describe.skipIf(!database)(
       };
       await observeCatalogInventory(observation);
       await observeCatalogInventory({ ...observation, available: 10 });
+      const state = (
+        await getPool().query(
+          "select status,available from catalog_resource_state where resource_id=$1",
+          [`${id}:2`],
+        )
+      ).rows[0];
+      expect(state.status).toBe("conflicted");
+      expect(Number(state.available)).toBe(20);
       expect(
         (
           await getPool().query(
-            "select status from catalog_resource_state where resource_id=$1",
-            [`${id}:2`],
+            `select kind,status,detail->>'resourceId' as resource_id
+             from rox_review_queue where merchant_id=$1 and field=$2`,
+            [id, `resource.${id}:2.inventory`],
           )
-        ).rows[0].status,
-      ).toBe("conflicted");
+        ).rows,
+      ).toEqual([{ kind: "conflict", status: "open", resource_id: `${id}:2` }]);
     });
   },
 );

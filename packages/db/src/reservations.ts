@@ -1,5 +1,7 @@
 import { MerchantCapabilitySchema } from "@molecule/contracts";
+import { resolveMerchantFields } from "@molecule/resolution";
 
+import { listMerchantClaims } from "./claims.js";
 import { transaction } from "./client.js";
 import { effectId, persistEvent } from "./operations.js";
 
@@ -150,16 +152,17 @@ export async function reserveCapacity(
     if (merchant?.status !== "online")
       throw new ReservationError("UNAVAILABLE", "Merchant is not online");
     const capability = MerchantCapabilitySchema.parse(row.capability_json);
-    const facts = await client.query<{
-      field: string;
-      status: string;
-      value: unknown;
-    }>(
-      "select field,status,value from canonical_resolutions where merchant_id=$1",
-      [input.merchantId],
-    );
+    // Resolve the merchant's claims here rather than reading the
+    // `canonical_resolutions` snapshot. That snapshot is written by resolution
+    // passes, but seeded and directly-inserted claims never produce one, so
+    // reading it meant a merchant with a resolved inventory of 0 presented no
+    // limits at all and capacity that candidate search had already excluded was
+    // still reservable. Search resolves live; this must agree with it.
+    const facts = resolveMerchantFields(
+      await listMerchantClaims(input.merchantId, client),
+    ).map(({ fact }) => fact);
     let maximum = capability.capacity.available;
-    for (const fact of facts.rows) {
+    for (const fact of facts) {
       if (
         ![
           `${input.capabilityId}.capacity`,

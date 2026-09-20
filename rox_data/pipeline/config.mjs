@@ -82,15 +82,15 @@ export const FALLBACK_PRICES = {
 /** Evidence is mandatory: a candidate the model cannot cite is dropped. */
 export const REQUIRE_EVIDENCE = true;
 
-/** Resolution weights, mirrored from services/reality/src/resolution.ts. */
-export const RESOLUTION_WEIGHTS = {
-  authority: 0.35,
-  recency: 0.3,
-  confidence: 0.25,
-  corroboration: 0.1,
-};
-export const CONFLICT_MARGIN = 0.08;
-export const RECENCY_HALF_LIFE_DAYS = 7;
+/**
+ * Resolution constants come from the shared resolver, not a local copy, so the
+ * pipeline and the Reality service cannot disagree about what is true.
+ */
+export {
+  CONFLICT_MARGIN_THRESHOLD as CONFLICT_MARGIN,
+  RECENCY_HALF_LIFE_DAYS,
+  RESOLUTION_WEIGHTS,
+} from "@molecule/resolution";
 
 /** Entity resolution bands: above `link` we merge, below `review` we reject. */
 export const ENTITY_THRESHOLDS = { link: 0.9, review: 0.55 };

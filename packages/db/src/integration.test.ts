@@ -161,20 +161,41 @@ describe.skipIf(!database)("real PostgreSQL operational store", () => {
     await expect(
       reserveCapacity({ ...input(), traceId: " " }),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
-    await getPool()
-      .query(`insert into canonical_resolutions(merchant_id,field,status,explanation,scores)
-      values('thread-forge','cap-thread-embroidery.capacity_per_day','unknown','Unverified daily capacity','{}')`);
-    await expect(reserveCapacity(input())).rejects.toMatchObject({
-      code: "UNAVAILABLE",
-    });
-    await getPool()
-      .query(`update canonical_resolutions set status='resolved',value='50'
-      where merchant_id='thread-forge' and field='cap-thread-embroidery.capacity_per_day'`);
-    expect(await reserveCapacity(input())).toEqual({
-      ok: false,
-      reason: "insufficient_capacity",
-      available: 50,
-    });
+    // The guard resolves `canonical_claims` rather than reading the
+    // `canonical_resolutions` snapshot, so the fact is driven by a claim here.
+    // A snapshot-only fixture used to pass while a merchant whose claims said 0
+    // was still reservable.
+    const claim = `test:cap-thread-embroidery:daily:${randomUUID()}`;
+    const insert = (value: string) =>
+      getPool().query(
+        `insert into canonical_claims(claim_id,merchant_id,field,normalized_value,normalized_unit,
+          source_kind,source_reference,observed_at,ingested_at,source_authority,extraction_confidence,
+          resolution_status,evidence_text)
+        values($1,'thread-forge','cap-thread-embroidery.capacity_per_day',$2::jsonb,'units','note',
+          $1,now(),now(),0.99,1,'active','Scoped daily capacity under test')`,
+        [claim, value],
+      );
+    try {
+      // jsonb null, not SQL NULL: the column is NOT NULL, and a JSON null is
+      // how the schema represents "a source spoke but said nothing usable".
+      await insert("null");
+      await expect(reserveCapacity(input())).rejects.toMatchObject({
+        code: "UNAVAILABLE",
+      });
+      await getPool().query(
+        "update canonical_claims set normalized_value='50'::jsonb where claim_id=$1",
+        [claim],
+      );
+      expect(await reserveCapacity(input())).toEqual({
+        ok: false,
+        reason: "insufficient_capacity",
+        available: 50,
+      });
+    } finally {
+      await getPool().query("delete from canonical_claims where claim_id=$1", [
+        claim,
+      ]);
+    }
   });
 
   it("releases and expires holds without reviving inactive retries", async () => {

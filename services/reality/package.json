@@ -21,6 +21,7 @@
     "@molecule/contracts": "workspace:*",
     "@molecule/db": "workspace:*",
     "@molecule/events": "workspace:*",
+    "@molecule/resolution": "workspace:*",
     "fastify": "5.12.5"
   },
   "devDependencies": {

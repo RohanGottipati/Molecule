@@ -27,6 +27,11 @@ export {
   resolveConflict,
 } from "./claims.js";
 export {
+  resolveMerchant,
+  resolveAllMerchants,
+  type ResolvedFact,
+} from "./resolution.js";
+export {
   reserveCapacity,
   releaseReservation,
   expireReservations,

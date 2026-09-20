@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { transaction, type DbClient } from "./client.js";
+import { resolveAllMerchants } from "./resolution.js";
 
 export function sqlDirectory(): string {
   let directory = dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,11 @@ export async function seedDemo(client?: DbClient): Promise<void> {
   const seed = async (connection: DbClient) => {
     await connection.query("select pg_advisory_xact_lock(73481202)");
     await connection.query(sql);
+    // The seed inserts contradictory claims on purpose (100/day, 50/day and a
+    // fresh 20/day outage note). Resolve them here so the demo database is left
+    // in an adjudicated state: without this, losing claims stay 'active' and
+    // nothing has written `canonical_resolutions`.
+    await resolveAllMerchants("seed-demo", connection);
   };
   if (client) await seed(client);
   else await transaction(seed);

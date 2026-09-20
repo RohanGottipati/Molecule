@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { CanonicalClaimSchema, type CanonicalClaim } from "@molecule/contracts";
+import { stableJson } from "@molecule/resolution";
+
+export { stableJson };
 
 export interface RawClaimInput {
   merchantId: string;
@@ -164,16 +167,4 @@ export function toCanonicalClaim(
     return { ok: false, reason: "Invalid claim metadata" };
   }
   return { ok: true, claim: parsed.data };
-}
-
-export function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
 }
