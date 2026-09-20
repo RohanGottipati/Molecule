@@ -407,7 +407,10 @@ async function submitUci(handles) {
     )
   ).rows[0].n;
   if (Number(open) > 0)
-    return log("uci", `${open} bulk operation(s) still open: run --collect first`);
+    return log(
+      "uci",
+      `${open} bulk operation(s) still open: run --collect first`,
+    );
 
   const { rows } = await db.query(
     `select * from bulk_products
@@ -499,7 +502,11 @@ try {
   else
     await Promise.all(
       stores.map((h) =>
-        args.collect ? collectBulk(h) : args.bulk ? submitBulk(h) : fillStore(h),
+        args.collect
+          ? collectBulk(h)
+          : args.bulk
+            ? submitBulk(h)
+            : fillStore(h),
       ),
     );
 } finally {

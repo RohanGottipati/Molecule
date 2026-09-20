@@ -323,18 +323,15 @@ export function StoreConsole() {
     return () => controller.abort();
   }, []);
 
-  const load = useCallback(
-    (domain: string, next: Tab, signal: AbortSignal) => {
-      const readers = {
-        catalog: getStoreCatalog,
-        orders: getStoreOrders,
-        customers: getStoreCustomers,
-        analytics: getStoreAnalytics,
-      } as const;
-      return readers[next](domain, signal);
-    },
-    [],
-  );
+  const load = useCallback((domain: string, next: Tab, signal: AbortSignal) => {
+    const readers = {
+      catalog: getStoreCatalog,
+      orders: getStoreOrders,
+      customers: getStoreCustomers,
+      analytics: getStoreAnalytics,
+    } as const;
+    return readers[next](domain, signal);
+  }, []);
 
   useEffect(() => {
     if (!selected) return;

@@ -256,7 +256,9 @@ export async function buildServer(deps: ServerDependencies) {
         },
         "Marketplace snapshot failed",
       );
-      return reply.code(503).send({ message: "Marketplace temporarily unavailable" });
+      return reply
+        .code(503)
+        .send({ message: "Marketplace temporarily unavailable" });
     }
   });
 
@@ -295,7 +297,10 @@ export async function buildServer(deps: ServerDependencies) {
     "/api/stores/:domain/catalog",
     async (request, reply) =>
       withStore(reply, request.params.domain, (console) =>
-        console.catalog(request.params.domain, storeLimit(request.query.limit, 100)),
+        console.catalog(
+          request.params.domain,
+          storeLimit(request.query.limit, 100),
+        ),
       ),
   );
 
@@ -303,7 +308,10 @@ export async function buildServer(deps: ServerDependencies) {
     "/api/stores/:domain/orders",
     async (request, reply) =>
       withStore(reply, request.params.domain, (console) =>
-        console.orders(request.params.domain, storeLimit(request.query.limit, 50)),
+        console.orders(
+          request.params.domain,
+          storeLimit(request.query.limit, 50),
+        ),
       ),
   );
 
@@ -311,7 +319,10 @@ export async function buildServer(deps: ServerDependencies) {
     "/api/stores/:domain/customers",
     async (request, reply) =>
       withStore(reply, request.params.domain, (console) =>
-        console.customers(request.params.domain, storeLimit(request.query.limit, 50)),
+        console.customers(
+          request.params.domain,
+          storeLimit(request.query.limit, 50),
+        ),
       ),
   );
 
