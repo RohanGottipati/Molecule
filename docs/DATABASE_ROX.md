@@ -1,5 +1,9 @@
 # Database and ROX: current assessment and next steps
 
+> Order 1 audit and scorer repair are now documented in [DATABASE_ORDER1.md](DATABASE_ORDER1.md).
+> That report supersedes the historical health, migration uncertainty and scoring behavior below;
+> the old numerical scorecard is retained as historical evidence.
+
 Updated 2026-09-19 America/Toronto (2026-09-20 UTC). Start here for database,
 Reality, bulk data and ROX status. This is the current assessment; older release
 reports remain historical evidence, not current completion checklists.

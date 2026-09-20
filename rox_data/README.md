@@ -59,11 +59,11 @@ node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --budget=12
 node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --stages=extract,link --limit=50
 
 # 4. Score it against the truth
-node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId>
+node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId> --output=<new-report.json>
 
 # 5. Score the regex control group on the same corpus
 node --env-file=../.env --env-file=../.env.local pipeline/run.mjs --stages=baseline,link,normalize,resolve
-node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId> --variant=regex_baseline
+node --env-file=../.env --env-file=../.env.local pipeline/score.mjs --run=<runId> --output=<new-report.json>
 
 # Start over
 node --env-file=../.env --env-file=../.env.local pipeline/reset-batch.mjs --batch=rox-full-s42
@@ -101,3 +101,13 @@ document _said_, and after reconciliation is the value _true_.
 The corpus is emulated but the mess is not decorative - see `corpus/chaos.mjs`
 for the seventeen dimensions and `manifest.json` for their coverage in a batch.
 The Open Food Facts and UCI Online Retail II rows already in Tiger are real.
+
+## Evaluation v2
+
+See [Order 1 audit and repair](../docs/DATABASE_ORDER1.md). Scores now write an
+immutable local JSON snapshot/report, not mutable `rox_scorecard` rows. Historical
+runs without a selected-input manifest require explicit `--legacy-batch`; their
+results are full-batch diagnostics. Replay with `--snapshot=<report>` needs no
+network. Source text is included in the private report; do not commit real inputs.
+
+Run regression and mocked pipeline checks with `node --test tests/*.test.mjs`.

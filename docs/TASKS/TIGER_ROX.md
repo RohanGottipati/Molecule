@@ -19,8 +19,9 @@ Extend canonical contracts as required, create core migrations, seed merchants/c
 
 The foundation exists. Follow [DATABASE_ROX.md](../DATABASE_ROX.md) in order:
 
-- [ ] Audit source/synthetic provenance, accidental duplicates and database health.
-- [ ] Repair scoring population, matching, units and run isolation; persist versioned evidence.
+- [x] Audit source/synthetic provenance, duplicate signatures and database health; see [Order 1](../DATABASE_ORDER1.md). Unlabelled provenance and candidate duplicates remain review items.
+- [x] Repair scoring population, matching and units; persist frozen, versioned local evidence. Unsupported historical resolution scoring is disabled.
+- [ ] Add run-specific resolution snapshots before certifying resolution/outlier accuracy.
 - [ ] Establish a human-labelled real-document holdout for one operational scenario.
 - [ ] Improve supplier attribution and normalization against that benchmark.
 - [ ] Integrate shared contracts/resolver and complete approved, idempotent actions.
