@@ -17,7 +17,6 @@ import {
   ProjectCapabilitiesEnvelopeSchema,
   ProjectListQuerySchema,
   ProjectListSchema,
-  RealtimeSessionSchema,
   StoreAnalyticsSchema,
   StoreCatalogSchema,
   StoreCustomersSchema,
@@ -131,25 +130,6 @@ export async function getOrder(orderId: string, signal?: AbortSignal) {
   return parseSnapshot(
     await request(`/api/orders/${encodeURIComponent(orderId)}`, { signal }),
   );
-}
-
-export async function mintRealtimeSecret(
-  orderId: string,
-  signal?: AbortSignal,
-) {
-  const result = RealtimeSessionSchema.safeParse(
-    await request(
-      `/api/orders/${encodeURIComponent(orderId)}/realtime/client-secret`,
-      { method: "POST", body: "{}", signal },
-    ),
-  );
-  if (!result.success)
-    throw new RequestError(
-      "The service returned an incompatible voice session. Refresh and try again.",
-      502,
-      "INVALID_RESPONSE",
-    );
-  return { value: result.data.value };
 }
 
 function parseRead<T>(

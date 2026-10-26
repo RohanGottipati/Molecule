@@ -17,7 +17,6 @@ import {
   getMerchantRisks,
   getPool,
   listClaimsForMerchants,
-  listMerchantClaims,
   persistEvent,
   readTransaction,
   resetDemoData,
