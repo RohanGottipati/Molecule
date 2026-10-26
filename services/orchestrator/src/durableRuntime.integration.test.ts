@@ -27,6 +27,10 @@ import { ActionLedger } from "./ActionLedger.js";
 
 const database = process.env.ORCHESTRATOR_TEST_DATABASE_URL;
 const schema = `orchestrator_test_${randomUUID().replaceAll("-", "")}`;
+const deadline = new Date(Date.now() + 60 * 86_400_000)
+  .toISOString()
+  .slice(0, 10);
+const hoodieBrief = `Make 20 hoodies by ${deadline} CAD`;
 
 describe.skipIf(!database)("durable runtime acceptance", () => {
   let app: FastifyInstance;
@@ -141,7 +145,7 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     );
     const planned = OrderSessionSnapshotSchema.parse(
       await post(`/api/orders/${initial.orderId}/messages`, {
-        text: "Make 20 hoodies by 2026-10-01 CAD",
+        text: hoodieBrief,
       }),
     );
     const asset = { assetId: randomUUID(), checksum: "a".repeat(64) };
@@ -286,7 +290,7 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     const initial = OrderSessionSnapshotSchema.parse(
       await post("/api/orders", {}),
     );
-    const text = "  Make 20 hoodies by 2026-10-01 CAD\n";
+    const text = `  ${hoodieBrief}\n`;
     await post(
       `/api/orders/${initial.orderId}/messages`,
       { text },
@@ -322,7 +326,7 @@ describe.skipIf(!database)("durable runtime acceptance", () => {
     );
     const planned = OrderSessionSnapshotSchema.parse(
       await post(`/api/orders/${initial.orderId}/messages`, {
-        text: "Make 20 hoodies by 2026-10-01 CAD",
+        text: hoodieBrief,
       }),
     );
     expect(planned.activePlan?.status).toBe("VALID");
