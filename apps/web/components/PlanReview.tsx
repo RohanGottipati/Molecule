@@ -17,12 +17,10 @@ function PlanActionsPanel({
   workspace,
   onCompose,
   onSuggest,
-  onMerchant,
 }: {
   workspace: Workspace;
   onCompose: () => void;
   onSuggest: (value: string) => void;
-  onMerchant: (id: string) => void;
 }) {
   const { order, marketplace, previousPlan, events } = workspace;
   const plan = order?.activePlan ?? null;
@@ -366,7 +364,6 @@ export function PlanReview({
               workspace={workspace}
               onCompose={onCompose}
               onSuggest={onSuggest}
-              onMerchant={onMerchant}
             />
           </GraphDetailPanel>
         </div>

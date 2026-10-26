@@ -15,9 +15,6 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@molecule/contracts": "workspace:*"
-  },
   "devDependencies": {
     "vitest": "5.0.1"
   }

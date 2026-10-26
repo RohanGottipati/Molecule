@@ -44,10 +44,11 @@ document is blocked, and the defense rate is a scored metric.
 
 ## Install
 
-This package sits outside the pnpm workspace and installs standalone:
+This package is the `@molecule/rox-data` member of the pnpm workspace (it
+imports `@molecule/resolution`), so the root install covers it:
 
 ```bash
-cd rox_data && npm install
+pnpm install   # from the repository root
 ```
 
 Credentials come from the repo root: `../.env` (OpenAI, Shopify) and

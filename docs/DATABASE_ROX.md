@@ -153,8 +153,8 @@ another workstream's session or rerun old maintenance SQL without diagnosis.
 
 Do not expand replay volume, store count or vision scope before these gates.
 Retain synthetic stress tests separately from real-data evaluation. Do not invent
-operational facts to fill a broader catalog. `rox_data` currently duplicates
-resolution logic outside the pnpm workspace; shared contracts/adapters and
+operational facts to fill a broader catalog. `rox_data` is a pnpm workspace
+package that imports `@molecule/resolution`; shared contracts/adapters and
 integration tests are a remaining integration task.
 
 ## ROX and Tiger positioning

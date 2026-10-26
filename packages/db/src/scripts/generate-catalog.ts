@@ -608,10 +608,6 @@ function rand(min: number, max: number): number {
 function randInt(min: number, max: number): number {
   return Math.floor(rand(min, max + 1));
 }
-function pick<T>(arr: T[], n: number): T[] {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, Math.min(n, arr.length));
-}
 
 // Unit price ranges (CAD) per material category, grounded in real wholesale
 // blank/component pricing researched from actual supplier listings (not

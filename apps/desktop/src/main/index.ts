@@ -11,7 +11,7 @@ import {
   systemPreferences,
   Tray,
 } from "electron";
-import { join, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import {

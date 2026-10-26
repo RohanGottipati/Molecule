@@ -123,9 +123,8 @@ DEMO_MODE=true
 STORAGE_MODE=postgres          # DATABASE_URL -> Tiger Cloud or timescale/timescaledb:2.22.0-pg16
 USE_MOCK_OPENAI=true           # or false + OPENAI_API_KEY for live compiler/voice
 BACKBOARD_MODE=demo            # or live + BACKBOARD_API_KEY
-SHOPIFY_MODE=demo              # or real + store credentials, REAL_EXECUTION_ENABLED=true
+SHOPIFY_MODE=demo              # or live + store credentials, REAL_EXECUTION_ENABLED=true
 REAL_EXECUTION_ENABLED=false
-DEMO_DEFAULT_CURRENCY=CAD
 
 docker compose up -d --wait && pnpm db:migrate && pnpm db:seed
 STORAGE_MODE=postgres pnpm dev   # web :3000, orchestrator :3001, solver :8000
